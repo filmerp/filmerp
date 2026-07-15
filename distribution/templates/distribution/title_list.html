@@ -1,0 +1,89 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tytuły 360 | FILMERP</title>
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+</head>
+<body>
+<header class="app-header">
+  <div class="app-brand">
+    <img src="{% static 'distribution/filmerplogo-header.png' %}" alt="FILMERP" class="brand-logo">
+    <span class="brand-title">tytuły 360</span>
+  </div>
+  <nav class="app-nav">
+    <a href="{% url 'distribution:dashboard' %}">Dashboard</a>
+    <a href="{% url 'distribution:avails' %}">Avails</a>
+    <a href="{% url 'distribution:reports' %}">Raporty</a>
+    <a href="{% url 'distribution:statement_center' %}">Statement Center</a>
+    <a href="/admin/">Panel główny</a>
+  </nav>
+</header>
+<main>
+  <div class="page-heading">
+    <div>
+      <h1>Tytuły 360</h1>
+      <div class="muted">jedna lista wejścia do praw, finansów, kin, materiałów i rozliczeń</div>
+    </div>
+    <div class="action-bar">
+      <a class="button" href="/admin/distribution/title/add/">Dodaj tytuł</a>
+    </div>
+  </div>
+
+  <section class="toolbar">
+    <form class="inline-form" method="get">
+      <label>Szukaj
+        <input type="search" name="q" value="{{ query }}" placeholder="tytuł, EAN, reżyser, obsada">
+      </label>
+      <button type="submit">Szukaj</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <div class="section-header">
+      <h2>Katalog</h2>
+      <span class="muted">maksymalnie 200 wyników</span>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Tytuł</th>
+            <th>Rok</th>
+            <th>Status</th>
+            <th>Premiera PL</th>
+            <th>MG</th>
+            <th>Netto</th>
+            <th>Koszty</th>
+            <th>Wynik</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for title in titles %}
+          <tr>
+            <td>
+              <a href="{% url 'distribution:title_detail' title.pk %}"><strong>{{ title.title_pl }}</strong></a>
+              {% if title.original_title %}<div class="muted">{{ title.original_title }}</div>{% endif %}
+            </td>
+            <td>{{ title.production_year|default:"" }}</td>
+            <td><span class="status-pill">{{ title.get_status_display }}</span></td>
+            <td>{{ title.polish_premiere_date|default:"" }}</td>
+            <td class="num">{{ title.mg_advance }} {{ title.acquisition_currency }}</td>
+            <td class="num">{{ title.net_revenue_total }}</td>
+            <td class="num">{{ title.recoupable_costs_total }}</td>
+            <td class="num">{{ title.result_before_royalties }}</td>
+            <td><a class="button export" href="{% url 'distribution:title_detail' title.pk %}">Otwórz</a></td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="9" class="muted">Brak tytułów dla tego wyszukiwania.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+</body>
+</html>

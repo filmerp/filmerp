@@ -1,0 +1,12 @@
+.env
+.env.production
+db.sqlite3
+media/
+staticfiles/
+__pycache__/
+*.pyc
+*.pyo
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

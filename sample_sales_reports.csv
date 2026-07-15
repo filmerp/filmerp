@@ -1,0 +1,3 @@
+title,counterparty,exploitation_field,territory,period_start,period_end,currency,gross_revenue,deductions,vat_withholding,source_reference
+Przykładowy Film,Example VOD Platform,svod,Polska,2026-01-01,2026-03-31,PLN,30000,0,0,DEMO-SVOD-Q1
+Przykładowy Film,Example Cinema Chain,kino,Polska,2026-01-01,2026-01-31,PLN,125000,62500,0,DEMO-CINEMA-JAN

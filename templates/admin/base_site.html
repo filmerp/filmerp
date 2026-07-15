@@ -1,0 +1,126 @@
+{% extends "admin/base.html" %}
+{% load i18n static %}
+
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:"FILMERP Panel Główny" }}{% endblock %}
+
+{% block branding %}
+<div id="site-name">
+  <a href="{% url 'admin:index' %}" class="filmerp-admin-logo-link">
+    <img src="{% static 'distribution/filmerplogo-header.png' %}" alt="FILMERP" class="filmerp-admin-logo">
+  </a>
+</div>
+{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  :root {
+    --primary: #fbb70f;
+    --secondary: #d99a00;
+    --accent: #3b4148;
+    --primary-fg: #111827;
+    --header-color: #111827;
+    --header-branding-color: #111827;
+    --header-bg: #fbb70f;
+    --header-link-color: #111827;
+    --breadcrumbs-bg: #d99a00;
+    --link-fg: #2f343a;
+    --link-hover-color: #111827;
+    --button-bg: #fbb70f;
+    --button-hover-bg: #d99a00;
+    --default-button-bg: #3b4148;
+    --default-button-hover-bg: #374151;
+  }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Roboto", "Helvetica Neue", Arial, sans-serif;
+  }
+  #header {
+    background: #fbb70f;
+    color: #111827;
+  }
+  div.breadcrumbs {
+    background: #d99a00;
+    color: #111827;
+  }
+  div.breadcrumbs a {
+    color: #111827;
+  }
+  .module h2,
+  .module caption,
+  .inline-group h2 {
+    background: #fbb70f;
+    color: #111827;
+  }
+  #nav-sidebar .current-model {
+    background: #eef0f2;
+  }
+  #content-main .app- table td .changelink,
+  #content-main .app- table td .viewlink,
+  #content-main table td .changelink,
+  #content-main table td .viewlink {
+    display: none !important;
+  }
+  .filmerp-admin-logo {
+    display: block;
+    width: auto;
+    height: 53px;
+    object-fit: contain;
+    background: #fff;
+  }
+  .filmerp-admin-logo-link {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 6px;
+    background: #fff;
+  }
+  .theme-toggle {
+    background: #fbb70f !important;
+    color: #111827 !important;
+    border-color: #d99a00 !important;
+  }
+  .theme-toggle:hover,
+  .theme-toggle:focus {
+    background: #d99a00 !important;
+  }
+  .theme-toggle svg {
+    fill: currentColor !important;
+    stroke: none !important;
+  }
+  body.login .theme-toggle {
+    display: none !important;
+  }
+  body.login .submit-row input[type="submit"],
+  body.login input[type="submit"] {
+    background: #fbb70f !important;
+    color: #111827 !important;
+    border-color: #d99a00 !important;
+  }
+  body.login .submit-row input[type="submit"]:hover,
+  body.login input[type="submit"]:hover {
+    background: #d99a00 !important;
+    color: #111827 !important;
+  }
+</style>
+{% endblock %}
+
+{% block userlinks %}
+  {% if site_url %}
+    <a href="{{ site_url }}">DASHBOARD</a> /
+  {% endif %}
+  {% if user.is_active and user.is_staff %}
+    {% url 'django-admindocs-docroot' as docsroot %}
+    {% if docsroot %}
+      <a href="{{ docsroot }}">{% translate 'Documentation' %}</a> /
+    {% endif %}
+  {% endif %}
+  {% if user.has_usable_password %}
+    <a href="{% url 'admin:password_change' %}">{% translate 'Change password' %}</a> /
+  {% endif %}
+  <form id="logout-form" method="post" action="{% url 'admin:logout' %}">
+    {% csrf_token %}
+    <button type="submit">{% translate 'Log out' %}</button>
+  </form>
+  {% include "admin/color_theme_toggle.html" %}
+{% endblock %}
+
+{% block nav-global %}{% endblock %}

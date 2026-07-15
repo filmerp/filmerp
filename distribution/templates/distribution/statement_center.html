@@ -1,0 +1,150 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Statement Center | FILMERP</title>
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+</head>
+<body>
+<header class="app-header">
+  <div class="app-brand">
+    <img src="{% static 'distribution/filmerplogo-header.png' %}" alt="FILMERP" class="brand-logo">
+    <span class="brand-title">statement center</span>
+  </div>
+  <nav class="app-nav">
+    <a href="{% url 'distribution:dashboard' %}">Dashboard</a>
+    <a href="{% url 'distribution:title_list' %}">Tytuły 360</a>
+    <a href="{% url 'distribution:avails' %}">Avails</a>
+    <a href="{% url 'distribution:reports' %}">Raporty</a>
+    <a href="/admin/">Panel główny</a>
+  </nav>
+</header>
+<main>
+  <div class="page-heading">
+    <div>
+      <h1>Statement Center</h1>
+      <div class="muted">centrum pracy nad royalty statements: PDF, statusy, płatności i eksport</div>
+    </div>
+    <div class="action-bar">
+      <a class="button" href="/admin/distribution/royaltystatement/add/">Dodaj statement</a>
+      <a class="button export" href="?status={{ filters.status }}&title={{ filters.title_id }}&recipient={{ filters.recipient_id }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}&export=xlsx">Eksport XLSX</a>
+    </div>
+  </div>
+
+  {% if messages %}
+  <section class="messages">
+    {% for message in messages %}
+    <div class="notice {{ message.tags }}">{{ message }}</div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  <section class="grid compact">
+    <div class="card"><div class="label">Statements</div><div class="metric small">{{ statement_count }}</div></div>
+    <div class="card"><div class="label">Do wypłaty</div><div class="metric small">{{ amount_due_total }}</div></div>
+    <div class="card"><div class="label">Otwarte</div><div class="metric small {% if open_amount_total %}negative{% endif %}">{{ open_amount_total }}</div></div>
+    {% for row in status_count_rows %}
+    <div class="card"><div class="label">{{ row.label }}</div><div class="metric small">{{ row.count }}</div></div>
+    {% endfor %}
+  </section>
+
+  <section class="toolbar">
+    <form method="get">
+      <label>Status
+        <select name="status">
+          <option value="">Wszystkie</option>
+          {% for value,label in statement_statuses %}
+          <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Tytuł
+        <select name="title">
+          <option value="">Wszystkie</option>
+          {% for title in titles %}
+          <option value="{{ title.id }}" {% if filters.title_id == title.id|stringformat:"s" %}selected{% endif %}>{{ title.title_pl }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Odbiorca
+        <select name="recipient">
+          <option value="">Wszyscy</option>
+          {% for recipient in recipients %}
+          <option value="{{ recipient.id }}" {% if filters.recipient_id == recipient.id|stringformat:"s" %}selected{% endif %}>{{ recipient.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Od
+        <input type="date" name="date_from" value="{{ filters.date_from }}">
+      </label>
+      <label>Do
+        <input type="date" name="date_to" value="{{ filters.date_to }}">
+      </label>
+      <button type="submit">Pokaż</button>
+    </form>
+  </section>
+
+  <form method="post">
+    {% csrf_token %}
+    <section class="card">
+      <div class="section-header">
+        <h2>Royalty statements</h2>
+        <div class="row-actions">
+          <button class="button export" type="submit" name="action" value="generate_pdf">Generuj PDF</button>
+          <button class="button export" type="submit" name="action" value="mark_sent">Oznacz wysłane</button>
+          <button class="button export" type="submit" name="action" value="mark_approved">Oznacz zaakceptowane</button>
+          <button class="button export" type="submit" name="action" value="mark_paid">Oznacz opłacone</button>
+          <button class="button export" type="submit" name="action" value="mark_disputed">Oznacz sporne</button>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th>Tytuł</th>
+              <th>Odbiorca</th>
+              <th>Okres</th>
+              <th class="num">Gross</th>
+              <th class="num">Net</th>
+              <th class="num">Koszty</th>
+              <th class="num">Do wypłaty</th>
+              <th>Status</th>
+              <th>PDF</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for statement in statements %}
+            <tr>
+              <td><input type="checkbox" name="statement_ids" value="{{ statement.id }}"></td>
+              <td>{{ statement.title.title_pl }}</td>
+              <td>{{ statement.recipient.name }}</td>
+              <td>{{ statement.period_start }} - {{ statement.period_end }}</td>
+              <td class="num">{{ statement.gross_revenue }} {{ statement.currency }}</td>
+              <td class="num">{{ statement.net_revenue }} {{ statement.currency }}</td>
+              <td class="num">{{ statement.recoupable_costs }} {{ statement.currency }}</td>
+              <td class="num">{{ statement.amount_due }} {{ statement.currency }}</td>
+              <td><span class="status-pill {{ statement.status }}">{{ statement.get_status_display }}</span></td>
+              <td>
+                {% if statement.statement_file %}
+                <a href="{{ statement.statement_file.url }}">pobierz</a>
+                {% else %}
+                <span class="muted">brak</span>
+                {% endif %}
+              </td>
+              <td><a class="button export" href="/admin/distribution/royaltystatement/{{ statement.id }}/change/">Edytuj</a></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="11" class="muted">Brak statementów dla wybranych filtrów.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </form>
+</main>
+</body>
+</html>

@@ -1,0 +1,200 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Raporty | FILMERP</title>
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+</head>
+<body>
+<header class="app-header">
+  <div class="app-brand">
+    <img src="{% static 'distribution/filmerplogo-header.png' %}" alt="FILMERP" class="brand-logo">
+    <span class="brand-title">raporty: sprzedaż, koszty, ryzyka i płatności</span>
+  </div>
+  <nav class="app-nav">
+    <a href="/">Dashboard</a>
+    <a href="{% url 'distribution:title_list' %}">Tytuły 360</a>
+    <a href="{% url 'distribution:avails' %}">Avails</a>
+    <a href="{% url 'distribution:statement_center' %}">Statement Center</a>
+    <a href="/admin/">Panel główny</a>
+  </nav>
+</header>
+<main>
+  <section class="toolbar">
+    <form method="get">
+      <label>Od
+        <input type="date" name="date_from" value="{{ filters.date_from }}">
+      </label>
+      <label>Do
+        <input type="date" name="date_to" value="{{ filters.date_to }}">
+      </label>
+      <label>Tytul
+        <select name="title">
+          <option value="">Wszystkie</option>
+          {% for title in titles %}
+          <option value="{{ title.id }}" {% if filters.title_id == title.id|stringformat:"s" %}selected{% endif %}>{{ title.title_pl }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Kontrahent
+        <select name="counterparty">
+          <option value="">Wszyscy</option>
+          {% for counterparty in counterparties %}
+          <option value="{{ counterparty.id }}" {% if filters.counterparty_id == counterparty.id|stringformat:"s" %}selected{% endif %}>{{ counterparty.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">Pokaz raport</button>
+      <a class="button export" href="/reports/export/?date_from={{ filters.date_from }}&date_to={{ filters.date_to }}&title={{ filters.title_id }}&counterparty={{ filters.counterparty_id }}">Eksport CSV</a>
+      <a class="button export" href="/reports/export/?format=xlsx&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}&title={{ filters.title_id }}&counterparty={{ filters.counterparty_id }}">Eksport XLSX</a>
+    </form>
+  </section>
+
+  <section class="grid">
+    <div class="card"><div class="label">Przychod brutto</div><div class="metric">{{ gross_revenue }}</div></div>
+    <div class="card"><div class="label">Potracenia</div><div class="metric">{{ deductions }}</div></div>
+    <div class="card"><div class="label">VAT / withholding</div><div class="metric">{{ vat_withholding }}</div></div>
+    <div class="card"><div class="label">Przychod netto</div><div class="metric positive">{{ net_revenue }}</div></div>
+    <div class="card"><div class="label">Koszty netto</div><div class="metric">{{ cost_total }}</div></div>
+    <div class="card"><div class="label">Marza po kosztach</div><div class="metric {% if margin < 0 %}negative{% else %}positive{% endif %}">{{ margin }}</div></div>
+  </section>
+
+  <section class="two">
+    <div class="card">
+      <h2>Waterfall / recoupment</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Tytul</th>
+            <th>Pole</th>
+            <th class="num">Netto</th>
+            <th class="num">Koszty recoup.</th>
+            <th class="num">Pozycje recoup.</th>
+            <th class="num">Pula recoup.</th>
+            <th class="num">Odzyskane</th>
+            <th class="num">Do odzyskania</th>
+            <th class="num">Fee</th>
+            <th class="num">Dla partnera</th>
+            <th>Uczestnicy</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in waterfall_rows %}
+          <tr>
+            <td>{{ row.rule.title }}</td>
+            <td>{{ row.rule.get_exploitation_field_display }}</td>
+            <td class="num">{{ row.net_revenue }} {{ row.rule.currency }}</td>
+            <td class="num">{{ row.recoupable_costs }}</td>
+            <td class="num">{{ row.manual_recoupment_items }}</td>
+            <td class="num">{{ row.recoupment_pool }}</td>
+            <td class="num">{{ row.recouped_amount }}</td>
+            <td class="num">{{ row.unrecouped_balance }}</td>
+            <td class="num">{{ row.distributor_fee }}</td>
+            <td class="num">{{ row.participant_share }}</td>
+            <td>
+              {% for allocation in row.participant_allocations %}
+              <div>{{ allocation.recipient }}: {{ allocation.amount }}{% if allocation.cap_applied %} <span class="muted">(cap/skalowanie)</span>{% endif %}</div>
+              {% empty %}
+              <span class="muted">brak</span>
+              {% endfor %}
+            </td>
+          </tr>
+          {% empty %}<tr><td colspan="11" class="muted">Brak aktywnych regul waterfall/recoupment.</td></tr>{% endfor %}
+        </tbody>
+        {% if waterfall_rows %}
+        <tfoot>
+          <tr>
+            <th colspan="2">Razem</th>
+            <th class="num">{{ waterfall_totals.net_revenue }}</th>
+            <th class="num">{{ waterfall_totals.recoupable_costs }}</th>
+            <th class="num">{{ waterfall_totals.manual_recoupment_items }}</th>
+            <th class="num">{{ waterfall_totals.recoupment_pool }}</th>
+            <th class="num">{{ waterfall_totals.recouped_amount }}</th>
+            <th class="num">{{ waterfall_totals.unrecouped_balance }}</th>
+            <th class="num">{{ waterfall_totals.distributor_fee }}</th>
+            <th class="num">{{ waterfall_totals.participant_share }}</th>
+            <th></th>
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+      <p><a class="button secondary" href="/reports/export/?section=waterfall&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}&title={{ filters.title_id }}&counterparty={{ filters.counterparty_id }}">Eksport waterfall CSV</a></p>
+    </div>
+
+    <div class="card">
+      <h2>Przychody per tytul</h2>
+      <table>
+        <thead><tr><th>Tytul</th><th class="num">Brutto</th><th class="num">Netto</th><th class="num">Raporty</th></tr></thead>
+        <tbody>
+          {% for row in revenue_by_title %}
+          <tr><td>{{ row.title__title_pl }}</td><td class="num">{{ row.gross }}</td><td class="num">{{ row.net }}</td><td class="num">{{ row.reports }}</td></tr>
+          {% empty %}<tr><td colspan="4" class="muted">Brak danych dla wybranych filtrow.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Przychody per pole eksploatacji</h2>
+      <table>
+        <thead><tr><th>Pole</th><th class="num">Brutto</th><th class="num">Netto</th><th class="num">Raporty</th></tr></thead>
+        <tbody>
+          {% for row in revenue_by_field %}
+          <tr><td>{{ row.exploitation_field }}</td><td class="num">{{ row.gross }}</td><td class="num">{{ row.net }}</td><td class="num">{{ row.reports }}</td></tr>
+          {% empty %}<tr><td colspan="4" class="muted">Brak danych dla wybranych filtrow.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Przychody per kontrahent</h2>
+      <table>
+        <thead><tr><th>Kontrahent</th><th class="num">Brutto</th><th class="num">Netto</th><th class="num">Raporty</th></tr></thead>
+        <tbody>
+          {% for row in revenue_by_counterparty %}
+          <tr><td>{{ row.counterparty__name }}</td><td class="num">{{ row.gross }}</td><td class="num">{{ row.net }}</td><td class="num">{{ row.reports }}</td></tr>
+          {% empty %}<tr><td colspan="4" class="muted">Brak danych dla wybranych filtrow.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Koszty per tytul</h2>
+      <table>
+        <thead><tr><th>Tytul</th><th class="num">Netto</th><th class="num">Brutto</th><th class="num">Pozycje</th></tr></thead>
+        <tbody>
+          {% for row in costs_by_title %}
+          <tr><td>{{ row.title__title_pl }}</td><td class="num">{{ row.net }}</td><td class="num">{{ row.gross }}</td><td class="num">{{ row.costs }}</td></tr>
+          {% empty %}<tr><td colspan="4" class="muted">Brak kosztow dla wybranych filtrow.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Naleznosci po terminie</h2>
+      <table>
+        <thead><tr><th>Tytul</th><th>Kontrahent</th><th>Termin</th><th class="num">Kwota</th></tr></thead>
+        <tbody>
+          {% for agreement in overdue_agreements %}
+          <tr><td>{{ agreement.title }}</td><td>{{ agreement.licensee }}</td><td class="danger">{{ agreement.payment_due_date }}</td><td class="num">{{ agreement.fixed_fee }} {{ agreement.currency }}</td></tr>
+          {% empty %}<tr><td colspan="4" class="muted">Brak naleznosci po terminie.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>Otwarte problemy praw</h2>
+      <table>
+        <thead><tr><th>Poziom</th><th>Tytul</th><th>Komunikat</th></tr></thead>
+        <tbody>
+          {% for issue in open_issues %}
+          <tr><td class="danger">{{ issue.get_severity_display }}</td><td>{{ issue.rights_window.title }}</td><td>{{ issue.message }}</td></tr>
+          {% empty %}<tr><td colspan="3" class="muted">Brak otwartych problemow.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+</body>
+</html>

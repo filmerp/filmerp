@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      - SECRET_KEY=dev-only-change-me
+      - DEBUG=True
+      - ALLOWED_HOSTS=127.0.0.1,localhost,0.0.0.0

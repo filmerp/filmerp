@@ -1,7 +1,8 @@
 :root {
-  --primary: #fbb70f;
-  --secondary: #d99a00;
+  --primary: #066e78;
+  --secondary: #055c64;
   --header-bg: #066e78;
+  --button-fg: #f06b97;
   --accent: #3b4148;
   --body-bg: #f5f5f5;
   --body-fg: #1f2933;
@@ -296,7 +297,7 @@ h2 {
 }
 
 .notice.warning {
-  border-left-color: #d99a00;
+  border-left-color: var(--primary);
 }
 
 .notice.danger {
@@ -318,7 +319,7 @@ h2 {
 }
 
 .messages .warning {
-  border-left-color: #d99a00;
+  border-left-color: var(--primary);
 }
 
 .messages .error {
@@ -416,7 +417,7 @@ button,
   border: 0;
   border-radius: 4px;
   background: var(--primary);
-  color: #111827;
+  color: var(--button-fg);
   cursor: pointer;
   font: inherit;
   font-weight: 700;
@@ -427,7 +428,7 @@ button,
 button:hover,
 .button:hover {
   background: var(--secondary);
-  color: #111827;
+  color: var(--button-fg);
 }
 
 .button.secondary {
@@ -438,13 +439,13 @@ button:hover,
   min-height: 32px;
   padding: 6px 10px;
   background: var(--primary);
-  color: #111827;
+  color: var(--button-fg);
   font-size: 13px;
 }
 
 .button.export:hover {
   background: var(--secondary);
-  color: #111827;
+  color: var(--button-fg);
 }
 
 @media (max-width: 720px) {

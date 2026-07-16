@@ -43,8 +43,9 @@
 
   <section class="grid compact">
     <div class="card"><div class="label">Statements</div><div class="metric small">{{ statement_count }}</div></div>
-    <div class="card"><div class="label">Do wypłaty</div><div class="metric small">{{ amount_due_total }}</div></div>
-    <div class="card"><div class="label">Otwarte</div><div class="metric small {% if open_amount_total %}negative{% endif %}">{{ open_amount_total }}</div></div>
+    {% for total in amount_totals %}
+    <div class="card"><div class="label">Do wypłaty {{ total.currency }}</div><div class="metric small">{{ total.amount_due }}</div><div class="muted">otwarte {{ total.open_amount }}</div></div>
+    {% endfor %}
     {% for row in status_count_rows %}
     <div class="card"><div class="label">{{ row.label }}</div><div class="metric small">{{ row.count }}</div></div>
     {% endfor %}

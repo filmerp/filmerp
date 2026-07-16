@@ -26,9 +26,10 @@
     <div class="card"><div class="label">Tytuły</div><div class="metric">{{ titles_count }}</div></div>
     <div class="card"><div class="label">Aktywne rights windows</div><div class="metric">{{ active_rights_count }}</div></div>
     <div class="card"><div class="label">Otwarte konflikty/ostrzeżenia</div><div class="metric danger">{{ open_issues_count }}</div></div>
-    <div class="card"><div class="label">Przychód brutto</div><div class="metric">{{ gross_revenue_total }}</div></div>
-    <div class="card"><div class="label">Koszty netto</div><div class="metric">{{ costs_total }}</div></div>
-    <div class="card"><div class="label">Otwarte statements</div><div class="metric {% if open_statements_count %}danger{% endif %}">{{ open_statements_count }}</div><div class="muted">{{ open_statements_amount }}</div></div>
+    {% for total in financial_totals %}
+    <div class="card"><div class="label">Finanse {{ total.currency }}</div><div class="metric">{{ total.gross_revenue }}</div><div class="muted">koszty {{ total.costs }} · statements {{ total.open_statements }}</div></div>
+    {% endfor %}
+    <div class="card"><div class="label">Otwarte statements</div><div class="metric {% if open_statements_count %}danger{% endif %}">{{ open_statements_count }}</div></div>
   </section>
 
   <section class="two">
@@ -74,7 +75,7 @@
         <thead><tr><th>Tytuł</th><th>Przychód brutto</th><th>Raporty</th></tr></thead>
         <tbody>
           {% for row in revenue_by_title %}
-          <tr><td>{{ row.title__title_pl }}</td><td>{{ row.gross }}</td><td>{{ row.count }}</td></tr>
+          <tr><td>{{ row.title__title_pl }}</td><td>{{ row.gross }} {{ row.currency }}</td><td>{{ row.count }}</td></tr>
           {% empty %}<tr><td colspan="3" class="muted">Brak raportów sprzedaży.</td></tr>{% endfor %}
         </tbody>
       </table>

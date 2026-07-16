@@ -44,15 +44,28 @@ def dashboard(request):
     open_statements = RoyaltyStatement.objects.exclude(status=StatementStatus.PAID)
 
     revenue_by_title = (
-        SalesReport.objects.values("title__title_pl")
+        SalesReport.objects.values("title__title_pl", "currency")
         .annotate(gross=Sum("gross_revenue"), count=Count("id"))
         .order_by("-gross")[:10]
     )
     revenue_by_field = (
-        SalesReport.objects.values("exploitation_field")
+        SalesReport.objects.values("exploitation_field", "currency")
         .annotate(gross=Sum("gross_revenue"), count=Count("id"))
         .order_by("-gross")[:10]
     )
+
+    currencies = sorted(set(SalesReport.objects.values_list("currency", flat=True)) | set(Cost.objects.values_list("currency", flat=True)) | set(open_statements.values_list("currency", flat=True)))
+    financial_totals = []
+    for currency in currencies:
+        gross = SalesReport.objects.filter(currency=currency).aggregate(total=Sum("gross_revenue"))["total"] or 0
+        costs = Cost.objects.filter(currency=currency).aggregate(total=Sum("net_amount"))["total"] or 0
+        statements = [statement for statement in open_statements if statement.currency == currency]
+        financial_totals.append({
+            "currency": currency,
+            "gross_revenue": gross,
+            "costs": costs,
+            "open_statements": sum((statement.amount_due for statement in statements), 0),
+        })
 
     context = {
         "titles_count": Title.objects.count(),
@@ -61,10 +74,8 @@ def dashboard(request):
         "open_issues_count": RightsIssue.objects.filter(resolved=False).count(),
         "open_issues": RightsIssue.objects.filter(resolved=False).select_related("rights_window", "rights_window__title")[:10],
         "unpaid_agreements": SalesAgreement.objects.filter(invoice_paid=False, payment_due_date__lt=today).select_related("title", "licensee")[:10],
-        "gross_revenue_total": SalesReport.objects.aggregate(total=Sum("gross_revenue"))["total"] or 0,
-        "costs_total": Cost.objects.aggregate(total=Sum("net_amount"))["total"] or 0,
+        "financial_totals": financial_totals,
         "open_statements_count": open_statements.count(),
-        "open_statements_amount": sum((statement.amount_due for statement in open_statements), 0),
         "revenue_by_title": revenue_by_title,
         "revenue_by_field": revenue_by_field,
     }
@@ -235,17 +246,24 @@ def statement_center(request):
         if action == "generate_pdf":
             generated = 0
             for statement in statements:
+                statement.freeze_calculation(lock=True)
                 pdf_file = build_royalty_statement_pdf(statement)
                 statement.statement_file.save(pdf_file.name, pdf_file, save=True)
                 generated += 1
             messages.success(request, f"Wygenerowano PDF: {generated}.")
         elif action == "mark_sent":
+            for statement in statements:
+                statement.freeze_calculation(lock=True)
             updated = statements.update(status=StatementStatus.SENT, sent_at=timezone.localdate())
             messages.success(request, f"Oznaczono jako wyslane: {updated}.")
         elif action == "mark_approved":
+            for statement in statements:
+                statement.freeze_calculation(lock=True)
             updated = statements.update(status=StatementStatus.APPROVED)
             messages.success(request, f"Oznaczono jako zaakceptowane: {updated}.")
         elif action == "mark_paid":
+            for statement in statements:
+                statement.freeze_calculation(lock=True)
             updated = statements.update(status=StatementStatus.PAID, paid_at=timezone.localdate())
             messages.success(request, f"Oznaczono jako oplacone: {updated}.")
         elif action == "mark_disputed":
@@ -260,8 +278,13 @@ def statement_center(request):
         return _statement_center_export_xlsx(statements, filters)
 
     statement_list = list(statements[:300])
-    amount_due_total = sum((statement.amount_due for statement in statement_list), 0)
-    open_amount_total = sum((statement.amount_due for statement in statement_list if statement.status != StatementStatus.PAID), 0)
+    amount_totals = []
+    for currency in sorted({statement.currency for statement in statement_list}):
+        amount_totals.append({
+            "currency": currency,
+            "amount_due": sum((statement.amount_due for statement in statement_list if statement.currency == currency), 0),
+            "open_amount": sum((statement.amount_due for statement in statement_list if statement.currency == currency and statement.status != StatementStatus.PAID), 0),
+        })
     status_counts = {
         row["status"]: row["count"]
         for row in statements.values("status").annotate(count=Count("id"))
@@ -280,8 +303,7 @@ def statement_center(request):
         "status_counts": status_counts,
         "status_count_rows": status_count_rows,
         "statement_count": statements.count(),
-        "amount_due_total": amount_due_total,
-        "open_amount_total": open_amount_total,
+        "amount_totals": amount_totals,
     }
     return render(request, "distribution/statement_center.html", context)
 
@@ -336,43 +358,43 @@ def reports(request):
     )
 
     revenue_by_title = (
-        sales_reports.values("title__title_pl")
+        sales_reports.values("title__title_pl", "currency")
         .annotate(gross=Sum("gross_revenue"), net=Sum(net_expr), reports=Count("id"))
         .order_by("-net", "title__title_pl")
     )
     revenue_by_field = (
-        sales_reports.values("exploitation_field")
+        sales_reports.values("exploitation_field", "currency")
         .annotate(gross=Sum("gross_revenue"), net=Sum(net_expr), reports=Count("id"))
         .order_by("-net", "exploitation_field")
     )
     revenue_by_counterparty = (
-        sales_reports.values("counterparty__name")
+        sales_reports.values("counterparty__name", "currency")
         .annotate(gross=Sum("gross_revenue"), net=Sum(net_expr), reports=Count("id"))
         .order_by("-net", "counterparty__name")
     )
     costs_by_title = (
-        costs.values("title__title_pl")
+        costs.values("title__title_pl", "currency")
         .annotate(net=Sum("net_amount"), gross=Sum(F("net_amount") + F("vat_amount")), costs=Count("id"))
         .order_by("-net", "title__title_pl")
     )
 
-    gross_revenue = sales_reports.aggregate(total=Sum("gross_revenue"))["total"] or 0
-    deductions = sales_reports.aggregate(total=Sum("deductions"))["total"] or 0
-    vat_withholding = sales_reports.aggregate(total=Sum("vat_withholding"))["total"] or 0
-    net_revenue = sales_reports.aggregate(total=Sum(net_expr))["total"] or 0
-    cost_total = costs.aggregate(total=Sum("net_amount"))["total"] or 0
+    report_totals = []
+    for currency in sorted(set(sales_reports.values_list("currency", flat=True)) | set(costs.values_list("currency", flat=True))):
+        currency_sales = sales_reports.filter(currency=currency)
+        currency_costs = costs.filter(currency=currency)
+        gross_revenue = currency_sales.aggregate(total=Sum("gross_revenue"))["total"] or 0
+        deductions = currency_sales.aggregate(total=Sum("deductions"))["total"] or 0
+        vat_withholding = currency_sales.aggregate(total=Sum("vat_withholding"))["total"] or 0
+        net_revenue = currency_sales.aggregate(total=Sum(net_expr))["total"] or 0
+        cost_total = currency_costs.aggregate(total=Sum("net_amount"))["total"] or 0
+        report_totals.append({"currency": currency, "gross_revenue": gross_revenue, "deductions": deductions, "vat_withholding": vat_withholding, "net_revenue": net_revenue, "cost_total": cost_total, "margin": net_revenue - cost_total})
     waterfall_rows, waterfall_totals = calculate_waterfall(filters)
 
     context = {
         "filters": filters,
         "titles": Title.objects.order_by("title_pl"),
         "counterparties": Counterparty.objects.order_by("name"),
-        "gross_revenue": gross_revenue,
-        "deductions": deductions,
-        "vat_withholding": vat_withholding,
-        "net_revenue": net_revenue,
-        "cost_total": cost_total,
-        "margin": net_revenue - cost_total,
+        "report_totals": report_totals,
         "sales_count": sales_reports.count(),
         "cost_count": costs.count(),
         "revenue_by_title": revenue_by_title,

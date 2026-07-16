@@ -53,12 +53,9 @@
   </section>
 
   <section class="grid">
-    <div class="card"><div class="label">Przychod brutto</div><div class="metric">{{ gross_revenue }}</div></div>
-    <div class="card"><div class="label">Potracenia</div><div class="metric">{{ deductions }}</div></div>
-    <div class="card"><div class="label">VAT / withholding</div><div class="metric">{{ vat_withholding }}</div></div>
-    <div class="card"><div class="label">Przychod netto</div><div class="metric positive">{{ net_revenue }}</div></div>
-    <div class="card"><div class="label">Koszty netto</div><div class="metric">{{ cost_total }}</div></div>
-    <div class="card"><div class="label">Marza po kosztach</div><div class="metric {% if margin < 0 %}negative{% else %}positive{% endif %}">{{ margin }}</div></div>
+    {% for total in report_totals %}
+    <div class="card"><div class="label">{{ total.currency }} · przychód netto</div><div class="metric positive">{{ total.net_revenue }}</div><div class="muted">brutto {{ total.gross_revenue }} · koszty {{ total.cost_total }} · marża {{ total.margin }}</div></div>
+    {% endfor %}
   </section>
 
   <section class="two">
@@ -129,7 +126,7 @@
         <thead><tr><th>Tytul</th><th class="num">Brutto</th><th class="num">Netto</th><th class="num">Raporty</th></tr></thead>
         <tbody>
           {% for row in revenue_by_title %}
-          <tr><td>{{ row.title__title_pl }}</td><td class="num">{{ row.gross }}</td><td class="num">{{ row.net }}</td><td class="num">{{ row.reports }}</td></tr>
+          <tr><td>{{ row.title__title_pl }}</td><td class="num">{{ row.gross }} {{ row.currency }}</td><td class="num">{{ row.net }} {{ row.currency }}</td><td class="num">{{ row.reports }}</td></tr>
           {% empty %}<tr><td colspan="4" class="muted">Brak danych dla wybranych filtrow.</td></tr>{% endfor %}
         </tbody>
       </table>
@@ -141,7 +138,7 @@
         <thead><tr><th>Pole</th><th class="num">Brutto</th><th class="num">Netto</th><th class="num">Raporty</th></tr></thead>
         <tbody>
           {% for row in revenue_by_field %}
-          <tr><td>{{ row.exploitation_field }}</td><td class="num">{{ row.gross }}</td><td class="num">{{ row.net }}</td><td class="num">{{ row.reports }}</td></tr>
+          <tr><td>{{ row.exploitation_field }}</td><td class="num">{{ row.gross }} {{ row.currency }}</td><td class="num">{{ row.net }} {{ row.currency }}</td><td class="num">{{ row.reports }}</td></tr>
           {% empty %}<tr><td colspan="4" class="muted">Brak danych dla wybranych filtrow.</td></tr>{% endfor %}
         </tbody>
       </table>
@@ -153,7 +150,7 @@
         <thead><tr><th>Kontrahent</th><th class="num">Brutto</th><th class="num">Netto</th><th class="num">Raporty</th></tr></thead>
         <tbody>
           {% for row in revenue_by_counterparty %}
-          <tr><td>{{ row.counterparty__name }}</td><td class="num">{{ row.gross }}</td><td class="num">{{ row.net }}</td><td class="num">{{ row.reports }}</td></tr>
+          <tr><td>{{ row.counterparty__name }}</td><td class="num">{{ row.gross }} {{ row.currency }}</td><td class="num">{{ row.net }} {{ row.currency }}</td><td class="num">{{ row.reports }}</td></tr>
           {% empty %}<tr><td colspan="4" class="muted">Brak danych dla wybranych filtrow.</td></tr>{% endfor %}
         </tbody>
       </table>
@@ -165,7 +162,7 @@
         <thead><tr><th>Tytul</th><th class="num">Netto</th><th class="num">Brutto</th><th class="num">Pozycje</th></tr></thead>
         <tbody>
           {% for row in costs_by_title %}
-          <tr><td>{{ row.title__title_pl }}</td><td class="num">{{ row.net }}</td><td class="num">{{ row.gross }}</td><td class="num">{{ row.costs }}</td></tr>
+          <tr><td>{{ row.title__title_pl }}</td><td class="num">{{ row.net }} {{ row.currency }}</td><td class="num">{{ row.gross }} {{ row.currency }}</td><td class="num">{{ row.costs }}</td></tr>
           {% empty %}<tr><td colspan="4" class="muted">Brak kosztow dla wybranych filtrow.</td></tr>{% endfor %}
         </tbody>
       </table>

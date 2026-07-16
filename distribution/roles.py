@@ -18,16 +18,20 @@ from distribution.models import (
     Title,
     TitleMaterial,
     WaterfallParticipant,
+    WaterfallPlan,
     WaterfallRecoupmentItem,
     WaterfallRecoupmentRule,
+    WaterfallRun,
+    WaterfallRunLine,
+    WaterfallStep,
 )
 
 
 ROLE_MODELS = {
     "legal": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, Counterparty],
     "sales": [SalesAgreement, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, RightsWindow, Territory, LanguageVersion, Title, TitleMaterial, Counterparty],
-    "finance": [SalesAgreement, SalesReport, Cost, RoyaltyStatement, WaterfallRecoupmentRule, WaterfallRecoupmentItem, WaterfallParticipant, CinemaReportImport, CinemaReportImportRow, Title, TitleMaterial, Counterparty],
-    "readonly": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, TitleMaterial, Counterparty, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, Cost, RoyaltyStatement, WaterfallRecoupmentRule, WaterfallRecoupmentItem, WaterfallParticipant],
+    "finance": [SalesAgreement, SalesReport, Cost, RoyaltyStatement, WaterfallRecoupmentRule, WaterfallRecoupmentItem, WaterfallParticipant, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine, CinemaReportImport, CinemaReportImportRow, Title, TitleMaterial, Counterparty],
+    "readonly": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, TitleMaterial, Counterparty, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, Cost, RoyaltyStatement, WaterfallRecoupmentRule, WaterfallRecoupmentItem, WaterfallParticipant, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine],
 }
 
 ROLE_ACTIONS = {

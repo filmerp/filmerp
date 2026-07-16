@@ -40,9 +40,9 @@
 
   <section class="grid compact">
     <div class="card"><div class="label">MG</div><div class="metric small">{{ title.mg_advance }} {{ title.acquisition_currency }}</div></div>
-    <div class="card"><div class="label">Przychód netto</div><div class="metric small">{{ title.net_revenue_total }}</div></div>
-    <div class="card"><div class="label">Koszty recoupable</div><div class="metric small">{{ title.recoupable_costs_total }}</div></div>
-    <div class="card"><div class="label">Wynik przed royalties</div><div class="metric small {% if title.result_before_royalties < 0 %}negative{% else %}positive{% endif %}">{{ title.result_before_royalties }}</div></div>
+    {% for total in title.financial_summary_by_currency %}
+    <div class="card"><div class="label">Finanse {{ total.currency }}</div><div class="metric small">{{ total.net }}</div><div class="muted">koszty {{ total.costs }} · wynik {{ total.result }}</div></div>
+    {% endfor %}
     <div class="card"><div class="label">Widzowie / seanse</div><div class="metric small">{{ admissions }} / {{ screenings }}</div></div>
     <div class="card"><div class="label">Braki materiałów</div><div class="metric small {% if open_materials_count %}negative{% endif %}">{{ open_materials_count }}</div></div>
     <div class="card"><div class="label">Konflikty praw</div><div class="metric small {% if issues %}negative{% endif %}">{{ issues|length }}</div></div>

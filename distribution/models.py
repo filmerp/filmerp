@@ -3,6 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Iterable
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
@@ -217,6 +218,32 @@ class StatementStatus(models.TextChoices):
     DISPUTED = "disputed", "sporny"
 
 
+class WaterfallPlanStatus(models.TextChoices):
+    DRAFT = "draft", "roboczy"
+    ACTIVE = "active", "aktywny"
+    ARCHIVED = "archived", "archiwalny"
+
+
+class WaterfallStepType(models.TextChoices):
+    COMMISSION = "commission", "prowizja / fee"
+    DEDUCTION = "deduction", "potracenie"
+    RECOUPMENT = "recoupment", "zwrot / recoupment"
+    SPLIT = "split", "podzial wplywow"
+    RESERVE = "reserve", "rezerwa / holdback"
+
+
+class WaterfallAllocationMode(models.TextChoices):
+    SEQUENTIAL = "sequential", "kolejno"
+    PRO_RATA = "pro_rata", "pro rata"
+    PARI_PASSU = "pari_passu", "pari passu"
+
+
+class WaterfallRunStatus(models.TextChoices):
+    DRAFT = "draft", "roboczy"
+    FINALIZED = "finalized", "zatwierdzony"
+    VOID = "void", "anulowany"
+
+
 class IssueSeverity(models.TextChoices):
     INFO = "info", "info"
     WARNING = "warning", "warning"
@@ -344,6 +371,20 @@ class Title(TimestampedModel):
     @property
     def result_before_royalties(self) -> Decimal:
         return self.net_revenue_total - self.recoupable_costs_total
+
+    @property
+    def financial_summary_by_currency(self) -> list[dict]:
+        totals: dict[str, dict[str, Decimal | str]] = {}
+        for report in self.sales_reports.exclude(status=ReportStatus.REJECTED):
+            row = totals.setdefault(report.currency, {"currency": report.currency, "gross": Decimal("0.00"), "net": Decimal("0.00"), "costs": Decimal("0.00")})
+            row["gross"] += report.gross_revenue
+            row["net"] += report.net_revenue
+        for cost in self.costs.all():
+            row = totals.setdefault(cost.currency, {"currency": cost.currency, "gross": Decimal("0.00"), "net": Decimal("0.00"), "costs": Decimal("0.00")})
+            row["costs"] += cost.net_amount
+        for row in totals.values():
+            row["result"] = row["net"] - row["costs"]
+        return [totals[currency] for currency in sorted(totals)]
 
 
 class AcquisitionAgreement(TimestampedModel):
@@ -982,6 +1023,150 @@ class WaterfallParticipant(TimestampedModel):
         return max((self.payout_cap or Decimal("0.00")) - (self.paid_to_date or Decimal("0.00")), Decimal("0.00"))
 
 
+class WaterfallPlan(TimestampedModel):
+    title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="waterfall_plans", verbose_name="tytul")
+    name = models.CharField("nazwa planu", max_length=180, default="Glowny waterfall")
+    version = models.PositiveIntegerField("wersja", default=1)
+    status = models.CharField("status", max_length=20, choices=WaterfallPlanStatus.choices, default=WaterfallPlanStatus.DRAFT)
+    currency = models.CharField("waluta", max_length=3, choices=Currency.choices, default=Currency.PLN)
+    effective_from = models.DateField("obowiazuje od", null=True, blank=True)
+    effective_to = models.DateField("obowiazuje do", null=True, blank=True)
+    applies_to_all_exploitation_fields = models.BooleanField("wszystkie pola eksploatacji?", default=True)
+    exploitation_fields = models.JSONField("pola eksploatacji", default=list, blank=True)
+    notes = models.TextField("uwagi / podstawa umowna", blank=True)
+
+    class Meta:
+        ordering = ["title__title_pl", "name", "-version"]
+        constraints = [models.UniqueConstraint(fields=["title", "name", "version"], name="unique_waterfall_plan_version")]
+        verbose_name = "waterfall 2.0 - plan"
+        verbose_name_plural = "waterfall 2.0 - plany"
+
+    def __str__(self) -> str:
+        return f"{self.title} / {self.name} / v{self.version} / {self.currency}"
+
+    def clean(self):
+        if self.effective_from and self.effective_to and self.effective_from > self.effective_to:
+            raise ValidationError({"effective_to": "Data konca nie moze byc wczesniejsza niz data poczatku."})
+        valid_fields = {value for value, _ in ExploitationField.choices}
+        invalid_fields = set(self.exploitation_fields or []) - valid_fields
+        if invalid_fields:
+            raise ValidationError({"exploitation_fields": f"Nieznane pola eksploatacji: {', '.join(sorted(invalid_fields))}."})
+        if not self.applies_to_all_exploitation_fields and not self.exploitation_fields:
+            raise ValidationError({"exploitation_fields": "Wybierz co najmniej jedno pole albo zaznacz wszystkie pola."})
+
+    def scoped_exploitation_fields(self) -> set[str]:
+        if self.applies_to_all_exploitation_fields:
+            return {value for value, _ in ExploitationField.choices}
+        return set(self.exploitation_fields or [])
+
+
+class WaterfallStep(TimestampedModel):
+    plan = models.ForeignKey(WaterfallPlan, on_delete=models.CASCADE, related_name="steps", verbose_name="plan waterfall")
+    phase = models.PositiveIntegerField("faza", default=0, help_text="Np. 0: fee/P&A/MG, 1: hard money, 2: PISF, 3: profit split.")
+    sort_order = models.PositiveIntegerField("kolejnosc", default=100)
+    name = models.CharField("nazwa kroku", max_length=180)
+    step_type = models.CharField("typ kroku", max_length=30, choices=WaterfallStepType.choices)
+    allocation_mode = models.CharField("sposob alokacji", max_length=30, choices=WaterfallAllocationMode.choices, default=WaterfallAllocationMode.SEQUENTIAL)
+    beneficiary = models.ForeignKey(Counterparty, null=True, blank=True, on_delete=models.PROTECT, related_name="waterfall_steps", verbose_name="beneficjent")
+    percentage = models.DecimalField("procent z dostepnej podstawy", max_digits=7, decimal_places=4, default=Decimal("0.0000"))
+    fixed_amount = models.DecimalField("kwota stala", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    target_amount = models.DecimalField("kwota do odzyskania", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    premium_percent = models.DecimalField("premia / uplift %", max_digits=7, decimal_places=4, default=Decimal("0.0000"))
+    opening_recouped = models.DecimalField("odzyskane przed FILMERP", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    cap_amount = models.DecimalField("limit laczny / cap", max_digits=16, decimal_places=2, default=Decimal("0.00"), help_text="0 oznacza brak limitu.")
+    include_title_mg = models.BooleanField("dolicz MG tytulu do celu?", default=False)
+    include_recoupable_costs = models.BooleanField("dolicz koszty recoupable do celu?", default=False)
+    cost_categories = models.JSONField("kategorie kosztow", default=list, blank=True, help_text="Puste oznacza wszystkie kategorie kosztow recoupable.")
+    exploitation_fields = models.JSONField("ogranicz krok do pol", default=list, blank=True, help_text="Puste oznacza zakres calego planu.")
+    active = models.BooleanField("aktywny?", default=True)
+    notes = models.TextField("uwagi / klauzula umowna", blank=True)
+
+    class Meta:
+        ordering = ["plan", "phase", "sort_order", "id"]
+        indexes = [models.Index(fields=["plan", "active", "phase", "sort_order"])]
+        verbose_name = "waterfall 2.0 - krok"
+        verbose_name_plural = "waterfall 2.0 - kroki"
+
+    def __str__(self) -> str:
+        return f"{self.plan} / faza {self.phase} / {self.name}"
+
+    def clean(self):
+        if self.percentage < 0 or self.percentage > 100:
+            raise ValidationError({"percentage": "Procent musi miescic sie w zakresie 0-100."})
+        for field_name in ("fixed_amount", "target_amount", "premium_percent", "opening_recouped", "cap_amount"):
+            if getattr(self, field_name) < 0:
+                raise ValidationError({field_name: "Wartosc nie moze byc ujemna."})
+        valid_categories = {value for value, _ in CostCategory.choices}
+        invalid_categories = set(self.cost_categories or []) - valid_categories
+        if invalid_categories:
+            raise ValidationError({"cost_categories": f"Nieznane kategorie: {', '.join(sorted(invalid_categories))}."})
+        valid_fields = {value for value, _ in ExploitationField.choices}
+        invalid_fields = set(self.exploitation_fields or []) - valid_fields
+        if invalid_fields:
+            raise ValidationError({"exploitation_fields": f"Nieznane pola: {', '.join(sorted(invalid_fields))}."})
+        if self.step_type == WaterfallStepType.RECOUPMENT and not (self.target_amount or self.include_title_mg or self.include_recoupable_costs):
+            raise ValidationError("Krok recoupmentu wymaga kwoty celu, MG tytulu albo kosztow recoupable.")
+        if self.plan_id and self.plan.runs.filter(status=WaterfallRunStatus.FINALIZED).exists():
+            raise ValidationError("Plan ma zatwierdzone rozliczenia. Utworz nowa wersje planu zamiast zmieniac kroki.")
+
+
+class WaterfallRun(TimestampedModel):
+    plan = models.ForeignKey(WaterfallPlan, on_delete=models.PROTECT, related_name="runs", verbose_name="plan waterfall")
+    period_start = models.DateField("okres od")
+    period_end = models.DateField("okres do")
+    status = models.CharField("status", max_length=20, choices=WaterfallRunStatus.choices, default=WaterfallRunStatus.DRAFT)
+    gross_revenue = models.DecimalField("gross revenue", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    net_revenue = models.DecimalField("net revenue", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    allocated_amount = models.DecimalField("rozdzielono", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    closing_available = models.DecimalField("pozostalo po waterfall", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    calculation_snapshot = models.JSONField("snapshot kalkulacji", default=dict, blank=True)
+    calculated_at = models.DateTimeField("przeliczono", null=True, blank=True)
+    finalized_at = models.DateTimeField("zatwierdzono", null=True, blank=True)
+    finalized_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="finalized_waterfall_runs", verbose_name="zatwierdzil")
+    notes = models.TextField("uwagi", blank=True)
+
+    class Meta:
+        ordering = ["-period_end", "plan__title__title_pl", "plan__name"]
+        indexes = [models.Index(fields=["plan", "status", "period_start", "period_end"])]
+        verbose_name = "waterfall 2.0 - uruchomienie"
+        verbose_name_plural = "waterfall 2.0 - uruchomienia"
+
+    def __str__(self) -> str:
+        return f"{self.plan} / {self.period_start}-{self.period_end} / {self.get_status_display()}"
+
+    def clean(self):
+        if self.period_start and self.period_end and self.period_start > self.period_end:
+            raise ValidationError({"period_end": "Data konca nie moze byc wczesniejsza niz data poczatku."})
+        if self.plan_id and self.plan.effective_from and self.period_end < self.plan.effective_from:
+            raise ValidationError({"period_end": "Okres jest przed poczatkiem obowiazywania planu."})
+        if self.plan_id and self.plan.effective_to and self.period_start > self.plan.effective_to:
+            raise ValidationError({"period_start": "Okres jest po koncu obowiazywania planu."})
+
+
+class WaterfallRunLine(TimestampedModel):
+    run = models.ForeignKey(WaterfallRun, on_delete=models.CASCADE, related_name="lines", verbose_name="uruchomienie")
+    step = models.ForeignKey(WaterfallStep, on_delete=models.PROTECT, related_name="run_lines", verbose_name="krok")
+    sequence = models.PositiveIntegerField("kolejnosc")
+    phase = models.PositiveIntegerField("faza")
+    beneficiary = models.ForeignKey(Counterparty, null=True, blank=True, on_delete=models.PROTECT, related_name="waterfall_run_lines", verbose_name="beneficjent")
+    opening_available = models.DecimalField("dostepne przed krokiem", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    calculation_base = models.DecimalField("podstawa kalkulacji", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    allocated_amount = models.DecimalField("alokacja", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    closing_available = models.DecimalField("dostepne po kroku", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    opening_recoupment = models.DecimalField("saldo recoupment przed", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    closing_recoupment = models.DecimalField("saldo recoupment po", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    calculation_details = models.JSONField("szczegoly", default=dict, blank=True)
+
+    class Meta:
+        ordering = ["run", "sequence"]
+        constraints = [models.UniqueConstraint(fields=["run", "sequence"], name="unique_waterfall_run_sequence")]
+        verbose_name = "waterfall 2.0 - linia kalkulacji"
+        verbose_name_plural = "waterfall 2.0 - linie kalkulacji"
+
+    def __str__(self) -> str:
+        return f"{self.run} / {self.sequence}. {self.step.name}"
+
+
 class RoyaltyStatement(TimestampedModel):
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="royalty_statements", verbose_name="tytuł")
     recipient = models.ForeignKey(Counterparty, on_delete=models.PROTECT, related_name="royalty_statements", verbose_name="odbiorca statementu")
@@ -990,8 +1175,13 @@ class RoyaltyStatement(TimestampedModel):
     currency = models.CharField("waluta", max_length=3, choices=Currency.choices, default=Currency.PLN)
     distributor_fee_percent = models.DecimalField("prowizja dystrybutora %", max_digits=5, decimal_places=2, default=Decimal("25.00"))
     recipient_share_percent = models.DecimalField("udział odbiorcy %", max_digits=5, decimal_places=2, default=Decimal("50.00"))
+    waterfall_plan = models.ForeignKey(WaterfallPlan, null=True, blank=True, on_delete=models.SET_NULL, related_name="royalty_statements", verbose_name="plan waterfall 2.0")
+    waterfall_run = models.ForeignKey(WaterfallRun, null=True, blank=True, on_delete=models.SET_NULL, related_name="royalty_statements", verbose_name="uruchomienie waterfall 2.0")
     status = models.CharField("status", max_length=30, choices=StatementStatus.choices, default=StatementStatus.DRAFT)
     statement_file = models.FileField("PDF statement", upload_to="royalty_statements/", blank=True)
+    calculation_snapshot = models.JSONField("zamrozona kalkulacja", default=dict, blank=True)
+    calculated_at = models.DateTimeField("przeliczono", null=True, blank=True)
+    locked_at = models.DateTimeField("zablokowano", null=True, blank=True)
     sent_at = models.DateField("data wysyłki", null=True, blank=True)
     paid_at = models.DateField("data płatności", null=True, blank=True)
     notes = models.TextField("uwagi", blank=True)
@@ -1005,43 +1195,127 @@ class RoyaltyStatement(TimestampedModel):
         return f"{self.title} / {self.recipient} / {self.period_start}–{self.period_end}"
 
     def sales_queryset(self):
-        return SalesReport.objects.filter(
+        reports = SalesReport.objects.filter(
             title=self.title,
             currency=self.currency,
-            period_start__gte=self.period_start,
             period_start__lte=self.period_end,
+            period_end__gte=self.period_start,
         ).exclude(status=ReportStatus.REJECTED)
+        if self.locked_at and self.calculation_snapshot.get("sales_report_ids") is not None:
+            return reports.filter(pk__in=self.calculation_snapshot["sales_report_ids"])
+        plan = self.waterfall_plan or (self.waterfall_run.plan if self.waterfall_run_id else None)
+        if plan and not plan.applies_to_all_exploitation_fields:
+            reports = reports.filter(exploitation_field__in=plan.exploitation_fields)
+        return reports
 
     def recoupable_costs_queryset(self):
-        return Cost.objects.filter(
+        costs = Cost.objects.filter(
             title=self.title,
             currency=self.currency,
             recoupable=True,
             cost_date__gte=self.period_start,
             cost_date__lte=self.period_end,
         )
+        if self.locked_at and self.calculation_snapshot.get("cost_ids") is not None:
+            return costs.filter(pk__in=self.calculation_snapshot["cost_ids"])
+        plan = self.waterfall_plan or (self.waterfall_run.plan if self.waterfall_run_id else None)
+        if plan and not plan.applies_to_all_exploitation_fields:
+            plan_fields = plan.scoped_exploitation_fields()
+            cost_ids = [cost.pk for cost in costs if any(cost.applies_to_exploitation_field(field) for field in plan_fields)]
+            costs = costs.filter(pk__in=cost_ids)
+        return costs
+
+    def _snapshot_decimal(self, key: str) -> Decimal | None:
+        value = self.calculation_snapshot.get(key)
+        return Decimal(value) if value is not None else None
+
+    def build_calculation_snapshot(self) -> dict:
+        sales = list(self.sales_queryset())
+        costs = list(self.recoupable_costs_queryset())
+        gross_revenue = sum((report.gross_revenue for report in sales), Decimal("0.00"))
+        net_revenue = sum((report.net_revenue for report in sales), Decimal("0.00"))
+        recoupable_costs = sum((cost.net_amount for cost in costs), Decimal("0.00"))
+        distributor_fee = net_revenue * (self.distributor_fee_percent or Decimal("0.00")) / Decimal("100.00")
+        net_receipts = net_revenue - recoupable_costs - distributor_fee
+        amount_due = max(net_receipts * (self.recipient_share_percent or Decimal("0.00")) / Decimal("100.00"), Decimal("0.00"))
+
+        if self.waterfall_run_id:
+            run_lines = self.waterfall_run.lines.filter(beneficiary=self.recipient).select_related("step")
+            amount_due = sum((line.allocated_amount for line in run_lines), Decimal("0.00"))
+            distributor_fee = sum(
+                (line.allocated_amount for line in self.waterfall_run.lines.select_related("step") if line.step.step_type == WaterfallStepType.COMMISSION),
+                Decimal("0.00"),
+            )
+            gross_revenue = self.waterfall_run.gross_revenue
+            net_revenue = self.waterfall_run.net_revenue
+            net_receipts = self.waterfall_run.closing_available
+
+        return {
+            "gross_revenue": str(gross_revenue),
+            "net_revenue": str(net_revenue),
+            "recoupable_costs": str(recoupable_costs),
+            "distributor_fee_amount": str(distributor_fee),
+            "net_receipts": str(net_receipts),
+            "amount_due": str(amount_due),
+            "sales_report_ids": [report.pk for report in sales],
+            "cost_ids": [cost.pk for cost in costs],
+            "waterfall_run_id": self.waterfall_run_id,
+        }
+
+    def freeze_calculation(self, *, lock=True):
+        self.calculation_snapshot = self.build_calculation_snapshot()
+        self.calculated_at = timezone.now()
+        if lock:
+            self.locked_at = timezone.now()
+        update_fields = ["calculation_snapshot", "calculated_at", "updated_at"]
+        if lock:
+            update_fields.append("locked_at")
+        self.save(update_fields=update_fields)
 
     @property
     def gross_revenue(self) -> Decimal:
+        frozen = self._snapshot_decimal("gross_revenue") if self.locked_at else None
+        if frozen is not None:
+            return frozen
         return sum((r.gross_revenue for r in self.sales_queryset()), Decimal("0.00"))
 
     @property
     def net_revenue(self) -> Decimal:
+        frozen = self._snapshot_decimal("net_revenue") if self.locked_at else None
+        if frozen is not None:
+            return frozen
         return sum((r.net_revenue for r in self.sales_queryset()), Decimal("0.00"))
 
     @property
     def recoupable_costs(self) -> Decimal:
+        frozen = self._snapshot_decimal("recoupable_costs") if self.locked_at else None
+        if frozen is not None:
+            return frozen
         return sum((c.net_amount for c in self.recoupable_costs_queryset()), Decimal("0.00"))
 
     @property
     def distributor_fee_amount(self) -> Decimal:
+        frozen = self._snapshot_decimal("distributor_fee_amount") if self.locked_at else None
+        if frozen is not None:
+            return frozen
         return self.net_revenue * (self.distributor_fee_percent or Decimal("0.00")) / Decimal("100.00")
 
     @property
     def net_receipts(self) -> Decimal:
+        frozen = self._snapshot_decimal("net_receipts") if self.locked_at else None
+        if frozen is not None:
+            return frozen
         return self.net_revenue - self.recoupable_costs - self.distributor_fee_amount
 
     @property
     def amount_due(self) -> Decimal:
+        frozen = self._snapshot_decimal("amount_due") if self.locked_at else None
+        if frozen is not None:
+            return frozen
+        if self.waterfall_run_id:
+            return sum(
+                (line.allocated_amount for line in self.waterfall_run.lines.filter(beneficiary=self.recipient)),
+                Decimal("0.00"),
+            )
         amount = self.net_receipts * (self.recipient_share_percent or Decimal("0.00")) / Decimal("100.00")
         return max(amount, Decimal("0.00"))

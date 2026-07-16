@@ -16,6 +16,7 @@ from .models import (
     CinemaReportImport,
     CinemaReportImportRow,
     Cost,
+    CostCategory,
     Counterparty,
     ExploitationField,
     LanguageVersion,
@@ -28,9 +29,15 @@ from .models import (
     Title,
     TitleMaterial,
     WaterfallParticipant,
+    WaterfallPlan,
     WaterfallRecoupmentItem,
     WaterfallRecoupmentRule,
+    WaterfallRun,
+    WaterfallRunLine,
+    WaterfallRunStatus,
+    WaterfallStep,
 )
+from .waterfall_v2 import calculate_waterfall_run, finalize_waterfall_run
 
 admin.site.site_header = "FILMERP Panel Główny"
 admin.site.site_title = "FILMERP Panel Główny"
@@ -150,6 +157,41 @@ class CostAdminForm(forms.ModelForm):
             instance.save()
             self.save_m2m()
         return instance
+
+
+class WaterfallPlanAdminForm(forms.ModelForm):
+    exploitation_fields = forms.MultipleChoiceField(
+        label="Pola eksploatacji",
+        choices=ExploitationField.choices,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Wybierz pola albo zaznacz 'wszystkie pola eksploatacji'.",
+    )
+
+    class Meta:
+        model = WaterfallPlan
+        fields = "__all__"
+
+
+class WaterfallStepAdminForm(forms.ModelForm):
+    cost_categories = forms.MultipleChoiceField(
+        label="Kategorie kosztow",
+        choices=CostCategory.choices,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Puste oznacza wszystkie kategorie kosztow recoupable.",
+    )
+    exploitation_fields = forms.MultipleChoiceField(
+        label="Pola eksploatacji kroku",
+        choices=ExploitationField.choices,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Puste oznacza zakres calego planu.",
+    )
+
+    class Meta:
+        model = WaterfallStep
+        fields = "__all__"
 
 
 @admin.register(Title)
@@ -593,6 +635,106 @@ class WaterfallParticipantAdmin(admin.ModelAdmin):
         return "brak limitu" if remaining is None else remaining
 
 
+class WaterfallStepInline(admin.TabularInline):
+    model = WaterfallStep
+    form = WaterfallStepAdminForm
+    extra = 0
+    fields = (
+        "phase", "sort_order", "name", "step_type", "allocation_mode", "beneficiary",
+        "percentage", "fixed_amount", "target_amount", "premium_percent",
+        "include_title_mg", "include_recoupable_costs", "active",
+    )
+    autocomplete_fields = ("beneficiary",)
+
+
+@admin.register(WaterfallPlan)
+class WaterfallPlanAdmin(admin.ModelAdmin):
+    form = WaterfallPlanAdminForm
+    list_display = ("title", "name", "version", "status", "currency", "scope_display", "effective_from", "effective_to")
+    list_filter = ("status", "currency", "applies_to_all_exploitation_fields")
+    search_fields = ("title__title_pl", "title__original_title", "name", "notes")
+    autocomplete_fields = ("title",)
+    inlines = (WaterfallStepInline,)
+
+    @admin.display(description="pola eksploatacji")
+    def scope_display(self, obj):
+        if obj.applies_to_all_exploitation_fields:
+            return "wszystkie"
+        labels = dict(ExploitationField.choices)
+        return ", ".join(labels.get(value, value) for value in obj.exploitation_fields)
+
+
+@admin.register(WaterfallStep)
+class WaterfallStepAdmin(admin.ModelAdmin):
+    form = WaterfallStepAdminForm
+    list_display = ("plan", "phase", "sort_order", "name", "step_type", "allocation_mode", "beneficiary", "active")
+    list_filter = ("step_type", "allocation_mode", "active", "plan__currency")
+    search_fields = ("plan__title__title_pl", "plan__name", "name", "beneficiary__name", "notes")
+    autocomplete_fields = ("plan", "beneficiary")
+    fieldsets = (
+        ("Kolejnosc", {"fields": ("plan", "phase", "sort_order", "name", "active")}),
+        ("Sposob rozliczenia", {"fields": ("step_type", "allocation_mode", "beneficiary", "percentage", "fixed_amount", "target_amount", "premium_percent", "opening_recouped", "cap_amount")}),
+        ("MG i koszty", {"fields": ("include_title_mg", "include_recoupable_costs", "cost_categories", "exploitation_fields")}),
+        ("Podstawa umowna", {"fields": ("notes",)}),
+    )
+
+
+class WaterfallRunLineInline(admin.TabularInline):
+    model = WaterfallRunLine
+    extra = 0
+    can_delete = False
+    readonly_fields = (
+        "sequence", "phase", "step", "beneficiary", "opening_available", "calculation_base",
+        "allocated_amount", "closing_available", "opening_recoupment", "closing_recoupment",
+    )
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(WaterfallRun)
+class WaterfallRunAdmin(admin.ModelAdmin):
+    list_display = ("plan", "period_start", "period_end", "status", "net_revenue", "allocated_amount", "closing_available", "calculated_at")
+    list_filter = ("status", "plan__currency", "period_end")
+    search_fields = ("plan__title__title_pl", "plan__name", "notes")
+    autocomplete_fields = ("plan",)
+    readonly_fields = ("gross_revenue", "net_revenue", "allocated_amount", "closing_available", "calculated_at", "finalized_at", "finalized_by", "calculation_snapshot")
+    actions = ("recalculate_selected", "finalize_selected")
+    inlines = (WaterfallRunLineInline,)
+
+    @admin.action(description="Przelicz zaznaczone robocze waterfalle")
+    def recalculate_selected(self, request, queryset):
+        count = 0
+        for run in queryset.filter(status=WaterfallRunStatus.DRAFT):
+            calculate_waterfall_run(run)
+            count += 1
+        messages.success(request, f"Przeliczono waterfalle: {count}.")
+
+    @admin.action(description="Zatwierdz zaznaczone waterfalle")
+    def finalize_selected(self, request, queryset):
+        count = 0
+        for run in queryset.filter(status=WaterfallRunStatus.DRAFT):
+            if not run.calculated_at:
+                calculate_waterfall_run(run)
+            finalize_waterfall_run(run, request.user)
+            count += 1
+        messages.success(request, f"Zatwierdzono waterfalle: {count}.")
+
+
+@admin.register(WaterfallRunLine)
+class WaterfallRunLineAdmin(admin.ModelAdmin):
+    list_display = ("run", "sequence", "phase", "step", "beneficiary", "allocated_amount", "closing_recoupment")
+    list_filter = ("run__status", "run__plan__currency", "phase")
+    search_fields = ("run__plan__title__title_pl", "step__name", "beneficiary__name")
+    readonly_fields = [field.name for field in WaterfallRunLine._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(RoyaltyStatement)
 class RoyaltyStatementAdmin(admin.ModelAdmin):
     list_display = (
@@ -609,15 +751,17 @@ class RoyaltyStatementAdmin(admin.ModelAdmin):
         "status",
         "pdf_link",
     )
-    list_filter = ("status", "currency", "period_end")
+    list_filter = ("status", "currency", "period_end", "waterfall_plan")
     search_fields = ("title__title_pl", "title__original_title", "recipient__name")
-    autocomplete_fields = ("title", "recipient")
+    autocomplete_fields = ("title", "recipient", "waterfall_plan", "waterfall_run")
+    readonly_fields = ("calculation_snapshot", "calculated_at", "locked_at")
     actions = ["generate_pdf_for_selected"]
 
     @admin.action(description="Wygeneruj PDF royalty statement")
     def generate_pdf_for_selected(self, request, queryset):
         count = 0
         for statement in queryset:
+            statement.freeze_calculation(lock=True)
             pdf_file = build_royalty_statement_pdf(statement)
             statement.statement_file.save(pdf_file.name, pdf_file, save=True)
             count += 1

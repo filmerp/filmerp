@@ -72,9 +72,9 @@
             <td><span class="status-pill">{{ title.get_status_display }}</span></td>
             <td>{{ title.polish_premiere_date|default:"" }}</td>
             <td class="num">{{ title.mg_advance }} {{ title.acquisition_currency }}</td>
-            <td class="num">{{ title.net_revenue_total }}</td>
-            <td class="num">{{ title.recoupable_costs_total }}</td>
-            <td class="num">{{ title.result_before_royalties }}</td>
+            <td class="num">{% for total in title.financial_summary_by_currency %}{{ total.net }} {{ total.currency }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
+            <td class="num">{% for total in title.financial_summary_by_currency %}{{ total.costs }} {{ total.currency }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
+            <td class="num">{% for total in title.financial_summary_by_currency %}{{ total.result }} {{ total.currency }}{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
             <td><a class="button export" href="{% url 'distribution:title_detail' title.pk %}">Otwórz</a></td>
           </tr>
           {% empty %}

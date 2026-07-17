@@ -1,0 +1,17 @@
+{% load static %}
+<header class="app-header">
+  <a class="app-brand" href="{% url 'distribution:dashboard' %}" aria-label="FILMERP - Dashboard">
+    <img src="{% static 'distribution/filmerplogo-header.png' %}" alt="FILMERP" class="brand-logo">
+  </a>
+  {% with current=request.resolver_match.url_name %}
+  <nav class="app-nav" aria-label="Główna nawigacja">
+    <a class="{% if current == 'dashboard' %}active{% endif %}" href="{% url 'distribution:dashboard' %}">Dashboard</a>
+    <a class="{% if current == 'title_list' or current == 'title_detail' %}active{% endif %}" href="{% url 'distribution:title_list' %}">Tytuły 360</a>
+    <a class="{% if current == 'avails' %}active{% endif %}" href="{% url 'distribution:avails' %}">Avails</a>
+    <a class="{% if current == 'reports' %}active{% endif %}" href="{% url 'distribution:reports' %}">Raporty</a>
+    <a class="{% if current == 'settlement_workbench' %}active{% endif %}" href="{% url 'distribution:settlement_workbench' %}">Rozliczenia</a>
+    <a class="{% if current == 'statement_center' %}active{% endif %}" href="{% url 'distribution:statement_center' %}">Statement Center</a>
+    <a href="/admin/">Panel główny</a>
+  </nav>
+  {% endwith %}
+</header>

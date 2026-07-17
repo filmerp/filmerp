@@ -47,6 +47,8 @@ a {
   align-items: center;
   gap: 14px;
   min-width: 0;
+  flex: 0 0 auto;
+  text-decoration: none;
 }
 
 .brand-logo {
@@ -68,7 +70,10 @@ a {
   display: flex;
   align-items: center;
   gap: 18px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .app-nav a {
@@ -76,10 +81,17 @@ a {
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
+  white-space: nowrap;
+  padding: 5px 0 3px;
+  border-bottom: 2px solid transparent;
 }
 
 .app-nav a:hover {
-  text-decoration: underline;
+  border-bottom-color: rgba(255, 255, 255, .55);
+}
+
+.app-nav a.active {
+  border-bottom-color: var(--button-fg);
 }
 
 main {

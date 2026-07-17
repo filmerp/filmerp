@@ -6,6 +6,7 @@ import tempfile
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from django.urls import reverse
 
 from .models import (
     Cost,
@@ -175,6 +176,34 @@ class SettlementWorkflowTests(TestCase):
             "date_to": "2026-06-30",
             "currency": Currency.PLN,
         }
+
+    def test_app_navigation_is_consistent(self):
+        page_urls = [
+            reverse("distribution:dashboard"),
+            reverse("distribution:title_list"),
+            reverse("distribution:title_detail", args=[self.title.pk]),
+            reverse("distribution:avails"),
+            reverse("distribution:reports"),
+            reverse("distribution:settlement_workbench"),
+            reverse("distribution:statement_center"),
+        ]
+        expected_links = [
+            reverse("distribution:dashboard"),
+            reverse("distribution:title_list"),
+            reverse("distribution:avails"),
+            reverse("distribution:reports"),
+            reverse("distribution:settlement_workbench"),
+            reverse("distribution:statement_center"),
+            "/admin/",
+        ]
+
+        for page_url in page_urls:
+            with self.subTest(page_url=page_url):
+                response = self.client.get(page_url)
+                self.assertEqual(response.status_code, 200)
+                nav_html = response.content.decode().split('<nav class="app-nav"', 1)[1].split("</nav>", 1)[0]
+                positions = [nav_html.index(f'href="{link}"') for link in expected_links]
+                self.assertEqual(positions, sorted(positions))
 
     def test_workbench_simulates_finalizes_and_generates_pdf(self):
         response = self.client.get("/settlements/", self.workflow_payload())

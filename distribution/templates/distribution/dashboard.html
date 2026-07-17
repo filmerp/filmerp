@@ -8,20 +8,7 @@
   <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
 </head>
 <body>
-<header class="app-header">
-  <div class="app-brand">
-    <img src="{% static 'distribution/filmerplogo-header.png' %}" alt="FILMERP" class="brand-logo">
-    <span class="brand-title">dashboard operacyjny</span>
-  </div>
-  <nav class="app-nav">
-    <a href="{% url 'distribution:title_list' %}">Tytuły 360</a>
-    <a href="{% url 'distribution:avails' %}">Avails</a>
-    <a href="{% url 'distribution:reports' %}">Raporty</a>
-    <a href="{% url 'distribution:settlement_workbench' %}">Rozliczenia</a>
-    <a href="{% url 'distribution:statement_center' %}">Statement Center</a>
-    <a href="/admin/">Panel główny</a>
-  </nav>
-</header>
+{% include "distribution/_app_header.html" %}
 <main>
   <div class="page-heading dashboard-heading">
     <div><h1>Panel operacyjny</h1></div>

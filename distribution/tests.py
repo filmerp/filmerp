@@ -1,18 +1,24 @@
 from datetime import date
 from decimal import Decimal
+from io import BytesIO
 import shutil
 import tempfile
 
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
+from openpyxl import Workbook
 
 from .models import (
     Cost,
     CostCategory,
     Counterparty,
     Currency,
+    DocumentInboxItem,
+    DocumentStatus,
+    DocumentType,
     ExploitationField,
     RoyaltyStatement,
     SalesReport,
@@ -24,6 +30,8 @@ from .models import (
     WaterfallStepType,
     Title,
 )
+from .documents import classify_document
+from .roles import sync_role_groups
 from .waterfall_v2 import calculate_waterfall_run, finalize_waterfall_run
 
 
@@ -139,7 +147,7 @@ class SettlementWorkflowTests(TestCase):
         self.addCleanup(self.settings_override.disable)
         self.addCleanup(shutil.rmtree, self.media_root, True)
 
-        self.user = get_user_model().objects.create_user(username="finance", password="test-pass")
+        self.user = get_user_model().objects.create_superuser(username="finance", email="", password="test-pass")
         self.client.force_login(self.user)
         self.title = Title.objects.create(title_pl="Miesieczny film")
         self.producer = Counterparty.objects.create(name="Producent statementu")
@@ -177,9 +185,29 @@ class SettlementWorkflowTests(TestCase):
             "currency": Currency.PLN,
         }
 
+    def test_common_document_names_are_classified(self):
+        self.assertEqual(classify_document("sample_cinema_report.pdf")[0], DocumentType.CINEMA_REPORT)
+        self.assertEqual(classify_document("FV_2026_001.pdf")[0], DocumentType.COST_INVOICE)
+
+    def test_readonly_role_can_view_but_cannot_upload_documents(self):
+        sync_role_groups()
+        readonly_user = get_user_model().objects.create_user(username="readonly-user", password="test-pass")
+        readonly_user.groups.add(Group.objects.get(name="readonly"))
+        self.client.force_login(readonly_user)
+
+        response = self.client.get(reverse("distribution:document_center"))
+        self.assertEqual(response.status_code, 200)
+        response = self.client.post(reverse("distribution:document_center"), {
+            "action": "upload",
+            "source_file": SimpleUploadedFile("FV.pdf", b"invoice", content_type="application/pdf"),
+        })
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(DocumentInboxItem.objects.count(), 0)
+
     def test_app_navigation_is_consistent(self):
         page_urls = [
             reverse("distribution:dashboard"),
+            reverse("distribution:document_center"),
             reverse("distribution:title_list"),
             reverse("distribution:title_detail", args=[self.title.pk]),
             reverse("distribution:avails"),
@@ -189,6 +217,7 @@ class SettlementWorkflowTests(TestCase):
         ]
         expected_links = [
             reverse("distribution:dashboard"),
+            reverse("distribution:document_center"),
             reverse("distribution:title_list"),
             reverse("distribution:avails"),
             reverse("distribution:reports"),
@@ -272,3 +301,83 @@ class SettlementWorkflowTests(TestCase):
         self.assertEqual(cost.net_amount, Decimal("200.00"))
         self.assertTrue(cost.recoupable)
         self.assertTrue(cost.invoice_file.name.endswith(".pdf"))
+
+    def test_document_center_blocks_duplicate_and_creates_cost(self):
+        invoice_bytes = b"%PDF-1.4 test invoice document"
+        response = self.client.post(reverse("distribution:document_center"), {
+            "action": "upload",
+            "source_file": SimpleUploadedFile("FV_2026_001.pdf", invoice_bytes, content_type="application/pdf"),
+        })
+        self.assertEqual(response.status_code, 302)
+        document = DocumentInboxItem.objects.get()
+        self.assertEqual(document.document_type, DocumentType.COST_INVOICE)
+        self.assertEqual(document.status, DocumentStatus.NEEDS_REVIEW)
+
+        response = self.client.post(reverse("distribution:document_center"), {
+            "action": "upload",
+            "source_file": SimpleUploadedFile("kopia.pdf", invoice_bytes, content_type="application/pdf"),
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(DocumentInboxItem.objects.count(), 1)
+
+        response = self.client.post(reverse("distribution:document_center"), {
+            "action": "create_cost",
+            "document_id": str(document.pk),
+            "title": str(self.title.pk),
+            "supplier_name": "Studio reklamowe",
+            "cost_date": "2026-06-12",
+            "category": CostCategory.PA,
+            "currency": Currency.PLN,
+            "net_amount": "500.00",
+            "vat_amount": "115.00",
+            "recoupable": "on",
+            "applies_to_all_exploitation_fields": "on",
+        })
+        self.assertEqual(response.status_code, 302)
+        document.refresh_from_db()
+        self.assertEqual(document.status, DocumentStatus.PROCESSED)
+        self.assertEqual(document.cost.net_amount, Decimal("500.00"))
+        self.assertEqual(document.cost.title, self.title)
+        self.assertEqual(Cost.objects.filter(title=self.title).count(), 1)
+
+    def test_document_center_imports_selected_cinema_report_rows(self):
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet["A1"] = self.title.title_pl
+        sheet["E1"] = "01.06.2026 - 30.06.2026"
+        sheet["E2"] = "Widzow"
+        sheet["F2"] = "Brutto"
+        sheet["G2"] = "Netto"
+        sheet["C3"] = "Warszawa"
+        sheet["D3"] = self.cinema.name
+        sheet["E3"] = 100
+        sheet["F3"] = 1000
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        response = self.client.post(reverse("distribution:document_center"), {
+            "action": "upload",
+            "source_file": SimpleUploadedFile(
+                "raport_widzowie.xlsx",
+                buffer.getvalue(),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+        })
+        self.assertEqual(response.status_code, 302)
+        document = DocumentInboxItem.objects.get()
+        self.assertEqual(document.document_type, DocumentType.CINEMA_REPORT)
+        row = document.cinema_import.rows.get()
+        self.assertEqual(row.title, self.title)
+        self.assertEqual(row.admissions, 100)
+
+        response = self.client.post(reverse("distribution:document_center"), {
+            "action": "approve_report_rows",
+            "document_id": str(document.pk),
+            "row_ids": [str(row.pk)],
+        })
+        self.assertEqual(response.status_code, 302)
+        document.refresh_from_db()
+        row.refresh_from_db()
+        self.assertEqual(document.status, DocumentStatus.PROCESSED)
+        self.assertIsNotNone(row.booking_id)
+        self.assertTrue(SalesReport.objects.filter(source_reference=f"cinema-import-row-{row.pk}").exists())

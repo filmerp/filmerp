@@ -6,6 +6,7 @@
   {% with current=request.resolver_match.url_name %}
   <nav class="app-nav" aria-label="Główna nawigacja">
     <a class="{% if current == 'dashboard' %}active{% endif %}" href="{% url 'distribution:dashboard' %}">Dashboard</a>
+    <a class="{% if current == 'document_center' %}active{% endif %}" href="{% url 'distribution:document_center' %}">Dokumenty</a>
     <a class="{% if current == 'title_list' or current == 'title_detail' %}active{% endif %}" href="{% url 'distribution:title_list' %}">Tytuły 360</a>
     <a class="{% if current == 'avails' %}active{% endif %}" href="{% url 'distribution:avails' %}">Avails</a>
     <a class="{% if current == 'reports' %}active{% endif %}" href="{% url 'distribution:reports' %}">Raporty</a>

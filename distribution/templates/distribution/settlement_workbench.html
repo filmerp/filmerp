@@ -98,49 +98,12 @@
     </div>
   </section>
 
-  <section class="two intake-grid">
-    <div class="card intake-card" id="raport-kina">
-      <div class="section-header"><h2>Raport kina</h2><span class="status-pill">PDF / XLSX</span></div>
-      <form method="post" enctype="multipart/form-data" class="single-upload">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="upload_cinema_report">
-        <input type="hidden" name="title" value="{{ selected_title.pk }}">
-        <input type="hidden" name="plan" value="{{ selected_plan.pk|default:'' }}">
-        <input type="hidden" name="date_from" value="{{ period_start|date:'Y-m-d' }}">
-        <input type="hidden" name="date_to" value="{{ period_end|date:'Y-m-d' }}">
-        <input type="hidden" name="currency" value="{{ currency }}">
-        {{ cinema_upload_form.source_file }}
-        <button type="submit">Wczytaj i rozpoznaj</button>
-      </form>
-      <div class="recent-links">
-        {% for item in recent_imports %}
-        <a href="?title={{ selected_title.pk }}&plan={{ selected_plan.pk|default:'' }}&date_from={{ period_start|date:'Y-m-d' }}&date_to={{ period_end|date:'Y-m-d' }}&currency={{ currency }}&import={{ item.pk }}">{{ item.original_filename|default:item.source_file.name }} <span>{{ item.rows.count }}</span></a>
-        {% empty %}<span class="muted">Brak wcześniejszych importów.</span>{% endfor %}
-      </div>
+  <section class="workbench-section source-intake-shortcut">
+    <div>
+      <h2>Dokumenty źródłowe</h2>
+      <div class="muted">Raporty kinowe, statementy i faktury kosztowe</div>
     </div>
-
-    <div class="card intake-card" id="faktura">
-      <div class="section-header"><h2>Faktura kosztowa</h2><span class="status-pill">PDF / obraz</span></div>
-      <form method="post" enctype="multipart/form-data" class="invoice-upload-form">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="upload_cost_invoice">
-        <input type="hidden" name="title" value="{{ selected_title.pk }}">
-        <input type="hidden" name="plan" value="{{ selected_plan.pk|default:'' }}">
-        <input type="hidden" name="date_from" value="{{ period_start|date:'Y-m-d' }}">
-        <input type="hidden" name="date_to" value="{{ period_end|date:'Y-m-d' }}">
-        <label>Dostawca {{ invoice_form.supplier_name }}</label>
-        <label>Data {{ invoice_form.cost_date }}</label>
-        <label>Kategoria {{ invoice_form.category }}</label>
-        <label>Waluta {{ invoice_form.currency }}</label>
-        <label>Netto {{ invoice_form.net_amount }}</label>
-        <label>VAT {{ invoice_form.vat_amount }}</label>
-        <label>Pole eksploatacji {{ invoice_form.exploitation_field }}</label>
-        <label class="check-label">{{ invoice_form.recoupable }} Recoupable</label>
-        <label class="check-label">{{ invoice_form.applies_to_all_exploitation_fields }} Wszystkie pola</label>
-        <label>Plik faktury {{ invoice_form.invoice_file }}</label>
-        <button type="submit">Dodaj koszt</button>
-      </form>
-    </div>
+    <a class="button" href="{% url 'distribution:document_center' %}#upload">Otwórz Centrum dokumentów</a>
   </section>
 
   {% if selected_import %}

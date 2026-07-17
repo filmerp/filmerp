@@ -5,10 +5,12 @@ from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.core.exceptions import ValidationError
+from django.contrib.auth.decorators import permission_required
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils.dateparse import parse_date
 from django.utils import timezone
 from openpyxl import Workbook
@@ -17,7 +19,14 @@ from openpyxl.utils import get_column_letter
 
 from .avails import check_availability
 from .cinema_imports import approve_import_rows, parse_cinema_report_import
-from .forms import CinemaReportUploadForm, CostInvoiceUploadForm
+from .documents import analyze_document, ingest_document
+from .forms import (
+    CinemaReportUploadForm,
+    CostInvoiceUploadForm,
+    DocumentClassificationForm,
+    DocumentCostForm,
+    DocumentUploadForm,
+)
 from .pdf import build_royalty_statement_pdf
 from .models import (
     AcquisitionAgreement,
@@ -27,6 +36,9 @@ from .models import (
     Counterparty,
     Currency,
     DeliveryStatus,
+    DocumentInboxItem,
+    DocumentStatus,
+    DocumentType,
     ExploitationField,
     LanguageVersion,
     RightsIssue,
@@ -229,6 +241,166 @@ def _previous_month_period():
     today = timezone.localdate()
     last_day_previous_month = today.replace(day=1) - timedelta(days=1)
     return last_day_previous_month.replace(day=1), last_day_previous_month
+
+
+def _document_center_url(document_id=""):
+    url = reverse("distribution:document_center")
+    return f"{url}?document={document_id}" if document_id else url
+
+
+@login_required
+@permission_required("distribution.view_documentinboxitem", raise_exception=True)
+def document_center(request):
+    if request.method == "POST":
+        action = request.POST.get("action")
+
+        if action == "upload":
+            if not request.user.has_perm("distribution.add_documentinboxitem"):
+                raise PermissionDenied
+            form = DocumentUploadForm(request.POST, request.FILES)
+            if form.is_valid():
+                try:
+                    document, created = ingest_document(request.FILES["source_file"], request.user)
+                    if created:
+                        messages.success(request, "Dokument wczytano i przekazano do weryfikacji.")
+                    else:
+                        messages.warning(request, "Ten sam plik jest już w Centrum dokumentów. Otwieram istniejący rekord.")
+                    return redirect(_document_center_url(document.pk))
+                except ValueError as exc:
+                    messages.error(request, str(exc))
+            else:
+                messages.error(request, "Wybierz plik PDF, XLSX albo obraz faktury.")
+            return redirect(_document_center_url())
+
+        document = get_object_or_404(
+            DocumentInboxItem.objects.select_related("cinema_import", "cost"),
+            pk=request.POST.get("document_id"),
+        )
+        if not request.user.has_perm("distribution.change_documentinboxitem"):
+            raise PermissionDenied
+
+        if action == "classify":
+            if document.status == DocumentStatus.PROCESSED:
+                messages.error(request, "Zaksięgowanego dokumentu nie można ponownie sklasyfikować.")
+            else:
+                form = DocumentClassificationForm(request.POST, instance=document)
+                if form.is_valid():
+                    chosen_type = form.cleaned_data["document_type"]
+                    try:
+                        analyze_document(document, forced_type=chosen_type)
+                        messages.success(request, "Zmieniono rodzaj dokumentu i ponowiono analizę.")
+                    except ValueError as exc:
+                        messages.error(request, str(exc))
+            return redirect(_document_center_url(document.pk))
+
+        if action == "apply_report_title":
+            if not document.cinema_import_id:
+                messages.error(request, "Ten dokument nie ma rozpoznanych wierszy raportu.")
+            else:
+                row_ids = request.POST.getlist("row_ids")
+                if not row_ids:
+                    messages.error(request, "Zaznacz co najmniej jeden wiersz.")
+                else:
+                    title = get_object_or_404(Title, pk=request.POST.get("title_id"))
+                    updated = document.cinema_import.rows.filter(pk__in=row_ids).exclude(status="imported").update(title=title)
+                    document.title = title
+                    document.save(update_fields=["title", "updated_at"])
+                    messages.success(request, f"Przypisano tytuł do {updated} wierszy.")
+            return redirect(_document_center_url(document.pk))
+
+        if action == "approve_report_rows":
+            if not request.user.has_perm("distribution.add_cinemabooking") or not request.user.has_perm("distribution.add_salesreport"):
+                raise PermissionDenied
+            if not document.cinema_import_id:
+                messages.error(request, "Ten dokument nie ma rozpoznanych wierszy raportu.")
+            else:
+                row_ids = request.POST.getlist("row_ids")
+                rows = document.cinema_import.rows.filter(pk__in=row_ids)
+                if not row_ids:
+                    messages.error(request, "Zaznacz co najmniej jeden wiersz.")
+                else:
+                    imported, skipped = approve_import_rows(rows)
+                    document.cinema_import.refresh_from_db()
+                    if document.cinema_import.status == "imported":
+                        document.status = DocumentStatus.PROCESSED
+                        document.processed_at = timezone.now()
+                    document.reviewed_by = request.user
+                    document.save(update_fields=["status", "processed_at", "reviewed_by", "updated_at"])
+                    if skipped:
+                        messages.warning(request, f"Utworzono {imported} bookingów. Pominięto {skipped} wierszy wymagających poprawy.")
+                    else:
+                        messages.success(request, f"Utworzono bookingi i raporty sprzedaży: {imported}.")
+            return redirect(_document_center_url(document.pk))
+
+        if action == "create_cost":
+            if not request.user.has_perm("distribution.add_cost"):
+                raise PermissionDenied
+            if document.cost_id:
+                messages.warning(request, "Ta faktura została już zaksięgowana jako koszt.")
+            else:
+                form = DocumentCostForm(request.POST, document=document)
+                if form.is_valid():
+                    cost = form.save()
+                    document.cost = cost
+                    document.title = cost.title
+                    document.counterparty = cost.supplier
+                    document.status = DocumentStatus.PROCESSED
+                    document.reviewed_by = request.user
+                    document.processed_at = timezone.now()
+                    document.save(update_fields=["cost", "title", "counterparty", "status", "reviewed_by", "processed_at", "updated_at"])
+                    messages.success(request, f"Faktura została zaksięgowana jako koszt {cost.net_amount} {cost.currency}.")
+                else:
+                    errors = " ".join(error for field_errors in form.errors.values() for error in field_errors)
+                    messages.error(request, f"Nie utworzono kosztu. {errors}")
+            return redirect(_document_center_url(document.pk))
+
+        if action == "reject":
+            has_imported_rows = document.cinema_import_id and document.cinema_import.rows.filter(status="imported").exists()
+            if document.cost_id or has_imported_rows:
+                messages.error(request, "Dokument ma już zaksięgowane dane i nie może zostać odrzucony.")
+            else:
+                document.status = DocumentStatus.REJECTED
+                document.reviewed_by = request.user
+                document.save(update_fields=["status", "reviewed_by", "updated_at"])
+                messages.success(request, "Dokument oznaczono jako odrzucony.")
+            return redirect(_document_center_url(document.pk))
+
+    base_documents = DocumentInboxItem.objects.select_related(
+        "title", "counterparty", "uploaded_by", "reviewed_by", "cinema_import", "cost"
+    )
+    status_filter = request.GET.get("status", "")
+    queue = base_documents
+    if status_filter in DocumentStatus.values:
+        queue = queue.filter(status=status_filter)
+
+    selected_document = None
+    selected_id = request.GET.get("document")
+    if selected_id:
+        selected_document = get_object_or_404(base_documents, pk=selected_id)
+    elif queue.exists():
+        selected_document = queue.first()
+
+    report_rows = selected_document.cinema_import.rows.select_related("title", "cinema", "booking") if selected_document and selected_document.cinema_import_id else None
+    classification_form = DocumentClassificationForm(instance=selected_document) if selected_document else None
+    cost_form = None
+    if selected_document and selected_document.document_type == DocumentType.COST_INVOICE and not selected_document.cost_id:
+        cost_form = DocumentCostForm(document=selected_document)
+
+    context = {
+        "documents": queue,
+        "selected_document": selected_document,
+        "report_rows": report_rows,
+        "upload_form": DocumentUploadForm(),
+        "classification_form": classification_form,
+        "cost_form": cost_form,
+        "titles": Title.objects.order_by("title_pl"),
+        "status_filter": status_filter,
+        "document_statuses": DocumentStatus.choices,
+        "document_count": base_documents.count(),
+        "review_count": base_documents.filter(status=DocumentStatus.NEEDS_REVIEW).count(),
+        "processed_count": base_documents.filter(status=DocumentStatus.PROCESSED).count(),
+    }
+    return render(request, "distribution/document_center.html", context)
 
 
 def _settlement_url(*, title_id="", plan_id="", period_start="", period_end="", currency="", run_id="", import_id=""):

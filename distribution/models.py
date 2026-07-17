@@ -145,6 +145,21 @@ class ImportStatus(models.TextChoices):
     IMPORTED = "imported", "zaimportowany"
 
 
+class DocumentType(models.TextChoices):
+    UNKNOWN = "unknown", "nierozpoznany"
+    CINEMA_REPORT = "cinema_report", "raport seansów / box office"
+    CINEMA_STATEMENT = "cinema_statement", "statement kina"
+    COST_INVOICE = "cost_invoice", "faktura kosztowa"
+    OTHER = "other", "inny dokument"
+
+
+class DocumentStatus(models.TextChoices):
+    UPLOADED = "uploaded", "wgrany"
+    NEEDS_REVIEW = "needs_review", "do weryfikacji"
+    PROCESSED = "processed", "zaksięgowany"
+    REJECTED = "rejected", "odrzucony"
+
+
 class CostCategory(models.TextChoices):
     PA = "pa", "P&A"
     DIGITAL_MARKETING = "digital_marketing", "digital marketing"
@@ -867,6 +882,46 @@ class Cost(TimestampedModel):
         if self.applies_to_all_exploitation_fields:
             return True
         return exploitation_field in self.waterfall_exploitation_fields()
+
+
+class DocumentInboxItem(TimestampedModel):
+    source_file = models.FileField("dokument źródłowy", upload_to="document_inbox/%Y/%m/")
+    original_filename = models.CharField("oryginalna nazwa", max_length=255)
+    file_hash = models.CharField("SHA-256", max_length=64, unique=True)
+    content_type = models.CharField("typ MIME", max_length=120, blank=True)
+    file_size = models.PositiveBigIntegerField("rozmiar pliku", default=0)
+    document_type = models.CharField("rodzaj dokumentu", max_length=40, choices=DocumentType.choices, default=DocumentType.UNKNOWN)
+    status = models.CharField("status", max_length=30, choices=DocumentStatus.choices, default=DocumentStatus.UPLOADED)
+    classification_confidence = models.DecimalField("pewność klasyfikacji %", max_digits=5, decimal_places=2, default=Decimal("0.00"))
+    title = models.ForeignKey(Title, null=True, blank=True, on_delete=models.SET_NULL, related_name="inbox_documents", verbose_name="tytuł")
+    counterparty = models.ForeignKey(Counterparty, null=True, blank=True, on_delete=models.SET_NULL, related_name="inbox_documents", verbose_name="kontrahent")
+    cinema_import = models.OneToOneField(CinemaReportImport, null=True, blank=True, on_delete=models.SET_NULL, related_name="inbox_document", verbose_name="import raportu kina")
+    cost = models.OneToOneField(Cost, null=True, blank=True, on_delete=models.SET_NULL, related_name="inbox_document", verbose_name="utworzony koszt")
+    extracted_data = models.JSONField("rozpoznane dane", default=dict, blank=True)
+    uploaded_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="uploaded_inbox_documents", verbose_name="wgrał")
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="reviewed_inbox_documents", verbose_name="zweryfikował")
+    processed_at = models.DateTimeField("data zaksięgowania", null=True, blank=True)
+    notes = models.TextField("uwagi", blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "dokument w kolejce"
+        verbose_name_plural = "centrum dokumentów"
+
+    def __str__(self) -> str:
+        return self.original_filename
+
+    @property
+    def extension(self) -> str:
+        return self.original_filename.rsplit(".", 1)[-1].lower() if "." in self.original_filename else ""
+
+    @property
+    def is_pdf(self) -> bool:
+        return self.extension == "pdf"
+
+    @property
+    def is_image(self) -> bool:
+        return self.extension in {"jpg", "jpeg", "png", "webp"}
 
 
 class TitleMaterial(TimestampedModel):

@@ -1,0 +1,211 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Centrum dokumentów | FILMERP</title>
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+</head>
+<body>
+{% include "distribution/_app_header.html" %}
+<main>
+  <div class="page-heading">
+    <div>
+      <h1>Centrum dokumentów</h1>
+      <div class="muted">Jedna kolejka raportów kinowych, statementów i faktur kosztowych.</div>
+    </div>
+  </div>
+
+  {% if messages %}
+  <section class="messages">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</section>
+  {% endif %}
+
+  <section class="document-intake" id="upload">
+    {% if perms.distribution.add_documentinboxitem %}
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="upload">
+      <label>
+        <span>Nowy dokument</span>
+        {{ upload_form.source_file }}
+      </label>
+      <button type="submit">Wczytaj i rozpoznaj</button>
+      <span class="muted">PDF, XLSX, JPG, PNG lub WEBP · duplikaty są blokowane</span>
+    </form>
+    {% else %}
+    <div class="readonly-notice"><strong>Tryb tylko do odczytu</strong></div>
+    {% endif %}
+    <div class="document-summary">
+      <div><span>Wszystkie</span><strong>{{ document_count }}</strong></div>
+      <div><span>Do weryfikacji</span><strong>{{ review_count }}</strong></div>
+      <div><span>Zaksięgowane</span><strong>{{ processed_count }}</strong></div>
+    </div>
+  </section>
+
+  <div class="document-filters" aria-label="Filtry dokumentów">
+    <a class="{% if not status_filter %}active{% endif %}" href="{% url 'distribution:document_center' %}">Wszystkie</a>
+    {% for value, label in document_statuses %}
+    <a class="{% if status_filter == value %}active{% endif %}" href="?status={{ value }}">{{ label }}</a>
+    {% endfor %}
+  </div>
+
+  <section class="document-workspace">
+    <aside class="document-queue" aria-label="Kolejka dokumentów">
+      {% for item in documents %}
+      <a class="document-queue-item {% if selected_document.pk == item.pk %}active{% endif %}" href="?document={{ item.pk }}{% if status_filter %}&status={{ status_filter }}{% endif %}">
+        <span class="document-type-mark">{{ item.extension|upper|default:"PLIK" }}</span>
+        <span class="document-queue-copy">
+          <strong>{{ item.original_filename }}</strong>
+          <small>{{ item.get_document_type_display }} · {{ item.created_at|date:"d.m.Y H:i" }}</small>
+        </span>
+        <span class="status-pill {{ item.status }}">{{ item.get_status_display }}</span>
+      </a>
+      {% empty %}
+      <div class="document-empty">Brak dokumentów w tym widoku.</div>
+      {% endfor %}
+    </aside>
+
+    <div class="document-review">
+      {% if selected_document %}
+      <div class="document-review-heading">
+        <div>
+          <h2>{{ selected_document.original_filename }}</h2>
+          <div class="muted">SHA-256: {{ selected_document.file_hash|slice:":12" }}… · {{ selected_document.file_size|filesizeformat }}</div>
+        </div>
+        <span class="status-pill {{ selected_document.status }}">{{ selected_document.get_status_display }}</span>
+      </div>
+
+      <div class="document-actions">
+        {% if selected_document.status != 'processed' and perms.distribution.change_documentinboxitem %}
+        <form method="post" class="document-classification">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="classify">
+          <input type="hidden" name="document_id" value="{{ selected_document.pk }}">
+          <label>Rodzaj dokumentu {{ classification_form.document_type }}</label>
+          <button type="submit" class="button export">Zastosuj typ</button>
+        </form>
+        <form method="post" class="inline-action-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="reject">
+          <input type="hidden" name="document_id" value="{{ selected_document.pk }}">
+          <button type="submit" class="button secondary">Odrzuć</button>
+        </form>
+        {% endif %}
+        <span class="confidence">Pewność klasyfikacji: <strong>{{ selected_document.classification_confidence }}%</strong></span>
+      </div>
+
+      <div class="document-review-grid">
+        <div class="document-preview">
+          <div class="document-pane-title">Dokument źródłowy</div>
+          {% if selected_document.is_pdf %}
+          <iframe src="{{ selected_document.source_file.url }}#toolbar=1" title="Podgląd {{ selected_document.original_filename }}"></iframe>
+          {% elif selected_document.is_image %}
+          <img src="{{ selected_document.source_file.url }}" alt="{{ selected_document.original_filename }}">
+          {% else %}
+          <div class="file-preview-fallback">
+            <strong>{{ selected_document.extension|upper }} </strong>
+            <span>Arkusz można otworzyć w osobnym oknie.</span>
+          </div>
+          {% endif %}
+          <a class="button export" href="{{ selected_document.source_file.url }}" target="_blank" rel="noopener">Otwórz plik</a>
+        </div>
+
+        <div class="document-data-pane">
+          <div class="document-pane-title">Dane do zatwierdzenia</div>
+
+          {% if selected_document.cost %}
+          <div class="processed-result">
+            <strong>Utworzono koszt #{{ selected_document.cost.pk }}</strong>
+            <span>{{ selected_document.cost.title }} · {{ selected_document.cost.net_amount }} {{ selected_document.cost.currency }}</span>
+            <a href="/admin/distribution/cost/{{ selected_document.cost.pk }}/change/">Otwórz koszt</a>
+          </div>
+          {% elif cost_form %}
+          {% if selected_document.notes %}<div class="document-note">{{ selected_document.notes }}</div>{% endif %}
+          {% if selected_document.extracted_data.invoice_number or selected_document.extracted_data.gross_amount %}
+          <div class="extracted-hints">
+            {% if selected_document.extracted_data.invoice_number %}<span>Numer FV <strong>{{ selected_document.extracted_data.invoice_number }}</strong></span>{% endif %}
+            {% if selected_document.extracted_data.gross_amount %}<span>Rozpoznane brutto <strong>{{ selected_document.extracted_data.gross_amount }} {{ selected_document.extracted_data.currency }}</strong></span>{% endif %}
+          </div>
+          {% endif %}
+          {% if perms.distribution.add_cost %}
+          <form method="post" class="document-cost-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="create_cost">
+            <input type="hidden" name="document_id" value="{{ selected_document.pk }}">
+            <label>Tytuł {{ cost_form.title }}</label>
+            <label>Dostawca {{ cost_form.supplier_name }}</label>
+            <label>Data kosztu {{ cost_form.cost_date }}</label>
+            <label>Kategoria {{ cost_form.category }}</label>
+            <label>Waluta {{ cost_form.currency }}</label>
+            <label>Netto {{ cost_form.net_amount }}</label>
+            <label>VAT {{ cost_form.vat_amount }}</label>
+            <label>Pole eksploatacji {{ cost_form.exploitation_field }}</label>
+            <label class="check-label">{{ cost_form.recoupable }} Recoupable</label>
+            <label class="check-label">{{ cost_form.applies_to_all_exploitation_fields }} Wszystkie pola</label>
+            <button type="submit">Zatwierdź i utwórz koszt</button>
+          </form>
+          {% else %}<div class="readonly-notice">Brak uprawnienia do tworzenia kosztów.</div>{% endif %}
+          {% elif selected_document.cinema_import %}
+          <form method="post" class="document-report-form">
+            {% csrf_token %}
+            <input type="hidden" name="document_id" value="{{ selected_document.pk }}">
+            <div class="report-bulk-actions">
+              {% if perms.distribution.add_cinemabooking and perms.distribution.add_salesreport %}
+              <label>Tytuł dla zaznaczonych
+                <select name="title_id">
+                  {% for title in titles %}<option value="{{ title.pk }}" {% if selected_document.title_id == title.pk %}selected{% endif %}>{{ title.title_pl }}</option>{% endfor %}
+                </select>
+              </label>
+              <button type="submit" name="action" value="apply_report_title" class="button export">Przypisz tytuł</button>
+              <button type="submit" name="action" value="approve_report_rows">Zaakceptuj zaznaczone</button>
+              {% else %}<span class="readonly-notice">Tryb tylko do odczytu</span>{% endif %}
+            </div>
+            <div class="table-scroll document-row-table">
+              <table>
+                <thead><tr><th>{% if perms.distribution.add_cinemabooking and perms.distribution.add_salesreport %}<input type="checkbox" data-select-all="document-rows" checked>{% endif %}</th><th>Status</th><th>Edycja</th><th>Tytuł</th><th>Kino</th><th>Okres</th><th class="num">Widzowie</th><th class="num">Seanse</th><th class="num">Box office</th><th>Pewność</th></tr></thead>
+                <tbody>
+                  {% for row in report_rows %}
+                  <tr>
+                    <td>{% if row.status != 'imported' and perms.distribution.add_cinemabooking and perms.distribution.add_salesreport %}<input type="checkbox" name="row_ids" value="{{ row.pk }}" data-row-checkbox="document-rows" checked>{% endif %}</td>
+                    <td><span class="status-pill {{ row.status }}">{{ row.get_status_display }}</span></td>
+                    <td>{% if row.booking %}<a href="/admin/distribution/cinemabooking/{{ row.booking.pk }}/change/">booking</a>{% else %}<a href="/admin/distribution/cinemareportimportrow/{{ row.pk }}/change/">popraw</a>{% endif %}</td>
+                    <td>{{ row.title|default:"brak" }}</td>
+                    <td>{{ row.cinema|default:"brak" }}</td>
+                    <td>{{ row.date_from|default:"?" }} – {{ row.date_to|default:"?" }}</td>
+                    <td class="num">{{ row.admissions }}</td>
+                    <td class="num">{{ row.screenings }}</td>
+                    <td class="num">{{ row.box_office_gross }} {{ row.currency }}</td>
+                    <td>{{ row.confidence }}%</td>
+                  </tr>
+                  {% empty %}<tr><td colspan="10" class="muted">Nie rozpoznano wierszy raportu.</td></tr>{% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </form>
+          {% else %}
+          <div class="document-unrecognized">
+            <h3>Dokument wymaga określenia typu</h3>
+            <p>Wybierz rodzaj dokumentu powyżej. FILMERP uruchomi odpowiedni proces weryfikacji, ale niczego nie zaksięguje automatycznie.</p>
+            {% if selected_document.notes %}<div class="document-note">{{ selected_document.notes }}</div>{% endif %}
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% else %}
+      <div class="document-empty large">Wczytaj pierwszy dokument, aby rozpocząć weryfikację.</div>
+      {% endif %}
+    </div>
+  </section>
+</main>
+<script>
+  document.querySelectorAll('[data-select-all]').forEach(function (control) {
+    control.addEventListener('change', function () {
+      document.querySelectorAll('[data-row-checkbox="' + control.dataset.selectAll + '"]').forEach(function (checkbox) {
+        checkbox.checked = control.checked;
+      });
+    });
+  });
+</script>
+</body>
+</html>

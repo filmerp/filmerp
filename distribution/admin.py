@@ -18,6 +18,7 @@ from .models import (
     Cost,
     CostCategory,
     Counterparty,
+    DocumentInboxItem,
     ExploitationField,
     LanguageVersion,
     RightsIssue,
@@ -536,6 +537,18 @@ class SalesReportAdmin(admin.ModelAdmin):
     @admin.display(description="net revenue")
     def net_revenue_display(self, obj):
         return obj.net_revenue
+
+
+@admin.register(DocumentInboxItem)
+class DocumentInboxItemAdmin(admin.ModelAdmin):
+    list_display = ("original_filename", "document_type", "status", "classification_confidence", "title", "counterparty", "created_at")
+    list_filter = ("document_type", "status", "created_at")
+    search_fields = ("original_filename", "file_hash", "title__title_pl", "counterparty__name", "notes")
+    readonly_fields = (
+        "file_hash", "content_type", "file_size", "classification_confidence", "extracted_data",
+        "cinema_import", "cost", "uploaded_by", "reviewed_by", "processed_at", "created_at", "updated_at",
+    )
+    autocomplete_fields = ("title", "counterparty")
 
 
 @admin.register(Cost)

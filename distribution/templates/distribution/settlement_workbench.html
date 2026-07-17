@@ -79,12 +79,12 @@
         {% if agreement %}
         <a class="button export" href="/admin/distribution/acquisitionagreement/{{ agreement.pk }}/change/">Umowa</a>
         {% else %}
-        <a class="button export" href="/admin/distribution/acquisitionagreement/add/?title={{ selected_title.pk }}">Dodaj umowę</a>
+        <a class="button export" href="{% url 'distribution:contract_waterfall_wizard' %}?title={{ selected_title.pk }}">Dodaj umowę i waterfall</a>
         {% endif %}
         {% if selected_plan %}
         <a class="button export" href="/admin/distribution/waterfallplan/{{ selected_plan.pk }}/change/">Warunki waterfall</a>
         {% else %}
-        <a class="button export" href="/admin/distribution/waterfallplan/add/?title={{ selected_title.pk }}&currency={{ currency }}">Dodaj waterfall</a>
+        <a class="button export" href="{% url 'distribution:contract_waterfall_wizard' %}?title={{ selected_title.pk }}">Skonfiguruj waterfall</a>
         {% endif %}
       </div>
     </div>

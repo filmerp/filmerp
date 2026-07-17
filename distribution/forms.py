@@ -1,12 +1,76 @@
 from django import forms
 
 from .models import (
+    AgreementStatus,
+    AcquisitionAgreement,
     CinemaReportImport,
     Cost,
+    CostCategory,
     Counterparty,
     CounterpartyType,
+    Currency,
     DocumentInboxItem,
+    ExploitationField,
+    Territory,
+    Title,
 )
+
+
+class ContractWaterfallWizardForm(forms.Form):
+    title = forms.ModelChoiceField(label="Tytuł", queryset=Title.objects.none())
+    contract_number = forms.CharField(label="Numer umowy", max_length=120, required=False)
+    licensor = forms.ModelChoiceField(label="Licencjodawca / producent", queryset=Counterparty.objects.none())
+    distributor = forms.ModelChoiceField(label="Dystrybutor", queryset=Counterparty.objects.none())
+    signed_date = forms.DateField(label="Data podpisania", required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    rights_start = forms.DateField(label="Początek praw", required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    rights_end = forms.DateField(label="Koniec praw", required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    territories = forms.ModelMultipleChoiceField(
+        label="Terytoria", queryset=Territory.objects.none(), required=False,
+        widget=forms.CheckboxSelectMultiple,
+    )
+    currency = forms.ChoiceField(label="Waluta", choices=Currency.choices, initial=Currency.PLN)
+    mg_advance = forms.DecimalField(label="MG do odzyskania", min_value=0, max_digits=14, decimal_places=2, initial=0)
+    distributor_fee_percent = forms.DecimalField(label="Fee dystrybutora %", min_value=0, max_value=100, max_digits=5, decimal_places=2, initial=10)
+    pa_recoupable = forms.BooleanField(label="Odzyskuj koszty P&A", required=False, initial=True)
+    pa_cost_categories = forms.MultipleChoiceField(
+        label="Kategorie kosztów P&A", choices=CostCategory.choices, required=False,
+        widget=forms.CheckboxSelectMultiple,
+    )
+    applies_to_all_exploitation_fields = forms.BooleanField(label="Wszystkie pola eksploatacji", required=False, initial=True)
+    exploitation_fields = forms.MultipleChoiceField(
+        label="Wybrane pola eksploatacji", choices=ExploitationField.choices, required=False,
+        widget=forms.CheckboxSelectMultiple,
+    )
+    licensor_share_percent = forms.DecimalField(label="Udział licencjodawcy po recoupment %", min_value=0, max_value=100, max_digits=5, decimal_places=2, initial=50)
+    status = forms.ChoiceField(label="Status umowy", choices=AgreementStatus.choices, initial=AgreementStatus.SIGNED)
+    notes = forms.CharField(label="Uwagi / podstawa umowna", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+    def __init__(self, *args, title=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["title"].queryset = Title.objects.order_by("title_pl")
+        self.fields["licensor"].queryset = Counterparty.objects.order_by("name")
+        self.fields["distributor"].queryset = Counterparty.objects.order_by("name")
+        self.fields["territories"].queryset = Territory.objects.order_by("name")
+        self.fields["pa_cost_categories"].initial = [
+            CostCategory.PA, CostCategory.DIGITAL_MARKETING, CostCategory.PR,
+            CostCategory.KEY_ART, CostCategory.TRAILER, CostCategory.PROMO_MATERIALS,
+        ]
+        if title:
+            self.fields["title"].initial = title
+            self.fields["currency"].initial = title.acquisition_currency
+            self.fields["mg_advance"].initial = title.mg_advance
+            self.fields["licensor"].initial = title.producer_id
+
+    def clean(self):
+        cleaned = super().clean()
+        start, end = cleaned.get("rights_start"), cleaned.get("rights_end")
+        if start and end and start > end:
+            self.add_error("rights_end", "Koniec praw nie może być wcześniejszy niż początek.")
+        if not cleaned.get("applies_to_all_exploitation_fields") and not cleaned.get("exploitation_fields"):
+            self.add_error("exploitation_fields", "Wybierz pola albo zaznacz wszystkie pola eksploatacji.")
+        if cleaned.get("pa_recoupable") and not cleaned.get("pa_cost_categories"):
+            self.add_error("pa_cost_categories", "Wybierz co najmniej jedną kategorię kosztów P&A.")
+        return cleaned
 
 
 class CinemaReportUploadForm(forms.ModelForm):

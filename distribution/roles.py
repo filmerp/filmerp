@@ -29,9 +29,9 @@ from distribution.models import (
 
 
 ROLE_MODELS = {
-    "legal": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, Counterparty],
+    "legal": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, Counterparty, WaterfallPlan, WaterfallStep],
     "sales": [SalesAgreement, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, RightsWindow, Territory, LanguageVersion, Title, TitleMaterial, Counterparty],
-    "finance": [SalesAgreement, SalesReport, CinemaBooking, Cost, RoyaltyStatement, WaterfallRecoupmentRule, WaterfallRecoupmentItem, WaterfallParticipant, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Title, TitleMaterial, Counterparty],
+    "finance": [AcquisitionAgreement, SalesAgreement, SalesReport, CinemaBooking, Cost, RoyaltyStatement, WaterfallRecoupmentRule, WaterfallRecoupmentItem, WaterfallParticipant, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Title, TitleMaterial, Counterparty],
     "readonly": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, TitleMaterial, Counterparty, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Cost, RoyaltyStatement, WaterfallRecoupmentRule, WaterfallRecoupmentItem, WaterfallParticipant, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine],
 }
 

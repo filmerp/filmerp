@@ -14,6 +14,7 @@ from openpyxl import Workbook
 from .models import (
     Cost,
     CostCategory,
+    AcquisitionAgreement,
     Counterparty,
     Currency,
     DocumentInboxItem,
@@ -203,6 +204,8 @@ class SettlementWorkflowTests(TestCase):
         })
         self.assertEqual(response.status_code, 403)
         self.assertEqual(DocumentInboxItem.objects.count(), 0)
+        response = self.client.get(reverse("distribution:contract_waterfall_wizard"))
+        self.assertEqual(response.status_code, 403)
 
     def test_app_navigation_is_consistent(self):
         page_urls = [
@@ -233,6 +236,41 @@ class SettlementWorkflowTests(TestCase):
                 nav_html = response.content.decode().split('<nav class="app-nav"', 1)[1].split("</nav>", 1)[0]
                 positions = [nav_html.index(f'href="{link}"') for link in expected_links]
                 self.assertEqual(positions, sorted(positions))
+
+    def test_contract_wizard_creates_versioned_agreement_and_waterfall(self):
+        distributor = Counterparty.objects.create(name="FILMERP Dystrybucja")
+        payload = {
+            "title": self.title.pk,
+            "contract_number": "ACQ/2026/7",
+            "licensor": self.producer.pk,
+            "distributor": distributor.pk,
+            "signed_date": "2026-07-01",
+            "rights_start": "2026-07-01",
+            "rights_end": "2031-06-30",
+            "currency": Currency.PLN,
+            "mg_advance": "25000.00",
+            "distributor_fee_percent": "15.00",
+            "pa_recoupable": "on",
+            "pa_cost_categories": [CostCategory.PA, CostCategory.PR],
+            "applies_to_all_exploitation_fields": "on",
+            "licensor_share_percent": "60.00",
+            "status": "signed",
+        }
+        response = self.client.post(reverse("distribution:contract_waterfall_wizard"), payload)
+        self.assertEqual(response.status_code, 302)
+        agreement = AcquisitionAgreement.objects.get(contract_number="ACQ/2026/7")
+        plan = WaterfallPlan.objects.get(name="Główny waterfall")
+        self.assertEqual(agreement.mg_advance, Decimal("25000.00"))
+        self.assertEqual(plan.status, "active")
+        self.assertEqual(list(plan.steps.order_by("phase", "sort_order").values_list("name", flat=True)), [
+            "Fee dystrybutora", "Zwrot kosztów P&A", "Zwrot MG",
+            "Udział licencjodawcy", "Udział dystrybutora",
+        ])
+
+        response = self.client.post(reverse("distribution:contract_waterfall_wizard"), payload | {"contract_number": "ACQ/2026/8"})
+        self.assertEqual(response.status_code, 302)
+        plans = WaterfallPlan.objects.filter(name="Główny waterfall").order_by("version")
+        self.assertEqual(list(plans.values_list("version", "status")), [(1, "archived"), (2, "active")])
 
     def test_workbench_simulates_finalizes_and_generates_pdf(self):
         response = self.client.get("/settlements/", self.workflow_payload())

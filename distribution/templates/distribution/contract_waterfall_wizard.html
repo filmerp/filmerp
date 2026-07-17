@@ -1,0 +1,98 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kreator umowy i waterfallu | FILMERP</title>
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+</head>
+<body>
+{% include "distribution/_app_header.html" %}
+<main>
+  <div class="page-heading">
+    <div>
+      <h1>Kreator umowy i waterfallu</h1>
+      <div class="muted">Jednorazowo zapisz warunki umowy oraz kolejność rozliczania wpływów.</div>
+    </div>
+    {% if selected_title %}<a class="button secondary" href="{% url 'distribution:title_detail' selected_title.pk %}">Wróć do tytułu</a>{% endif %}
+  </div>
+
+  {% if form.non_field_errors %}<div class="notice error">{{ form.non_field_errors }}</div>{% endif %}
+  <form method="post" class="contract-wizard">
+    {% csrf_token %}
+    <section class="wizard-layout">
+      <div class="wizard-form stack">
+        <fieldset class="workbench-section">
+          <legend>1. Strony i umowa</legend>
+          <div class="form-grid three-fields">
+            <label>{{ form.title.label }}{{ form.title }}{{ form.title.errors }}</label>
+            <label>{{ form.licensor.label }}{{ form.licensor }}{{ form.licensor.errors }}</label>
+            <label>{{ form.distributor.label }}{{ form.distributor }}{{ form.distributor.errors }}</label>
+            <label>{{ form.contract_number.label }}{{ form.contract_number }}{{ form.contract_number.errors }}</label>
+            <label>{{ form.signed_date.label }}{{ form.signed_date }}{{ form.signed_date.errors }}</label>
+            <label>{{ form.status.label }}{{ form.status }}{{ form.status.errors }}</label>
+          </div>
+        </fieldset>
+
+        <fieldset class="workbench-section">
+          <legend>2. Zakres praw</legend>
+          <div class="form-grid three-fields">
+            <label>{{ form.rights_start.label }}{{ form.rights_start }}{{ form.rights_start.errors }}</label>
+            <label>{{ form.rights_end.label }}{{ form.rights_end }}{{ form.rights_end.errors }}</label>
+            <label>{{ form.currency.label }}{{ form.currency }}{{ form.currency.errors }}</label>
+          </div>
+          <div class="choice-panel"><strong>{{ form.territories.label }}</strong>{{ form.territories }}{{ form.territories.errors }}</div>
+          <div class="choice-panel">
+            <label class="check-label">{{ form.applies_to_all_exploitation_fields }} {{ form.applies_to_all_exploitation_fields.label }}</label>
+            <div id="exploitation-scope">{{ form.exploitation_fields }}{{ form.exploitation_fields.errors }}</div>
+          </div>
+        </fieldset>
+
+        <fieldset class="workbench-section">
+          <legend>3. Warunki finansowe</legend>
+          <div class="form-grid three-fields">
+            <label>{{ form.mg_advance.label }}{{ form.mg_advance }}{{ form.mg_advance.errors }}</label>
+            <label>{{ form.distributor_fee_percent.label }}{{ form.distributor_fee_percent }}{{ form.distributor_fee_percent.errors }}</label>
+            <label>{{ form.licensor_share_percent.label }}{{ form.licensor_share_percent }}{{ form.licensor_share_percent.errors }}<small>Reszta do 100% przypada dystrybutorowi.</small></label>
+          </div>
+          <div class="choice-panel">
+            <label class="check-label">{{ form.pa_recoupable }} {{ form.pa_recoupable.label }}</label>
+            <div id="pa-categories"><strong>{{ form.pa_cost_categories.label }}</strong>{{ form.pa_cost_categories }}{{ form.pa_cost_categories.errors }}</div>
+          </div>
+          <label class="full-field">{{ form.notes.label }}{{ form.notes }}{{ form.notes.errors }}</label>
+        </fieldset>
+      </div>
+
+      <aside class="wizard-preview">
+        <h2>Kolejność rozliczenia</h2>
+        <ol class="money-flow">
+          <li><span>1</span><div><strong>Wpływy netto</strong><small>Z raportów w walucie i zakresie planu</small></div></li>
+          <li><span>2</span><div><strong>Fee dystrybutora</strong><small>Procent od dostępnej kwoty</small></div></li>
+          <li><span>3</span><div><strong>Zwrot P&A</strong><small>Tylko zatwierdzone koszty recoupable</small></div></li>
+          <li><span>4</span><div><strong>Zwrot MG</strong><small>Do pełnego odzyskania zaliczki</small></div></li>
+          <li><span>5</span><div><strong>Podział nadwyżki</strong><small>Licencjodawca i dystrybutor równolegle</small></div></li>
+        </ol>
+        <p class="muted">Kolejny zapis tworzy nową wersję planu. Zatwierdzone historyczne rozliczenia pozostają bez zmian.</p>
+        <button type="submit">Utwórz umowę i aktywuj waterfall</button>
+      </aside>
+    </section>
+  </form>
+</main>
+<script>
+  const allFields = document.getElementById('id_applies_to_all_exploitation_fields');
+  const scope = document.getElementById('exploitation-scope');
+  const paEnabled = document.getElementById('id_pa_recoupable');
+  const paCategories = document.getElementById('pa-categories');
+  function syncChoices() {
+    scope.classList.toggle('disabled-choice', allFields.checked);
+    scope.querySelectorAll('input').forEach(input => input.disabled = allFields.checked);
+    paCategories.classList.toggle('disabled-choice', !paEnabled.checked);
+    paCategories.querySelectorAll('input').forEach(input => input.disabled = !paEnabled.checked);
+  }
+  allFields.addEventListener('change', syncChoices);
+  paEnabled.addEventListener('change', syncChoices);
+  syncChoices();
+</script>
+</body>
+</html>

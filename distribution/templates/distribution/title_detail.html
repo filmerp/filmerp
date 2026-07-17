@@ -20,6 +20,7 @@
       </div>
     </div>
     <div class="action-bar">
+      <a class="button" href="{% url 'distribution:contract_waterfall_wizard' %}?title={{ title.pk }}">Ustaw umowę i waterfall</a>
       <a class="button" href="{% url 'distribution:avails' %}?title={{ title.pk }}">Sprawdź Avails</a>
       <a class="button secondary" href="/admin/distribution/title/{{ title.pk }}/change/">Edytuj w panelu</a>
     </div>

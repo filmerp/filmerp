@@ -742,6 +742,141 @@ form.single-upload {
   color: var(--button-fg);
 }
 
+.wizard-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 20px;
+  align-items: start;
+}
+
+.contract-wizard fieldset {
+  margin: 0;
+}
+
+.contract-wizard legend {
+  padding: 0 8px;
+  color: var(--body-fg);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.form-grid.three-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.contract-wizard label,
+.full-field {
+  display: grid;
+  gap: 5px;
+  font-weight: 700;
+}
+
+.contract-wizard input:not([type="checkbox"]),
+.contract-wizard textarea,
+.contract-wizard select {
+  width: 100%;
+}
+
+.contract-wizard small {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.choice-panel {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  background: #f8f9fa;
+}
+
+.choice-panel ul,
+#id_territories,
+#id_exploitation_fields,
+#id_pa_cost_categories {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px 14px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.choice-panel li label,
+#id_territories label,
+#id_exploitation_fields label,
+#id_pa_cost_categories label,
+.contract-wizard .check-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 500;
+}
+
+.choice-panel input[type="checkbox"] {
+  min-width: auto;
+}
+
+.disabled-choice {
+  opacity: .45;
+}
+
+.full-field {
+  margin-top: 16px;
+}
+
+.wizard-preview {
+  position: sticky;
+  top: 18px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.money-flow {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.money-flow li {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 10px;
+  position: relative;
+  padding: 8px 0 15px;
+}
+
+.money-flow li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  top: 38px;
+  bottom: 0;
+  border-left: 1px solid var(--border);
+}
+
+.money-flow span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--button-fg);
+  font-weight: 700;
+}
+
+.money-flow small {
+  display: block;
+}
+
+.wizard-preview button {
+  width: 100%;
+}
+
 .document-intake {
   display: flex;
   align-items: stretch;
@@ -1069,6 +1204,22 @@ form.single-upload {
   }
 
   .two {
+    grid-template-columns: 1fr;
+  }
+
+  .wizard-layout,
+  .form-grid.three-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .wizard-preview {
+    position: static;
+  }
+
+  .choice-panel ul,
+  #id_territories,
+  #id_exploitation_fields,
+  #id_pa_cost_categories {
     grid-template-columns: 1fr;
   }
 

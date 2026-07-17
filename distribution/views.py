@@ -26,7 +26,9 @@ from .forms import (
     DocumentClassificationForm,
     DocumentCostForm,
     DocumentUploadForm,
+    ContractWaterfallWizardForm,
 )
+from .contract_wizard import create_contract_waterfall
 from .pdf import build_royalty_statement_pdf
 from .models import (
     AcquisitionAgreement,
@@ -172,6 +174,26 @@ def title_detail(request, pk):
         "overdue_materials_count": len(overdue_materials),
     }
     return render(request, "distribution/title_detail.html", context)
+
+
+@login_required
+@permission_required(("distribution.add_acquisitionagreement", "distribution.add_waterfallplan"), raise_exception=True)
+def contract_waterfall_wizard(request):
+    title = None
+    if request.GET.get("title"):
+        title = get_object_or_404(Title, pk=request.GET["title"])
+    if request.method == "POST":
+        form = ContractWaterfallWizardForm(request.POST)
+        if form.is_valid():
+            agreement, plan = create_contract_waterfall(form.cleaned_data)
+            messages.success(request, f"Utworzono umowę i aktywny waterfall v{plan.version} z {plan.steps.count()} krokami.")
+            return redirect(f"{reverse('distribution:settlement_workbench')}?title={agreement.title_id}&currency={plan.currency}&plan={plan.pk}")
+    else:
+        form = ContractWaterfallWizardForm(title=title)
+    return render(request, "distribution/contract_waterfall_wizard.html", {
+        "form": form,
+        "selected_title": title,
+    })
 
 
 @login_required

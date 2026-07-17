@@ -1,0 +1,284 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rozliczenie okresu | FILMERP</title>
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+</head>
+<body>
+<header class="app-header">
+  <div class="app-brand">
+    <img src="{% static 'distribution/filmerplogo-header.png' %}" alt="FILMERP" class="brand-logo">
+    <span class="brand-title">rozliczenie okresu</span>
+  </div>
+  <nav class="app-nav">
+    <a href="{% url 'distribution:dashboard' %}">Dashboard</a>
+    <a href="{% url 'distribution:title_list' %}">Tytuły 360</a>
+    <a href="{% url 'distribution:avails' %}">Avails</a>
+    <a href="{% url 'distribution:reports' %}">Raporty</a>
+    <a href="{% url 'distribution:statement_center' %}">Statementy</a>
+    <a href="/admin/">Panel główny</a>
+  </nav>
+</header>
+
+<main>
+  <div class="page-heading">
+    <div>
+      <h1>Rozliczenie okresu</h1>
+      {% if selected_title %}<div class="muted">{{ selected_title.title_pl }} · {{ period_start }} – {{ period_end }} · {{ currency }}</div>{% endif %}
+    </div>
+    {% if selected_title %}
+    <div class="action-bar">
+      <a class="button secondary" href="{% url 'distribution:title_detail' selected_title.pk %}">Karta tytułu</a>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if messages %}
+  <section class="messages">
+    {% for message in messages %}<div class="notice {{ message.tags }}">{{ message }}</div>{% endfor %}
+  </section>
+  {% endif %}
+
+  <ol class="workflow-steps" aria-label="Etapy rozliczenia">
+    <li class="{% if selected_title %}done{% else %}current{% endif %}"><span>1</span> Tytuł i okres</li>
+    <li class="{% if run %}done{% elif selected_title %}current{% endif %}"><span>2</span> Dane źródłowe</li>
+    <li class="{% if run.status == 'finalized' %}done{% elif run %}current{% endif %}"><span>3</span> Symulacja</li>
+    <li class="{% if statements %}done{% elif run.status == 'finalized' %}current{% endif %}"><span>4</span> Statementy</li>
+  </ol>
+
+  <section class="toolbar settlement-selector">
+    <form method="get">
+      <label>Tytuł
+        <select name="title" required>
+          <option value="">Wybierz film</option>
+          {% for title in titles %}<option value="{{ title.pk }}" {% if selected_title.pk == title.pk %}selected{% endif %}>{{ title.title_pl }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Od
+        <input type="date" name="date_from" value="{{ period_start|date:'Y-m-d' }}" required>
+      </label>
+      <label>Do
+        <input type="date" name="date_to" value="{{ period_end|date:'Y-m-d' }}" required>
+      </label>
+      <label>Waluta
+        <select name="currency">
+          {% for value,label in currencies %}<option value="{{ value }}" {% if currency == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      {% if plans %}
+      <label>Warunki rozliczenia
+        <select name="plan">
+          {% for plan in plans %}<option value="{{ plan.pk }}" {% if selected_plan.pk == plan.pk %}selected{% endif %}>{{ plan.name }} · v{{ plan.version }}</option>{% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <button type="submit">Otwórz okres</button>
+    </form>
+  </section>
+
+  {% if not selected_title %}
+  <section class="empty-state">
+    <h2>Wybierz film i miesiąc</h2>
+  </section>
+  {% else %}
+
+  <section class="workbench-section">
+    <div class="section-header">
+      <h2>Gotowość rozliczenia</h2>
+      <div class="row-actions">
+        {% if agreement %}
+        <a class="button export" href="/admin/distribution/acquisitionagreement/{{ agreement.pk }}/change/">Umowa</a>
+        {% else %}
+        <a class="button export" href="/admin/distribution/acquisitionagreement/add/?title={{ selected_title.pk }}">Dodaj umowę</a>
+        {% endif %}
+        {% if selected_plan %}
+        <a class="button export" href="/admin/distribution/waterfallplan/{{ selected_plan.pk }}/change/">Warunki waterfall</a>
+        {% else %}
+        <a class="button export" href="/admin/distribution/waterfallplan/add/?title={{ selected_title.pk }}&currency={{ currency }}">Dodaj waterfall</a>
+        {% endif %}
+      </div>
+    </div>
+    <div class="readiness-grid">
+      {% for item in readiness %}
+      <div class="readiness-item {% if item.ready %}ready{% elif item.warning %}warning{% else %}blocked{% endif %}">
+        <span class="readiness-mark">{% if item.ready %}✓{% elif item.warning %}!{% else %}×{% endif %}</span>
+        <div><strong>{{ item.label }}</strong><div class="muted">{{ item.detail }}</div></div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="two intake-grid">
+    <div class="card intake-card" id="raport-kina">
+      <div class="section-header"><h2>Raport kina</h2><span class="status-pill">PDF / XLSX</span></div>
+      <form method="post" enctype="multipart/form-data" class="single-upload">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="upload_cinema_report">
+        <input type="hidden" name="title" value="{{ selected_title.pk }}">
+        <input type="hidden" name="plan" value="{{ selected_plan.pk|default:'' }}">
+        <input type="hidden" name="date_from" value="{{ period_start|date:'Y-m-d' }}">
+        <input type="hidden" name="date_to" value="{{ period_end|date:'Y-m-d' }}">
+        <input type="hidden" name="currency" value="{{ currency }}">
+        {{ cinema_upload_form.source_file }}
+        <button type="submit">Wczytaj i rozpoznaj</button>
+      </form>
+      <div class="recent-links">
+        {% for item in recent_imports %}
+        <a href="?title={{ selected_title.pk }}&plan={{ selected_plan.pk|default:'' }}&date_from={{ period_start|date:'Y-m-d' }}&date_to={{ period_end|date:'Y-m-d' }}&currency={{ currency }}&import={{ item.pk }}">{{ item.original_filename|default:item.source_file.name }} <span>{{ item.rows.count }}</span></a>
+        {% empty %}<span class="muted">Brak wcześniejszych importów.</span>{% endfor %}
+      </div>
+    </div>
+
+    <div class="card intake-card" id="faktura">
+      <div class="section-header"><h2>Faktura kosztowa</h2><span class="status-pill">PDF / obraz</span></div>
+      <form method="post" enctype="multipart/form-data" class="invoice-upload-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="upload_cost_invoice">
+        <input type="hidden" name="title" value="{{ selected_title.pk }}">
+        <input type="hidden" name="plan" value="{{ selected_plan.pk|default:'' }}">
+        <input type="hidden" name="date_from" value="{{ period_start|date:'Y-m-d' }}">
+        <input type="hidden" name="date_to" value="{{ period_end|date:'Y-m-d' }}">
+        <label>Dostawca {{ invoice_form.supplier_name }}</label>
+        <label>Data {{ invoice_form.cost_date }}</label>
+        <label>Kategoria {{ invoice_form.category }}</label>
+        <label>Waluta {{ invoice_form.currency }}</label>
+        <label>Netto {{ invoice_form.net_amount }}</label>
+        <label>VAT {{ invoice_form.vat_amount }}</label>
+        <label>Pole eksploatacji {{ invoice_form.exploitation_field }}</label>
+        <label class="check-label">{{ invoice_form.recoupable }} Recoupable</label>
+        <label class="check-label">{{ invoice_form.applies_to_all_exploitation_fields }} Wszystkie pola</label>
+        <label>Plik faktury {{ invoice_form.invoice_file }}</label>
+        <button type="submit">Dodaj koszt</button>
+      </form>
+    </div>
+  </section>
+
+  {% if selected_import %}
+  <section class="workbench-section import-review">
+    <div class="section-header">
+      <div><h2>Weryfikacja raportu</h2><div class="muted">{{ selected_import.original_filename }} · {{ selected_import.get_status_display }}</div></div>
+      <form method="post" class="inline-action-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="approve_cinema_import">
+        <input type="hidden" name="import_id" value="{{ selected_import.pk }}">
+        <input type="hidden" name="title" value="{{ selected_title.pk }}">
+        <input type="hidden" name="plan" value="{{ selected_plan.pk|default:'' }}">
+        <input type="hidden" name="date_from" value="{{ period_start|date:'Y-m-d' }}">
+        <input type="hidden" name="date_to" value="{{ period_end|date:'Y-m-d' }}">
+        <input type="hidden" name="currency" value="{{ currency }}">
+        <button type="submit">Zaakceptuj poprawne wiersze</button>
+      </form>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Status</th><th>Tytuł</th><th>Kino</th><th>Okres</th><th class="num">Widzowie</th><th class="num">Seanse</th><th class="num">Box office</th><th>Pewność</th><th></th></tr></thead>
+        <tbody>
+          {% for row in selected_import.rows.all %}
+          <tr>
+            <td><span class="status-pill {{ row.status }}">{{ row.get_status_display }}</span></td>
+            <td>{{ row.title|default:"brak" }}</td><td>{{ row.cinema|default:"brak" }}</td>
+            <td>{{ row.date_from|default:"?" }} – {{ row.date_to|default:"?" }}</td>
+            <td class="num">{{ row.admissions }}</td><td class="num">{{ row.screenings }}</td><td class="num">{{ row.box_office_gross }} {{ row.currency }}</td>
+            <td>{{ row.confidence }}%</td>
+            <td><a href="/admin/distribution/cinemareportimportrow/{{ row.pk }}/change/">Popraw</a></td>
+          </tr>
+          {% empty %}<tr><td colspan="9" class="muted">Brak rozpoznanych wierszy.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="workbench-section">
+    <div class="section-header">
+      <div><h2>Dane uwzględnione w okresie</h2><div class="muted">{{ sales_reports.count }} raportów · {{ costs.count }} kosztów · {{ currency }}</div></div>
+      <form method="post" class="inline-action-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="simulate">
+        <input type="hidden" name="title" value="{{ selected_title.pk }}">
+        <input type="hidden" name="plan" value="{{ selected_plan.pk|default:'' }}">
+        <input type="hidden" name="date_from" value="{{ period_start|date:'Y-m-d' }}">
+        <input type="hidden" name="date_to" value="{{ period_end|date:'Y-m-d' }}">
+        <input type="hidden" name="currency" value="{{ currency }}">
+        {% if run %}<input type="hidden" name="run" value="{{ run.pk }}">{% endif %}
+        <button type="submit" {% if not can_simulate or run.status == 'finalized' %}disabled{% endif %}>{% if run %}Przelicz ponownie{% else %}Uruchom symulację{% endif %}</button>
+      </form>
+    </div>
+    <div class="two source-tables">
+      <div>
+        <h3>Wpływy</h3>
+        <div class="table-scroll"><table>
+          <thead><tr><th>Źródło</th><th>Pole</th><th>Okres</th><th class="num">Netto</th><th>Status</th></tr></thead>
+          <tbody>{% for report in sales_reports %}<tr><td>{{ report.counterparty }}</td><td>{{ report.get_exploitation_field_display }}</td><td>{{ report.period_start }} – {{ report.period_end }}</td><td class="num">{{ report.net_revenue }} {{ report.currency }}</td><td>{{ report.get_status_display }}</td></tr>{% empty %}<tr><td colspan="5" class="muted">Brak raportów.</td></tr>{% endfor %}</tbody>
+        </table></div>
+      </div>
+      <div>
+        <h3>Koszty</h3>
+        <div class="table-scroll"><table>
+          <thead><tr><th>Data</th><th>Kategoria</th><th>Dostawca</th><th class="num">Netto</th><th>FV</th></tr></thead>
+          <tbody>{% for cost in costs %}<tr><td>{{ cost.cost_date }}</td><td>{{ cost.get_category_display }}</td><td>{{ cost.supplier|default:"—" }}</td><td class="num">{{ cost.net_amount }} {{ cost.currency }}</td><td>{% if cost.invoice_file %}<a href="{{ cost.invoice_file.url }}">plik</a>{% else %}<span class="muted">brak</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="5" class="muted">Brak kosztów.</td></tr>{% endfor %}</tbody>
+        </table></div>
+      </div>
+    </div>
+  </section>
+
+  {% if run %}
+  <section class="workbench-section calculation-review">
+    <div class="section-header">
+      <div><h2>Wynik symulacji</h2><div class="muted">{{ run.plan.name }} · v{{ run.plan.version }} · przeliczono {{ run.calculated_at|date:'Y-m-d H:i' }}</div></div>
+      <span class="status-pill {{ run.status }}">{{ run.get_status_display }}</span>
+    </div>
+    <div class="settlement-totals">
+      <div><span>Gross</span><strong>{{ run.gross_revenue }} {{ currency }}</strong></div>
+      <div><span>Net</span><strong>{{ run.net_revenue }} {{ currency }}</strong></div>
+      <div><span>Rozdzielono</span><strong>{{ run.allocated_amount }} {{ currency }}</strong></div>
+      <div><span>Pozostało</span><strong>{{ run.closing_available }} {{ currency }}</strong></div>
+    </div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Faza</th><th>Krok</th><th>Odbiorca</th><th class="num">Podstawa</th><th class="num">Alokacja</th><th class="num">Saldo recoupment</th><th class="num">Pozostało</th></tr></thead>
+        <tbody>
+          {% for line in run.lines.all %}<tr><td>{{ line.phase }}</td><td><strong>{{ line.step.name }}</strong><div class="muted">{{ line.step.get_step_type_display }} · {{ line.step.get_allocation_mode_display }}</div></td><td>{{ line.beneficiary|default:"—" }}</td><td class="num">{{ line.calculation_base }}</td><td class="num">{{ line.allocated_amount }}</td><td class="num">{{ line.opening_recoupment }} → {{ line.closing_recoupment }}</td><td class="num">{{ line.closing_available }}</td></tr>{% empty %}<tr><td colspan="7" class="muted">Brak kroków kalkulacji.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <form method="post" class="statement-finalize-form">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="finalize_and_generate">
+      <input type="hidden" name="run_id" value="{{ run.pk }}">
+      <input type="hidden" name="run" value="{{ run.pk }}">
+      <input type="hidden" name="title" value="{{ selected_title.pk }}">
+      <input type="hidden" name="plan" value="{{ selected_plan.pk }}">
+      <input type="hidden" name="date_from" value="{{ period_start|date:'Y-m-d' }}">
+      <input type="hidden" name="date_to" value="{{ period_end|date:'Y-m-d' }}">
+      <input type="hidden" name="currency" value="{{ currency }}">
+      <fieldset>
+        <legend>Odbiorcy statementów</legend>
+        <div class="recipient-options">
+          {% for item in recipients %}
+          <label><input type="checkbox" name="recipient_ids" value="{{ item.counterparty.pk }}" checked> <span>{{ item.counterparty.name }}</span><strong>{{ item.allocated }} {{ currency }}</strong></label>
+          {% empty %}<div class="notice warning">Dodaj beneficjentów do kroków waterfall.</div>{% endfor %}
+        </div>
+      </fieldset>
+      <button type="submit" {% if not recipients %}disabled{% endif %}>{% if run.status == 'finalized' %}Utwórz ponownie statementy PDF{% else %}Zatwierdź i utwórz statementy PDF{% endif %}</button>
+    </form>
+  </section>
+  {% endif %}
+
+  {% if statements %}
+  <section class="workbench-section">
+    <div class="section-header"><h2>Statementy tego rozliczenia</h2><a class="button export" href="{% url 'distribution:statement_center' %}?title={{ selected_title.pk }}">Statement Center</a></div>
+    <table>
+      <thead><tr><th>Odbiorca</th><th>Okres</th><th class="num">Do wypłaty</th><th>Status</th><th>PDF</th></tr></thead>
+      <tbody>{% for statement in statements %}<tr><td><strong>{{ statement.recipient.name }}</strong></td><td>{{ statement.period_start }} – {{ statement.period_end }}</td><td class="num">{{ statement.amount_due }} {{ statement.currency }}</td><td><span class="status-pill {{ statement.status }}">{{ statement.get_status_display }}</span></td><td>{% if statement.statement_file %}<a class="button export" href="{{ statement.statement_file.url }}">Pobierz</a>{% endif %}</td></tr>{% endfor %}</tbody>
+    </table>
+  </section>
+  {% endif %}
+  {% endif %}
+</main>
+</body>
+</html>

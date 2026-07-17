@@ -1,9 +1,11 @@
 import csv
 from io import BytesIO
 from datetime import timedelta
+from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.core.exceptions import ValidationError
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -14,11 +16,16 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from .avails import check_availability
+from .cinema_imports import approve_import_rows, parse_cinema_report_import
+from .forms import CinemaReportUploadForm, CostInvoiceUploadForm
 from .pdf import build_royalty_statement_pdf
 from .models import (
+    AcquisitionAgreement,
     CinemaBooking,
+    CinemaReportImport,
     Cost,
     Counterparty,
+    Currency,
     DeliveryStatus,
     ExploitationField,
     LanguageVersion,
@@ -26,6 +33,7 @@ from .models import (
     RightsStatus,
     RightsWindow,
     RoyaltyStatement,
+    ReportStatus,
     SalesAgreement,
     SalesReport,
     StatementStatus,
@@ -33,8 +41,14 @@ from .models import (
     Title,
     TitleMaterial,
     WaterfallRecoupmentRule,
+    WaterfallPlan,
+    WaterfallPlanStatus,
+    WaterfallRun,
+    WaterfallRunStatus,
 )
+from .settlements import create_statement_documents
 from .waterfall import calculate_waterfall
+from .waterfall_v2 import calculate_waterfall_run, finalize_waterfall_run
 
 
 @login_required
@@ -209,6 +223,219 @@ def avails(request):
         "selected_languages": selected_languages,
     }
     return render(request, "distribution/avails.html", context)
+
+
+def _previous_month_period():
+    today = timezone.localdate()
+    last_day_previous_month = today.replace(day=1) - timedelta(days=1)
+    return last_day_previous_month.replace(day=1), last_day_previous_month
+
+
+def _settlement_url(*, title_id="", plan_id="", period_start="", period_end="", currency="", run_id="", import_id=""):
+    params = {
+        "title": title_id,
+        "plan": plan_id,
+        "date_from": period_start,
+        "date_to": period_end,
+        "currency": currency,
+        "run": run_id,
+        "import": import_id,
+    }
+    query = urlencode({key: value for key, value in params.items() if value})
+    return f"/settlements/?{query}" if query else "/settlements/"
+
+
+@login_required
+def settlement_workbench(request):
+    default_start, default_end = _previous_month_period()
+    values = request.POST if request.method == "POST" else request.GET
+    run_id = values.get("run") or ""
+    run = None
+    if run_id:
+        run = get_object_or_404(
+            WaterfallRun.objects.select_related("plan", "plan__title", "finalized_by"),
+            pk=run_id,
+        )
+
+    selected_title = run.plan.title if run else None
+    if not selected_title and values.get("title"):
+        selected_title = get_object_or_404(Title, pk=values.get("title"))
+
+    period_start = run.period_start if run else (parse_date(values.get("date_from") or "") or default_start)
+    period_end = run.period_end if run else (parse_date(values.get("date_to") or "") or default_end)
+    if period_start > period_end:
+        period_start, period_end = period_end, period_start
+    currency = run.plan.currency if run else (values.get("currency") or Currency.PLN)
+
+    plans = WaterfallPlan.objects.none()
+    selected_plan = run.plan if run else None
+    if selected_title:
+        plans = selected_title.waterfall_plans.filter(currency=currency).prefetch_related("steps").order_by("-version")
+        if not selected_plan and values.get("plan"):
+            selected_plan = get_object_or_404(plans, pk=values.get("plan"))
+        if not selected_plan:
+            selected_plan = plans.filter(status=WaterfallPlanStatus.ACTIVE).first() or plans.first()
+
+    redirect_kwargs = {
+        "title_id": selected_title.pk if selected_title else "",
+        "plan_id": selected_plan.pk if selected_plan else "",
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
+        "currency": currency,
+        "run_id": run.pk if run else "",
+        "import_id": values.get("import") or "",
+    }
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "upload_cinema_report":
+            form = CinemaReportUploadForm(request.POST, request.FILES)
+            if form.is_valid():
+                report_import = form.save(commit=False)
+                report_import.original_filename = request.FILES["source_file"].name
+                report_import.save()
+                try:
+                    parsed = parse_cinema_report_import(report_import)
+                    messages.success(request, f"Rozpoznano {parsed} wierszy. Sprawdz je przed akceptacja.")
+                except ValueError as exc:
+                    messages.error(request, str(exc))
+                redirect_kwargs["import_id"] = report_import.pk
+            else:
+                messages.error(request, "Wybierz raport kina w formacie PDF albo XLSX.")
+            return redirect(_settlement_url(**redirect_kwargs))
+
+        if action == "approve_cinema_import":
+            report_import = get_object_or_404(CinemaReportImport, pk=request.POST.get("import_id"))
+            imported, skipped = approve_import_rows(report_import.rows.all())
+            if skipped:
+                messages.warning(request, f"Utworzono {imported} bookingow. {skipped} wierszy nadal wymaga uzupelnienia.")
+            else:
+                messages.success(request, f"Utworzono bookingi i raporty sprzedazy: {imported}.")
+            redirect_kwargs["import_id"] = report_import.pk
+            return redirect(_settlement_url(**redirect_kwargs))
+
+        if action == "upload_cost_invoice":
+            if not selected_title:
+                messages.error(request, "Najpierw wybierz tytul.")
+            else:
+                form = CostInvoiceUploadForm(request.POST, request.FILES, title=selected_title, currency=currency)
+                if form.is_valid():
+                    cost = form.save()
+                    messages.success(request, f"Faktura zostala przypisana jako koszt {cost.net_amount} {cost.currency}.")
+                else:
+                    errors = " ".join(error for field_errors in form.errors.values() for error in field_errors)
+                    messages.error(request, f"Nie zapisano faktury. {errors}")
+            return redirect(_settlement_url(**redirect_kwargs))
+
+        if action == "simulate":
+            if not selected_plan:
+                messages.error(request, "Najpierw utworz i wybierz plan waterfall dla tytulu.")
+            elif not selected_plan.steps.filter(active=True).exists():
+                messages.error(request, "Plan waterfall nie ma aktywnych krokow.")
+            else:
+                run = WaterfallRun.objects.filter(
+                    plan=selected_plan,
+                    period_start=period_start,
+                    period_end=period_end,
+                    status=WaterfallRunStatus.DRAFT,
+                ).order_by("-created_at").first()
+                if run is None:
+                    run = WaterfallRun.objects.create(plan=selected_plan, period_start=period_start, period_end=period_end)
+                calculate_waterfall_run(run)
+                redirect_kwargs["run_id"] = run.pk
+                messages.success(request, "Symulacja zostala przeliczona. Wynik nie jest jeszcze zatwierdzony.")
+            return redirect(_settlement_url(**redirect_kwargs))
+
+        if action == "finalize_and_generate":
+            run = get_object_or_404(WaterfallRun.objects.select_related("plan"), pk=request.POST.get("run_id"))
+            recipient_ids = request.POST.getlist("recipient_ids")
+            allowed_ids = set(run.plan.steps.filter(active=True, beneficiary__isnull=False).values_list("beneficiary_id", flat=True))
+            selected_recipient_ids = {
+                int(value) for value in recipient_ids if str(value).isdigit()
+            }
+            if not (selected_recipient_ids & allowed_ids):
+                messages.error(request, "Wybierz co najmniej jednego odbiorce statementu.")
+            else:
+                try:
+                    if run.status == WaterfallRunStatus.DRAFT:
+                        calculate_waterfall_run(run)
+                        finalize_waterfall_run(run, request.user)
+                    elif run.status != WaterfallRunStatus.FINALIZED:
+                        raise ValidationError("Anulowanego rozliczenia nie mozna wygenerowac.")
+                    statements = create_statement_documents(run, recipient_ids)
+                    messages.success(request, f"Rozliczenie zatwierdzone. Utworzono statementy PDF: {len(statements)}.")
+                except ValidationError as exc:
+                    messages.error(request, " ".join(exc.messages))
+            redirect_kwargs["run_id"] = run.pk
+            return redirect(_settlement_url(**redirect_kwargs))
+
+    agreements = AcquisitionAgreement.objects.none()
+    sales_reports = SalesReport.objects.none()
+    costs = Cost.objects.none()
+    if selected_title:
+        agreements = selected_title.acquisition_agreements.select_related("licensor").order_by("-signed_date", "-created_at")
+        sales_reports = selected_title.sales_reports.filter(
+            currency=currency,
+            period_start__lte=period_end,
+            period_end__gte=period_start,
+        ).exclude(status=ReportStatus.REJECTED).select_related("counterparty", "territory").order_by("period_start", "counterparty__name")
+        costs = selected_title.costs.filter(
+            currency=currency,
+            cost_date__gte=period_start,
+            cost_date__lte=period_end,
+        ).select_related("supplier").order_by("cost_date", "supplier__name")
+
+    agreement = agreements.first()
+    active_steps = selected_plan.steps.filter(active=True).select_related("beneficiary") if selected_plan else []
+    steps_count = active_steps.count() if selected_plan else 0
+    recipients = []
+    if selected_plan:
+        recipient_ids = list(active_steps.filter(beneficiary__isnull=False).values_list("beneficiary_id", flat=True).distinct())
+        for recipient in Counterparty.objects.filter(pk__in=recipient_ids).order_by("name"):
+            allocated = run.lines.filter(beneficiary=recipient).aggregate(total=Sum("allocated_amount"))["total"] if run else 0
+            recipients.append({"counterparty": recipient, "allocated": allocated or 0})
+
+    readiness = [
+        {"label": "Umowa nabycia", "ready": bool(agreement), "warning": not agreement, "detail": str(agreement) if agreement else "Brak umowy przypisanej do tytulu"},
+        {"label": "Warunki waterfall", "ready": bool(selected_plan and steps_count), "warning": False, "detail": f"{selected_plan.name}, v{selected_plan.version}, {steps_count} krokow" if selected_plan and steps_count else "Brak kompletnego planu"},
+        {"label": "Raporty za okres", "ready": sales_reports.exists(), "warning": False, "detail": f"{sales_reports.count()} raportow" if selected_title else "Najpierw wybierz tytul"},
+        {"label": "Koszty i faktury", "ready": costs.exists(), "warning": not costs.exists(), "detail": f"{costs.count()} kosztow, {costs.exclude(invoice_file='').count()} z plikiem FV" if selected_title else "Najpierw wybierz tytul"},
+        {"label": "Odbiorcy statementow", "ready": bool(recipients), "warning": False, "detail": f"{len(recipients)} odbiorcow" if recipients else "Brak beneficjentow w planie"},
+    ]
+
+    selected_import = None
+    import_id = request.GET.get("import") or ""
+    if import_id:
+        selected_import = get_object_or_404(CinemaReportImport.objects.prefetch_related("rows__title", "rows__cinema"), pk=import_id)
+    recent_imports = CinemaReportImport.objects.prefetch_related("rows").order_by("-created_at")[:6]
+    statements = run.royalty_statements.select_related("recipient").order_by("recipient__name") if run else RoyaltyStatement.objects.none()
+    invoice_form = CostInvoiceUploadForm(title=selected_title, currency=currency) if selected_title else None
+
+    context = {
+        "titles": Title.objects.order_by("title_pl"),
+        "currencies": Currency.choices,
+        "selected_title": selected_title,
+        "selected_plan": selected_plan,
+        "plans": plans,
+        "period_start": period_start,
+        "period_end": period_end,
+        "currency": currency,
+        "agreement": agreement,
+        "agreements": agreements,
+        "active_steps": active_steps,
+        "sales_reports": sales_reports,
+        "costs": costs,
+        "readiness": readiness,
+        "run": run,
+        "recipients": recipients,
+        "statements": statements,
+        "cinema_upload_form": CinemaReportUploadForm(),
+        "invoice_form": invoice_form,
+        "selected_import": selected_import,
+        "recent_imports": recent_imports,
+        "can_simulate": bool(selected_plan and steps_count),
+    }
+    return render(request, "distribution/settlement_workbench.html", context)
 
 
 def _filtered_statements(request):

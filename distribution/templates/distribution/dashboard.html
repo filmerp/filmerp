@@ -17,11 +17,20 @@
     <a href="{% url 'distribution:title_list' %}">Tytuły 360</a>
     <a href="{% url 'distribution:avails' %}">Avails</a>
     <a href="{% url 'distribution:reports' %}">Raporty</a>
+    <a href="{% url 'distribution:settlement_workbench' %}">Rozliczenia</a>
     <a href="{% url 'distribution:statement_center' %}">Statement Center</a>
     <a href="/admin/">Panel główny</a>
   </nav>
 </header>
 <main>
+  <div class="page-heading dashboard-heading">
+    <div><h1>Panel operacyjny</h1></div>
+    <div class="action-bar">
+      <a class="button" href="{% url 'distribution:settlement_workbench' %}">Rozlicz okres</a>
+      <a class="button export" href="{% url 'distribution:settlement_workbench' %}#raport-kina">Wczytaj raport kina</a>
+      <a class="button export" href="{% url 'distribution:settlement_workbench' %}#faktura">Dodaj fakturę</a>
+    </div>
+  </div>
   <section class="grid">
     <div class="card"><div class="label">Tytuły</div><div class="metric">{{ titles_count }}</div></div>
     <div class="card"><div class="label">Aktywne rights windows</div><div class="metric">{{ active_rights_count }}</div></div>

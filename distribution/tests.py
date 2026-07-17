@@ -206,6 +206,8 @@ class SettlementWorkflowTests(TestCase):
         self.assertEqual(DocumentInboxItem.objects.count(), 0)
         response = self.client.get(reverse("distribution:contract_waterfall_wizard"))
         self.assertEqual(response.status_code, 403)
+        response = self.client.get(reverse("distribution:title_create"))
+        self.assertEqual(response.status_code, 403)
 
     def test_app_navigation_is_consistent(self):
         page_urls = [
@@ -236,6 +238,33 @@ class SettlementWorkflowTests(TestCase):
                 nav_html = response.content.decode().split('<nav class="app-nav"', 1)[1].split("</nav>", 1)[0]
                 positions = [nav_html.index(f'href="{link}"') for link in expected_links]
                 self.assertEqual(positions, sorted(positions))
+
+    def test_dashboard_and_title_card_use_title_centric_workflow(self):
+        response = self.client.get(reverse("distribution:dashboard"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Twoje tytuły")
+        self.assertContains(response, self.title.title_pl)
+        for label in ("Metryka", "Umowa i prawa", "Materiały", "Wpływy i koszty", "Waterfall", "Rozliczenia"):
+            self.assertContains(response, label)
+
+        response = self.client.get(reverse("distribution:title_detail", args=[self.title.pk]))
+        self.assertEqual(response.status_code, 200)
+        for anchor in ("metadata", "rights", "materials", "finance", "waterfall", "settlements"):
+            self.assertContains(response, f'id="{anchor}"')
+        self.assertContains(response, "Rozlicz okres")
+
+    def test_new_title_starts_workflow_outside_admin(self):
+        response = self.client.post(reverse("distribution:title_create"), {
+            "title_pl": "Nowy film workflow",
+            "original_title": "Workflow Movie",
+            "production_year": "2026",
+            "status": "acquired",
+            "producer": self.producer.pk,
+            "acquisition_currency": Currency.PLN,
+            "mg_advance": "0.00",
+        })
+        created = Title.objects.get(title_pl="Nowy film workflow")
+        self.assertRedirects(response, reverse("distribution:title_detail", args=[created.pk]))
 
     def test_contract_wizard_creates_versioned_agreement_and_waterfall(self):
         distributor = Counterparty.objects.create(name="FILMERP Dystrybucja")

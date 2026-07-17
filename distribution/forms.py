@@ -73,6 +73,25 @@ class ContractWaterfallWizardForm(forms.Form):
         return cleaned
 
 
+class TitleSetupForm(forms.ModelForm):
+    class Meta:
+        model = Title
+        fields = (
+            "title_pl", "original_title", "production_year", "status", "producer",
+            "countries", "runtime_minutes", "polish_premiere_date", "genre",
+            "director", "cast", "screenwriter", "music_by",
+            "acquisition_currency", "mg_advance", "ean", "media_type",
+            "age_rating", "audio_languages", "subtitle_languages",
+            "dubbing_languages", "lector_languages", "marketplace_description", "notes",
+        )
+        widgets = {
+            "polish_premiere_date": forms.DateInput(attrs={"type": "date"}),
+            "cast": forms.Textarea(attrs={"rows": 3}),
+            "marketplace_description": forms.Textarea(attrs={"rows": 4}),
+            "notes": forms.Textarea(attrs={"rows": 3}),
+        }
+
+
 class CinemaReportUploadForm(forms.ModelForm):
     class Meta:
         model = CinemaReportImport

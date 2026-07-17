@@ -10,232 +10,122 @@
 <body>
 {% include "distribution/_app_header.html" %}
 <main>
-  <div class="page-heading">
+  <div class="page-heading title-workspace-heading">
     <div>
+      <a class="back-link" href="{% url 'distribution:dashboard' %}">← Wszystkie tytuły</a>
       <h1>{{ title.title_pl }}</h1>
-      <div class="muted">
-        {{ title.original_title|default:"" }}
-        {% if title.production_year %} · {{ title.production_year }}{% endif %}
-        {% if title.producer %} · {{ title.producer.name }}{% endif %}
-      </div>
+      <div class="muted">{{ title.original_title|default:"Brak tytułu oryginalnego" }}{% if title.production_year %} · {{ title.production_year }}{% endif %} · {{ title.get_status_display }}</div>
     </div>
-    <div class="action-bar">
-      <a class="button" href="{% url 'distribution:contract_waterfall_wizard' %}?title={{ title.pk }}">Ustaw umowę i waterfall</a>
-      <a class="button" href="{% url 'distribution:avails' %}?title={{ title.pk }}">Sprawdź Avails</a>
-      <a class="button secondary" href="/admin/distribution/title/{{ title.pk }}/change/">Edytuj w panelu</a>
-    </div>
+    <div class="title-completion"><strong>{{ workflow_done }}/6</strong><span>etapów gotowych</span></div>
   </div>
 
-  <section class="grid compact">
-    <div class="card"><div class="label">MG</div><div class="metric small">{{ title.mg_advance }} {{ title.acquisition_currency }}</div></div>
-    {% for total in title.financial_summary_by_currency %}
-    <div class="card"><div class="label">Finanse {{ total.currency }}</div><div class="metric small">{{ total.net }}</div><div class="muted">koszty {{ total.costs }} · wynik {{ total.result }}</div></div>
+  <nav class="title-workflow-nav" aria-label="Etapy pracy nad tytułem">
+    {% for stage in workflow_stages %}
+    <a href="#{{ stage.key }}" class="{% if stage.ready %}done{% else %}pending{% endif %}">
+      <span>{% if stage.ready %}✓{% else %}{{ forloop.counter }}{% endif %}</span>
+      <strong>{{ stage.label }}</strong>
+      <small>{{ stage.detail }}</small>
+    </a>
     {% endfor %}
-    <div class="card"><div class="label">Widzowie / seanse</div><div class="metric small">{{ admissions }} / {{ screenings }}</div></div>
-    <div class="card"><div class="label">Braki materiałów</div><div class="metric small {% if open_materials_count %}negative{% endif %}">{{ open_materials_count }}</div></div>
-    <div class="card"><div class="label">Konflikty praw</div><div class="metric small {% if issues %}negative{% endif %}">{{ issues|length }}</div></div>
+  </nav>
+
+  <section id="metadata" class="title-workflow-section">
+    <div class="workflow-section-heading">
+      <div class="workflow-number">1</div>
+      <div><h2>Metryka tytułu</h2><p>Podstawowe dane filmu wykorzystywane w umowach, raportach i eksporcie.</p></div>
+      {% if perms.distribution.change_title %}<a class="button" href="{% url 'distribution:title_edit' title.pk %}">Uzupełnij metrykę</a>{% endif %}
+    </div>
+    <dl class="data-grid">
+      <div><dt>Producent</dt><dd>{{ title.producer|default:"Do uzupełnienia" }}</dd></div>
+      <div><dt>Premiera PL</dt><dd>{{ title.polish_premiere_date|default:"Do uzupełnienia" }}</dd></div>
+      <div><dt>Czas</dt><dd>{% if title.runtime_minutes %}{{ title.runtime_minutes }} min{% else %}Do uzupełnienia{% endif %}</dd></div>
+      <div><dt>Kraje</dt><dd>{{ title.countries|default:"Do uzupełnienia" }}</dd></div>
+      <div><dt>Reżyser</dt><dd>{{ title.director|default:"Do uzupełnienia" }}</dd></div>
+      <div><dt>EAN</dt><dd>{{ title.ean|default:"Do uzupełnienia" }}</dd></div>
+      <div class="wide"><dt>Obsada</dt><dd>{{ title.cast|default:"Do uzupełnienia"|linebreaksbr }}</dd></div>
+    </dl>
   </section>
 
-  <section class="three">
-    <div class="card">
-      <h2>Podstawowe</h2>
-      <dl class="summary-list">
-        <div class="summary-row"><dt>Status</dt><dd>{{ title.get_status_display }}</dd></div>
-        <div class="summary-row"><dt>Premiera PL</dt><dd>{{ title.polish_premiere_date|default:"" }}</dd></div>
-        <div class="summary-row"><dt>Czas</dt><dd>{{ title.runtime_minutes|default:"" }}{% if title.runtime_minutes %} min{% endif %}</dd></div>
-        <div class="summary-row"><dt>Kraje</dt><dd>{{ title.countries|default:"" }}</dd></div>
-        <div class="summary-row"><dt>EAN</dt><dd>{{ title.ean|default:"" }}</dd></div>
-        <div class="summary-row"><dt>Reżyser</dt><dd>{{ title.director|default:"" }}</dd></div>
-        <div class="summary-row"><dt>Obsada</dt><dd>{{ title.cast|linebreaksbr }}</dd></div>
-      </dl>
+  <section id="rights" class="title-workflow-section">
+    <div class="workflow-section-heading">
+      <div class="workflow-number">2</div>
+      <div><h2>Umowa i prawa</h2><p>Najpierw zapisz warunki nabycia, potem zdefiniuj dokładny zakres praw.</p></div>
+      <div class="action-bar">
+        {% if perms.distribution.add_acquisitionagreement and perms.distribution.add_waterfallplan %}<a class="button" href="{% url 'distribution:contract_waterfall_wizard' %}?title={{ title.pk }}">Ustaw umowę</a>{% endif %}
+        <a class="button export" href="/admin/distribution/rightswindow/add/?title={{ title.pk }}">Dodaj zakres praw</a>
+      </div>
     </div>
-
-    <div class="card">
-      <h2>Materiały / delivery</h2>
-      <dl class="summary-list">
-        <div class="summary-row"><dt>Wymagane</dt><dd>{{ required_materials_count }}</dd></div>
-        <div class="summary-row"><dt>Otwarte</dt><dd>{{ open_materials_count }}</dd></div>
-        <div class="summary-row"><dt>Po terminie</dt><dd class="{% if overdue_materials_count %}danger{% endif %}">{{ overdue_materials_count }}</dd></div>
-      </dl>
-      <p><a class="button export" href="/admin/distribution/titlematerial/add/?title={{ title.pk }}">Dodaj materiał</a></p>
+    <div class="split-summary">
+      <div>
+        <h3>Umowy nabycia</h3>
+        {% for agreement in agreements %}
+        <div class="record-line"><div><strong>{{ agreement.contract_number|default:"Bez numeru" }}</strong><span>{{ agreement.licensor }} · {{ agreement.get_status_display }}</span></div><div class="num">MG {{ agreement.mg_advance }} {{ agreement.currency }}</div><a href="/admin/distribution/acquisitionagreement/{{ agreement.pk }}/change/">Edytuj</a></div>
+        {% empty %}<div class="inline-empty">Brak umowy nabycia. Zacznij od przycisku „Ustaw umowę”.</div>{% endfor %}
+      </div>
+      <div>
+        <h3>Kontrola</h3>
+        <dl class="compact-stats"><div><dt>Zakresy praw</dt><dd>{{ rights_windows|length }}</dd></div><div><dt>Otwarte problemy</dt><dd class="{% if issues %}danger{% endif %}">{{ issues|length }}</dd></div></dl>
+      </div>
     </div>
-
-    <div class="card">
-      <h2>Kino</h2>
-      <dl class="summary-list">
-        <div class="summary-row"><dt>Box office brutto</dt><dd>{{ gross_box_office }}</dd></div>
-        <div class="summary-row"><dt>Widzowie</dt><dd>{{ admissions }}</dd></div>
-        <div class="summary-row"><dt>Seanse</dt><dd>{{ screenings }}</dd></div>
-      </dl>
-    </div>
+    <div class="table-scroll"><table>
+      <thead><tr><th>Pole</th><th>Terytoria</th><th>Wersje</th><th>Okres</th><th>Status</th><th>Kontrahent</th></tr></thead>
+      <tbody>{% for window in rights_windows %}<tr><td>{{ window.get_exploitation_field_display }}</td><td>{% for territory in window.territories.all %}{{ territory.name }}{% if not forloop.last %}, {% endif %}{% empty %}brak wskazania{% endfor %}</td><td>{% for language in window.language_versions.all %}{{ language.name }}{% if not forloop.last %}, {% endif %}{% empty %}wszystkie{% endfor %}</td><td>{{ window.date_from }} – {{ window.date_to }}</td><td><span class="status-pill {{ window.status }}">{{ window.get_status_display }}</span></td><td>{{ window.counterparty|default:"" }}</td></tr>{% empty %}<tr><td colspan="6" class="muted">Nie dodano jeszcze zakresów praw.</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% if issues %}<div class="issue-list">{% for issue in issues %}<div><strong>{{ issue.get_severity_display }}</strong> {{ issue.message }}</div>{% endfor %}</div>{% endif %}
   </section>
 
-  <section class="stack">
-    <div class="card">
-      <div class="section-header"><h2>Rights windows</h2><a class="button export" href="/admin/distribution/rightswindow/add/?title={{ title.pk }}">Dodaj prawo</a></div>
-      <div class="table-scroll">
-        <table>
-          <thead><tr><th>Źródło</th><th>Pole</th><th>Terytoria</th><th>Wersje</th><th>Daty</th><th>Wyłączność</th><th>Status</th><th>Kontrahent</th></tr></thead>
-          <tbody>
-            {% for window in rights_windows %}
-            <tr>
-              <td>{{ window.get_source_display }}</td>
-              <td>{{ window.get_exploitation_field_display }}</td>
-              <td>{% for territory in window.territories.all %}{{ territory.name }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="muted">wszystkie / brak wskazania</span>{% endfor %}</td>
-              <td>{% for language in window.language_versions.all %}{{ language.name }}{% if not forloop.last %}, {% endif %}{% empty %}<span class="muted">wszystkie / brak wskazania</span>{% endfor %}</td>
-              <td>{{ window.date_from }} - {{ window.date_to }}</td>
-              <td>{% if window.exclusive %}tak{% else %}nie{% endif %}</td>
-              <td><span class="status-pill {{ window.status }}">{{ window.get_status_display }}</span></td>
-              <td>{{ window.counterparty|default:"" }}</td>
-            </tr>
-            {% empty %}<tr><td colspan="8" class="muted">Brak rights windows.</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      </div>
+  <section id="materials" class="title-workflow-section">
+    <div class="workflow-section-heading">
+      <div class="workflow-number">3</div>
+      <div><h2>Materiały i przygotowanie wydania</h2><p>DCP, KDM, napisy, trailer, plakat, QC i pozostałe elementy delivery.</p></div>
+      <a class="button" href="/admin/distribution/titlematerial/add/?title={{ title.pk }}">Dodaj materiał</a>
     </div>
+    <div class="stage-metrics"><div><strong>{{ required_materials_count }}</strong><span>wymaganych</span></div><div><strong>{{ open_materials_count }}</strong><span>otwartych</span></div><div><strong class="{% if overdue_materials_count %}danger{% endif %}">{{ overdue_materials_count }}</strong><span>po terminie</span></div></div>
+    <div class="table-scroll"><table>
+      <thead><tr><th>Typ</th><th>Pole</th><th>Wersja</th><th>Status</th><th>Termin</th><th>Dostawca</th></tr></thead>
+      <tbody>{% for material in materials %}<tr><td>{{ material.get_asset_type_display }}</td><td>{{ material.get_exploitation_field_display|default:"ogólne" }}</td><td>{{ material.language_version|default:"" }}</td><td><span class="status-pill {{ material.status }}{% if material.is_overdue %} overdue{% endif %}">{{ material.get_status_display }}</span></td><td>{{ material.due_date|default:"" }}</td><td>{{ material.supplier|default:"" }}</td></tr>{% empty %}<tr><td colspan="6" class="muted">Nie utworzono jeszcze checklisty materiałów.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
 
-    <div class="card">
-      <div class="section-header"><h2>Materiały / delivery</h2><a class="button export" href="/admin/distribution/titlematerial/add/?title={{ title.pk }}">Dodaj</a></div>
-      <div class="table-scroll">
-        <table>
-          <thead><tr><th>Typ</th><th>Pole</th><th>Wersja</th><th>Status</th><th>Termin</th><th>Dostarczono</th><th>Dostawca</th></tr></thead>
-          <tbody>
-            {% for material in materials %}
-            <tr>
-              <td>{{ material.get_asset_type_display }}</td>
-              <td>{{ material.get_exploitation_field_display|default:"ogólne" }}</td>
-              <td>{{ material.language_version|default:"" }}</td>
-              <td><span class="status-pill {{ material.status }}{% if material.is_overdue %} overdue{% endif %}">{{ material.get_status_display }}</span></td>
-              <td>{{ material.due_date|default:"" }}</td>
-              <td>{{ material.delivered_at|default:"" }}</td>
-              <td>{{ material.supplier|default:"" }}</td>
-            </tr>
-            {% empty %}<tr><td colspan="7" class="muted">Brak materiałów. Dodaj checklistę DCP/KDM/napisy/QC/trailer/plakat.</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      </div>
+  <section id="finance" class="title-workflow-section">
+    <div class="workflow-section-heading">
+      <div class="workflow-number">4</div>
+      <div><h2>Wpływy, raporty i koszty</h2><p>Wczytuj statementy kin i faktury. Po akceptacji dane trafiają do tego tytułu.</p></div>
+      <div class="action-bar"><a class="button" href="{% url 'distribution:document_center' %}#upload">Wczytaj dokument</a><a class="button export" href="/admin/distribution/salesreport/add/?title={{ title.pk }}">Dodaj ręcznie</a></div>
     </div>
+    <div class="stage-metrics">
+      {% for total in title.financial_summary_by_currency %}<div><strong>{{ total.net }} {{ total.currency }}</strong><span>wpływy netto</span></div><div><strong>{{ total.costs }} {{ total.currency }}</strong><span>koszty</span></div><div><strong>{{ total.result }} {{ total.currency }}</strong><span>wynik przed royalties</span></div>{% empty %}<div><strong>0</strong><span>brak danych finansowych</span></div>{% endfor %}
+      <div><strong>{{ admissions }}</strong><span>widzów · {{ screenings }} seansów</span></div>
+    </div>
+    <div class="two data-columns">
+      <div><h3>Raporty wpływów</h3><div class="table-scroll"><table><thead><tr><th>Kontrahent</th><th>Pole / okres</th><th>Netto</th></tr></thead><tbody>{% for report in sales_reports %}<tr><td>{{ report.counterparty }}</td><td>{{ report.get_exploitation_field_display }}<small>{{ report.period_start }} – {{ report.period_end }}</small></td><td class="num">{{ report.net_revenue }} {{ report.currency }}</td></tr>{% empty %}<tr><td colspan="3" class="muted">Brak raportów.</td></tr>{% endfor %}</tbody></table></div></div>
+      <div><h3>Koszty i faktury</h3><div class="table-scroll"><table><thead><tr><th>Data / kategoria</th><th>Dostawca</th><th>Netto</th></tr></thead><tbody>{% for cost in costs %}<tr><td>{{ cost.cost_date }}<small>{{ cost.get_category_display }}{% if cost.recoupable %} · recoupable{% endif %}</small></td><td>{{ cost.supplier|default:"" }}</td><td class="num">{{ cost.net_amount }} {{ cost.currency }}</td></tr>{% empty %}<tr><td colspan="3" class="muted">Brak kosztów.</td></tr>{% endfor %}</tbody></table></div></div>
+    </div>
+    {% if title_documents %}<details class="linked-records"><summary>Dokumenty przypisane do tytułu ({{ title_documents|length }})</summary>{% for document in title_documents %}<div class="record-line"><div><strong>{{ document.original_filename }}</strong><span>{{ document.get_document_type_display }} · {{ document.get_status_display }}</span></div><a href="{% url 'distribution:document_center' %}?document={{ document.pk }}">Otwórz</a></div>{% endfor %}</details>{% endif %}
+  </section>
 
-    <div class="card">
-      <h2>Sprzedaż i wpływy</h2>
-      <div class="table-scroll">
-        <table>
-          <thead><tr><th>Kontrahent</th><th>Pole</th><th>Terytorium</th><th>Okres</th><th>Brutto</th><th>Netto</th><th>Status</th></tr></thead>
-          <tbody>
-            {% for report in sales_reports %}
-            <tr>
-              <td>{{ report.counterparty }}</td>
-              <td>{{ report.get_exploitation_field_display }}</td>
-              <td>{{ report.territory|default:"" }}</td>
-              <td>{{ report.period_start }} - {{ report.period_end }}</td>
-              <td class="num">{{ report.gross_revenue }} {{ report.currency }}</td>
-              <td class="num">{{ report.net_revenue }} {{ report.currency }}</td>
-              <td>{{ report.get_status_display }}</td>
-            </tr>
-            {% empty %}<tr><td colspan="7" class="muted">Brak raportów sprzedaży.</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      </div>
+  <section id="waterfall" class="title-workflow-section">
+    <div class="workflow-section-heading">
+      <div class="workflow-number">5</div>
+      <div><h2>Waterfall i recoupment</h2><p>Kolejność odzyskiwania fee, P&A, MG i podziału nadwyżki.</p></div>
+      <div class="action-bar">{% if perms.distribution.add_acquisitionagreement and perms.distribution.add_waterfallplan %}<a class="button" href="{% url 'distribution:contract_waterfall_wizard' %}?title={{ title.pk }}">Nowa wersja warunków</a>{% endif %}{% if active_plan %}<a class="button export" href="/admin/distribution/waterfallplan/{{ active_plan.pk }}/change/">Edycja zaawansowana</a>{% endif %}</div>
     </div>
+    {% if active_plan %}
+    <div class="plan-summary"><div><span>Aktywny plan</span><strong>{{ active_plan.name }} · v{{ active_plan.version }}</strong></div><div><span>Waluta</span><strong>{{ active_plan.currency }}</strong></div><div><span>Zakres</span><strong>{% if active_plan.applies_to_all_exploitation_fields %}wszystkie pola{% else %}wybrane pola{% endif %}</strong></div></div>
+    <ol class="waterfall-step-list">{% for step in active_steps %}<li><span>{{ forloop.counter }}</span><div><strong>{{ step.name }}</strong><small>{{ step.get_step_type_display }} · {{ step.get_allocation_mode_display }}{% if step.beneficiary %} · {{ step.beneficiary }}{% endif %}</small></div><div class="num">{% if step.percentage %}{{ step.percentage }}%{% elif step.include_title_mg %}MG{% elif step.include_recoupable_costs %}koszty{% else %}{{ step.target_amount }}{% endif %}</div></li>{% empty %}<li class="muted">Plan nie ma aktywnych kroków.</li>{% endfor %}</ol>
+    {% else %}<div class="inline-empty">Brak waterfallu. Użyj kreatora umowy, aby utworzyć standardowy plan.</div>{% endif %}
+  </section>
 
-    <div class="card">
-      <h2>Bookingi kinowe / seanse</h2>
-      <div class="table-scroll">
-        <table>
-          <thead><tr><th>Kino</th><th>Miasto</th><th>Daty</th><th>Seanse</th><th>Widzowie</th><th>Box office</th><th>Udział dystrybutora</th></tr></thead>
-          <tbody>
-            {% for booking in cinema_bookings %}
-            <tr>
-              <td>{{ booking.cinema }}</td>
-              <td>{{ booking.city }}</td>
-              <td>{{ booking.date_from }} - {{ booking.date_to }}</td>
-              <td class="num">{{ booking.screenings }}</td>
-              <td class="num">{{ booking.admissions }}</td>
-              <td class="num">{{ booking.box_office_gross }}</td>
-              <td class="num">{{ booking.distributor_share_amount }}</td>
-            </tr>
-            {% empty %}<tr><td colspan="7" class="muted">Brak bookingów kinowych.</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      </div>
+  <section id="settlements" class="title-workflow-section">
+    <div class="workflow-section-heading">
+      <div class="workflow-number">6</div>
+      <div><h2>Rozliczenia i statementy</h2><p>Wybierz okres, uruchom waterfall, zweryfikuj wynik i wygeneruj dokumenty.</p></div>
+      <div class="action-bar"><a class="button" href="{% url 'distribution:settlement_workbench' %}?title={{ title.pk }}&currency={{ active_plan.currency|default:title.acquisition_currency }}">Rozlicz okres</a><a class="button export" href="{% url 'distribution:statement_center' %}?title={{ title.pk }}">Statement Center</a></div>
     </div>
-
-    <div class="card">
-      <h2>Koszty i waterfall</h2>
-      <div class="table-scroll">
-        <table>
-          <thead><tr><th>Data</th><th>Kategoria</th><th>Dostawca</th><th>Netto</th><th>Brutto</th><th>Recoupable</th><th>Płatność</th></tr></thead>
-          <tbody>
-            {% for cost in costs %}
-            <tr>
-              <td>{{ cost.cost_date }}</td>
-              <td>{{ cost.get_category_display }}</td>
-              <td>{{ cost.supplier|default:"" }}</td>
-              <td class="num">{{ cost.net_amount }} {{ cost.currency }}</td>
-              <td class="num">{{ cost.gross_amount }} {{ cost.currency }}</td>
-              <td>{% if cost.recoupable %}tak{% else %}nie{% endif %}</td>
-              <td>{% if cost.paid %}zapłacone{% else %}otwarte{% endif %}</td>
-            </tr>
-            {% empty %}<tr><td colspan="7" class="muted">Brak kosztów.</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      </div>
-      <h3>Reguły waterfall</h3>
-      <div class="table-scroll">
-        <table>
-          <thead><tr><th>Pole</th><th>Waluta</th><th>Pula bazowa</th><th>Pozycje recoupmentu</th><th>Uczestnicy</th><th>Fee dystrybutora</th><th>Status</th></tr></thead>
-          <tbody>
-            {% for rule in waterfall_rules %}
-            <tr>
-              <td>{{ rule.get_exploitation_field_display }}</td>
-              <td>{{ rule.currency }}</td>
-              <td class="num">{{ rule.recoupment_pool }}</td>
-              <td>
-                {% for item in rule.recoupment_items.all %}
-                <div>{{ item.priority }}. {{ item.name }}: {{ item.opening_balance }}</div>
-                {% empty %}<span class="muted">brak</span>{% endfor %}
-              </td>
-              <td>
-                {% for participant in rule.participants.all %}
-                <div>{{ participant.recipient.name }}: {{ participant.share_percent }}%</div>
-                {% empty %}<span class="muted">legacy {{ rule.participant_share_percent }}%</span>{% endfor %}
-              </td>
-              <td class="num">{{ rule.distributor_fee_percent }}%</td>
-              <td>{% if rule.active %}aktywny{% else %}nieaktywny{% endif %}</td>
-            </tr>
-            {% empty %}<tr><td colspan="7" class="muted">Brak reguł waterfall.</td></tr>{% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Royalty statements i problemy praw</h2>
-      <div class="three">
-        <div>
-          <h3>Statements</h3>
-          <table>
-            <thead><tr><th>Odbiorca</th><th>Okres</th><th>Do wypłaty</th><th>Status</th></tr></thead>
-            <tbody>
-              {% for statement in royalty_statements %}
-              <tr><td>{{ statement.recipient }}</td><td>{{ statement.period_start }} - {{ statement.period_end }}</td><td class="num">{{ statement.amount_due }} {{ statement.currency }}</td><td>{{ statement.get_status_display }}</td></tr>
-              {% empty %}<tr><td colspan="4" class="muted">Brak statementów.</td></tr>{% endfor %}
-            </tbody>
-          </table>
-        </div>
-        <div>
-          <h3>Otwarte problemy</h3>
-          <table>
-            <thead><tr><th>Poziom</th><th>Typ</th><th>Komunikat</th></tr></thead>
-            <tbody>
-              {% for issue in issues %}
-              <tr><td class="danger">{{ issue.get_severity_display }}</td><td>{{ issue.get_issue_type_display }}</td><td>{{ issue.message }}</td></tr>
-              {% empty %}<tr><td colspan="3" class="muted">Brak otwartych problemów.</td></tr>{% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+    <div class="table-scroll"><table>
+      <thead><tr><th>Odbiorca</th><th>Okres</th><th>Do wypłaty</th><th>Status</th><th>Dokument</th></tr></thead>
+      <tbody>{% for statement in royalty_statements %}<tr><td>{{ statement.recipient }}</td><td>{{ statement.period_start }} – {{ statement.period_end }}</td><td class="num">{{ statement.amount_due }} {{ statement.currency }}</td><td><span class="status-pill {{ statement.status }}">{{ statement.get_status_display }}</span></td><td>{% if statement.statement_file %}<a href="{{ statement.statement_file.url }}">PDF</a>{% else %}—{% endif %}</td></tr>{% empty %}<tr><td colspan="5" class="muted">Nie utworzono jeszcze statementów dla tego tytułu.</td></tr>{% endfor %}</tbody>
+    </table></div>
   </section>
 </main>
 </body>

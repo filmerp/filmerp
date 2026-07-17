@@ -4,76 +4,91 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FILMERP</title>
+  <title>Panel główny | FILMERP</title>
   <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
 </head>
 <body>
 {% include "distribution/_app_header.html" %}
 <main>
   <div class="page-heading dashboard-heading">
-    <div><h1>Panel operacyjny</h1></div>
+    <div>
+      <h1>Twoje tytuły</h1>
+      <div class="muted">Wybierz film i kontynuuj pracę od pierwszego nieukończonego etapu.</div>
+    </div>
     <div class="action-bar">
-      <a class="button" href="{% url 'distribution:settlement_workbench' %}">Rozlicz okres</a>
+      {% if perms.distribution.add_title %}<a class="button" href="{% url 'distribution:title_create' %}">Dodaj nowy tytuł</a>{% endif %}
       <a class="button export" href="{% url 'distribution:document_center' %}#upload">Wczytaj dokument</a>
     </div>
   </div>
-  <section class="grid">
-    <div class="card"><div class="label">Tytuły</div><div class="metric">{{ titles_count }}</div></div>
-    <div class="card"><div class="label">Aktywne rights windows</div><div class="metric">{{ active_rights_count }}</div></div>
-    <div class="card"><div class="label">Otwarte konflikty/ostrzeżenia</div><div class="metric danger">{{ open_issues_count }}</div></div>
-    {% for total in financial_totals %}
-    <div class="card"><div class="label">Finanse {{ total.currency }}</div><div class="metric">{{ total.gross_revenue }}</div><div class="muted">koszty {{ total.costs }} · statements {{ total.open_statements }}</div></div>
-    {% endfor %}
-    <div class="card"><div class="label">Otwarte statements</div><div class="metric {% if open_statements_count %}danger{% endif %}">{{ open_statements_count }}</div></div>
+
+  <section class="title-command-bar">
+    <form method="get">
+      <label>Szukaj tytułu
+        <input type="search" name="q" value="{{ query }}" placeholder="polski lub oryginalny tytuł">
+      </label>
+      <button type="submit">Szukaj</button>
+      {% if query %}<a class="button secondary" href="{% url 'distribution:dashboard' %}">Wyczyść</a>{% endif %}
+    </form>
+    <div class="portfolio-summary"><strong>{{ titles_count }}</strong><span>tytułów w bazie</span></div>
   </section>
 
-  <section class="two">
-    <div class="card">
-      <h2>Kończące się prawa ≤ 90 dni</h2>
-      <table>
-        <thead><tr><th>Tytuł</th><th>Pole</th><th>Data do</th><th>Status</th></tr></thead>
-        <tbody>
-          {% for r in expiring_rights %}
-          <tr><td>{{ r.title }}</td><td>{{ r.get_exploitation_field_display }}</td><td>{{ r.date_to }}</td><td>{{ r.get_status_display }}</td></tr>
-          {% empty %}<tr><td colspan="4" class="muted">Brak rekordów.</td></tr>{% endfor %}
-        </tbody>
-      </table>
+  <section class="title-worklist" aria-label="Tytuły i postęp pracy">
+    {% for row in title_rows %}
+    <article class="title-work-row">
+      <div class="title-work-name">
+        <a href="{% url 'distribution:title_detail' row.title.pk %}"><strong>{{ row.title.title_pl }}</strong></a>
+        <span>{{ row.title.original_title|default:row.title.get_status_display }}{% if row.title.production_year %} · {{ row.title.production_year }}{% endif %}</span>
+      </div>
+      <div class="title-progress" aria-label="Ukończono {{ row.done }} z 6 etapów">
+        <div class="progress-heading"><span>{{ row.done }}/6 etapów</span><strong>{{ row.percent }}%</strong></div>
+        <div class="progress-track"><span style="width: {{ row.percent }}%"></span></div>
+      </div>
+      <ol class="title-stage-strip">
+        {% for stage in row.stages %}
+        <li class="{% if stage.ready %}done{% else %}pending{% endif %}" title="{{ stage.label }}">
+          <span>{% if stage.ready %}✓{% else %}{{ forloop.counter }}{% endif %}</span>{{ stage.label }}
+        </li>
+        {% endfor %}
+      </ol>
+      <div class="title-next-action">
+        <small>Następny krok</small>
+        <a class="button" href="{% url 'distribution:title_detail' row.title.pk %}#{{ row.next_anchor }}">{{ row.next_label }}</a>
+      </div>
+    </article>
+    {% empty %}
+    <div class="empty-state">
+      <h2>{% if query %}Nie znaleziono takiego tytułu{% else %}Zacznij od pierwszego filmu{% endif %}</h2>
+      <p class="muted">Po dodaniu tytułu FILMERP poprowadzi Cię przez umowę, prawa, koszty i rozliczenie.</p>
+      {% if not query and perms.distribution.add_title %}<a class="button" href="{% url 'distribution:title_create' %}">Dodaj nowy tytuł</a>{% endif %}
     </div>
+    {% endfor %}
+  </section>
 
-    <div class="card">
-      <h2>Otwarte problemy praw</h2>
-      <table>
-        <thead><tr><th>Poziom</th><th>Tytuł</th><th>Komunikat</th></tr></thead>
-        <tbody>
-          {% for issue in open_issues %}
-          <tr><td class="danger">{{ issue.get_severity_display }}</td><td>{{ issue.rights_window.title }}</td><td>{{ issue.message }}</td></tr>
-          {% empty %}<tr><td colspan="3" class="muted">Brak problemów.</td></tr>{% endfor %}
-        </tbody>
-      </table>
+  <section class="portfolio-alerts">
+    <div class="section-header">
+      <div><h2>Sprawy wymagające uwagi</h2><div class="muted">Z całego katalogu, niezależnie od wybranego tytułu</div></div>
     </div>
-
-    <div class="card">
-      <h2>Należności po terminie</h2>
-      <table>
-        <thead><tr><th>Tytuł</th><th>Kontrahent</th><th>Termin</th><th>Kwota</th></tr></thead>
-        <tbody>
-          {% for a in unpaid_agreements %}
-          <tr><td>{{ a.title }}</td><td>{{ a.licensee }}</td><td>{{ a.payment_due_date }}</td><td>{{ a.fixed_fee }} {{ a.currency }}</td></tr>
-          {% empty %}<tr><td colspan="4" class="muted">Brak należności po terminie.</td></tr>{% endfor %}
-        </tbody>
-      </table>
+    <div class="alert-summary-grid">
+      <div><strong>{{ open_issues_count }}</strong><span>problemów praw</span></div>
+      <div><strong>{{ open_statements_count }}</strong><span>otwartych statementów</span></div>
+      <div><strong>{{ expiring_rights|length }}</strong><span>praw wygasających do 90 dni</span></div>
+      <div><strong>{{ unpaid_agreements|length }}</strong><span>należności po terminie</span></div>
     </div>
-
-    <div class="card">
-      <h2>Top przychody per film</h2>
-      <table>
-        <thead><tr><th>Tytuł</th><th>Przychód brutto</th><th>Raporty</th></tr></thead>
-        <tbody>
-          {% for row in revenue_by_title %}
-          <tr><td>{{ row.title__title_pl }}</td><td>{{ row.gross }} {{ row.currency }}</td><td>{{ row.count }}</td></tr>
-          {% empty %}<tr><td colspan="3" class="muted">Brak raportów sprzedaży.</td></tr>{% endfor %}
-        </tbody>
-      </table>
+    <div class="two portfolio-tables">
+      <div>
+        <h3>Kończące się prawa</h3>
+        <div class="table-scroll"><table>
+          <thead><tr><th>Tytuł</th><th>Pole</th><th>Do</th></tr></thead>
+          <tbody>{% for r in expiring_rights %}<tr><td><a href="{% url 'distribution:title_detail' r.title_id %}#rights">{{ r.title }}</a></td><td>{{ r.get_exploitation_field_display }}</td><td>{{ r.date_to }}</td></tr>{% empty %}<tr><td colspan="3" class="muted">Brak pozycji.</td></tr>{% endfor %}</tbody>
+        </table></div>
+      </div>
+      <div>
+        <h3>Należności po terminie</h3>
+        <div class="table-scroll"><table>
+          <thead><tr><th>Tytuł</th><th>Kontrahent</th><th>Kwota</th></tr></thead>
+          <tbody>{% for a in unpaid_agreements %}<tr><td><a href="{% url 'distribution:title_detail' a.title_id %}#finance">{{ a.title }}</a></td><td>{{ a.licensee }}</td><td class="num">{{ a.fixed_fee }} {{ a.currency }}</td></tr>{% empty %}<tr><td colspan="3" class="muted">Brak pozycji.</td></tr>{% endfor %}</tbody>
+        </table></div>
+      </div>
     </div>
   </section>
 </main>

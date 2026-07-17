@@ -16,7 +16,7 @@
       <div class="muted">jedna lista wejścia do praw, finansów, kin, materiałów i rozliczeń</div>
     </div>
     <div class="action-bar">
-      <a class="button" href="/admin/distribution/title/add/">Dodaj tytuł</a>
+      {% if perms.distribution.add_title %}<a class="button" href="{% url 'distribution:title_create' %}">Dodaj tytuł</a>{% endif %}
     </div>
   </div>
 

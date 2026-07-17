@@ -27,6 +27,7 @@ from .forms import (
     DocumentCostForm,
     DocumentUploadForm,
     ContractWaterfallWizardForm,
+    TitleSetupForm,
 )
 from .contract_wizard import create_contract_waterfall
 from .pdf import build_royalty_statement_pdf
@@ -70,6 +71,49 @@ def dashboard(request):
     today = timezone.localdate()
     expiring_until = today + timedelta(days=90)
     open_statements = RoyaltyStatement.objects.exclude(status=StatementStatus.PAID)
+    query = request.GET.get("q", "").strip()
+
+    titles = Title.objects.select_related("producer").annotate(
+        agreements_count=Count("acquisition_agreements", distinct=True),
+        rights_count=Count("rights_windows", distinct=True),
+        materials_count=Count("materials", distinct=True),
+        reports_count=Count("sales_reports", distinct=True),
+        costs_count=Count("costs", distinct=True),
+        statements_count=Count("royalty_statements", distinct=True),
+        active_waterfall_steps=Count(
+            "waterfall_plans__steps",
+            filter=Q(waterfall_plans__status=WaterfallPlanStatus.ACTIVE, waterfall_plans__steps__active=True),
+            distinct=True,
+        ),
+        finalized_runs_count=Count(
+            "waterfall_plans__runs",
+            filter=Q(waterfall_plans__runs__status=WaterfallRunStatus.FINALIZED),
+            distinct=True,
+        ),
+    ).order_by("title_pl")
+    if query:
+        titles = titles.filter(Q(title_pl__icontains=query) | Q(original_title__icontains=query))
+
+    title_rows = []
+    for title in titles[:100]:
+        stages = [
+            {"key": "metadata", "label": "Metryka", "ready": bool(title.production_year and title.producer_id)},
+            {"key": "rights", "label": "Umowa i prawa", "ready": bool(title.agreements_count and title.rights_count)},
+            {"key": "materials", "label": "Materiały", "ready": bool(title.materials_count)},
+            {"key": "finance", "label": "Wpływy i koszty", "ready": bool(title.reports_count or title.costs_count)},
+            {"key": "waterfall", "label": "Waterfall", "ready": bool(title.active_waterfall_steps)},
+            {"key": "settlements", "label": "Rozliczenia", "ready": bool(title.finalized_runs_count)},
+        ]
+        done = sum(stage["ready"] for stage in stages)
+        next_stage = next((stage for stage in stages if not stage["ready"]), stages[-1])
+        title_rows.append({
+            "title": title,
+            "stages": stages,
+            "done": done,
+            "percent": round(done / len(stages) * 100),
+            "next_label": next_stage["label"],
+            "next_anchor": next_stage["key"],
+        })
 
     revenue_by_title = (
         SalesReport.objects.values("title__title_pl", "currency")
@@ -96,6 +140,8 @@ def dashboard(request):
         })
 
     context = {
+        "query": query,
+        "title_rows": title_rows,
         "titles_count": Title.objects.count(),
         "active_rights_count": RightsWindow.objects.exclude(status__in=[RightsStatus.EXPIRED, RightsStatus.CANCELLED]).count(),
         "expiring_rights": RightsWindow.objects.filter(date_to__gte=today, date_to__lte=expiring_until).order_by("date_to")[:10],
@@ -131,6 +177,20 @@ def title_list(request):
 
 
 @login_required
+def title_setup(request, pk=None):
+    title = get_object_or_404(Title, pk=pk) if pk else None
+    permission = "distribution.change_title" if title else "distribution.add_title"
+    if not request.user.has_perm(permission):
+        raise PermissionDenied
+    form = TitleSetupForm(request.POST or None, instance=title)
+    if request.method == "POST" and form.is_valid():
+        title = form.save()
+        messages.success(request, "Metryka tytułu została zapisana. Przejdź do kolejnego etapu.")
+        return redirect("distribution:title_detail", pk=title.pk)
+    return render(request, "distribution/title_setup.html", {"form": form, "title": title})
+
+
+@login_required
 def title_detail(request, pk):
     title = get_object_or_404(Title.objects.select_related("producer"), pk=pk)
     today = timezone.localdate()
@@ -147,6 +207,10 @@ def title_detail(request, pk):
     materials = title.materials.select_related("language_version", "supplier").order_by("asset_type", "due_date")
     issues = RightsIssue.objects.filter(rights_window__title=title, resolved=False).select_related("rights_window", "conflicting_window")
     waterfall_rules = title.waterfall_rules.prefetch_related("recoupment_items", "participants", "participants__recipient").order_by("exploitation_field", "currency")
+    agreements = title.acquisition_agreements.select_related("licensor").prefetch_related("territories").order_by("-signed_date", "-created_at")
+    waterfall_plans = title.waterfall_plans.prefetch_related("steps__beneficiary").order_by("-version")
+    active_plan = waterfall_plans.filter(status=WaterfallPlanStatus.ACTIVE).first() or waterfall_plans.first()
+    active_steps = active_plan.steps.filter(active=True).select_related("beneficiary").order_by("phase", "sort_order") if active_plan else []
 
     gross_box_office = title.cinema_bookings.aggregate(total=Sum("box_office_gross"))["total"] or 0
     admissions = title.cinema_bookings.aggregate(total=Sum("admissions"))["total"] or 0
@@ -154,6 +218,16 @@ def title_detail(request, pk):
     required_materials = materials.filter(required_for_release=True)
     open_materials = required_materials.exclude(status__in=[DeliveryStatus.READY, DeliveryStatus.SENT, DeliveryStatus.ACCEPTED])
     overdue_materials = [material for material in open_materials if material.is_overdue]
+    title_documents = title.inbox_documents.order_by("-created_at")[:10]
+    finalized_runs_count = WaterfallRun.objects.filter(plan__title=title, status=WaterfallRunStatus.FINALIZED).count()
+    workflow_stages = [
+        {"key": "metadata", "label": "Metryka", "ready": bool(title.production_year and title.producer_id), "detail": "rok i producent"},
+        {"key": "rights", "label": "Umowa i prawa", "ready": agreements.exists() and rights_windows.exists(), "detail": f"{agreements.count()} umów, {rights_windows.count()} praw"},
+        {"key": "materials", "label": "Materiały", "ready": materials.exists(), "detail": f"{materials.count()} pozycji"},
+        {"key": "finance", "label": "Wpływy i koszty", "ready": sales_reports.exists() or costs.exists(), "detail": f"{sales_reports.count()} raportów, {costs.count()} kosztów"},
+        {"key": "waterfall", "label": "Waterfall", "ready": bool(active_plan and active_steps), "detail": f"{len(active_steps)} kroków" if active_plan else "brak planu"},
+        {"key": "settlements", "label": "Rozliczenia", "ready": bool(finalized_runs_count), "detail": f"{finalized_runs_count} zamkniętych okresów"},
+    ]
 
     context = {
         "title": title,
@@ -166,6 +240,12 @@ def title_detail(request, pk):
         "materials": materials,
         "issues": issues,
         "waterfall_rules": waterfall_rules,
+        "agreements": agreements,
+        "active_plan": active_plan,
+        "active_steps": active_steps,
+        "title_documents": title_documents,
+        "workflow_stages": workflow_stages,
+        "workflow_done": sum(stage["ready"] for stage in workflow_stages),
         "gross_box_office": gross_box_office,
         "admissions": admissions,
         "screenings": screenings,

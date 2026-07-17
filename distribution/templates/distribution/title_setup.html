@@ -1,0 +1,75 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if title %}Metryka {{ title.title_pl }}{% else %}Nowy tytuł{% endif %} | FILMERP</title>
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+</head>
+<body>
+{% include "distribution/_app_header.html" %}
+<main>
+  <div class="page-heading">
+    <div>
+      <a class="back-link" href="{% if title %}{% url 'distribution:title_detail' title.pk %}{% else %}{% url 'distribution:dashboard' %}{% endif %}">← Wróć</a>
+      <h1>{% if title %}Metryka: {{ title.title_pl }}{% else %}Dodaj nowy tytuł{% endif %}</h1>
+      <div class="muted">To pierwszy etap. Po zapisaniu przejdziesz do umowy, praw i waterfallu.</div>
+    </div>
+  </div>
+  <form method="post" class="title-setup-form">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="notice error">{{ form.non_field_errors }}</div>{% endif %}
+    <fieldset class="title-workflow-section">
+      <legend>1. Identyfikacja</legend>
+      <div class="setup-field-grid">
+        <label>{{ form.title_pl.label }}{{ form.title_pl }}{{ form.title_pl.errors }}</label>
+        <label>{{ form.original_title.label }}{{ form.original_title }}{{ form.original_title.errors }}</label>
+        <label>{{ form.production_year.label }}{{ form.production_year }}{{ form.production_year.errors }}</label>
+        <label>{{ form.status.label }}{{ form.status }}{{ form.status.errors }}</label>
+      </div>
+    </fieldset>
+    <fieldset class="title-workflow-section">
+      <legend>2. Film i twórcy</legend>
+      <div class="setup-field-grid">
+        <label>{{ form.producer.label }}{{ form.producer }}{{ form.producer.errors }}</label>
+        <label>{{ form.countries.label }}{{ form.countries }}{{ form.countries.errors }}</label>
+        <label>{{ form.runtime_minutes.label }}{{ form.runtime_minutes }}{{ form.runtime_minutes.errors }}</label>
+        <label>{{ form.polish_premiere_date.label }}{{ form.polish_premiere_date }}{{ form.polish_premiere_date.errors }}</label>
+        <label>{{ form.genre.label }}{{ form.genre }}{{ form.genre.errors }}</label>
+        <label>{{ form.director.label }}{{ form.director }}{{ form.director.errors }}</label>
+        <label>{{ form.screenwriter.label }}{{ form.screenwriter }}{{ form.screenwriter.errors }}</label>
+        <label>{{ form.music_by.label }}{{ form.music_by }}{{ form.music_by.errors }}</label>
+        <label class="span-all">{{ form.cast.label }}{{ form.cast }}{{ form.cast.errors }}</label>
+      </div>
+    </fieldset>
+    <fieldset class="title-workflow-section">
+      <legend>3. Nabycie i MG</legend>
+      <div class="setup-field-grid">
+        <label>{{ form.acquisition_currency.label }}{{ form.acquisition_currency }}{{ form.acquisition_currency.errors }}</label>
+        <label>{{ form.mg_advance.label }}{{ form.mg_advance }}{{ form.mg_advance.errors }}</label>
+      </div>
+      <p class="muted">Szczegółowe warunki umowy i kolejność recoupmentu ustawisz w następnym etapie.</p>
+    </fieldset>
+    <fieldset class="title-workflow-section">
+      <legend>4. Wydanie i dane sprzedażowe</legend>
+      <div class="setup-field-grid">
+        <label>{{ form.ean.label }}{{ form.ean }}{{ form.ean.errors }}</label>
+        <label>{{ form.media_type.label }}{{ form.media_type }}{{ form.media_type.errors }}</label>
+        <label>{{ form.age_rating.label }}{{ form.age_rating }}{{ form.age_rating.errors }}</label>
+        <label>{{ form.audio_languages.label }}{{ form.audio_languages }}{{ form.audio_languages.errors }}</label>
+        <label>{{ form.subtitle_languages.label }}{{ form.subtitle_languages }}{{ form.subtitle_languages.errors }}</label>
+        <label>{{ form.dubbing_languages.label }}{{ form.dubbing_languages }}{{ form.dubbing_languages.errors }}</label>
+        <label>{{ form.lector_languages.label }}{{ form.lector_languages }}{{ form.lector_languages.errors }}</label>
+        <label class="span-all">{{ form.marketplace_description.label }}{{ form.marketplace_description }}{{ form.marketplace_description.errors }}</label>
+        <label class="span-all">{{ form.notes.label }}{{ form.notes }}{{ form.notes.errors }}</label>
+      </div>
+    </fieldset>
+    <div class="form-submit-bar">
+      <a class="button secondary" href="{% if title %}{% url 'distribution:title_detail' title.pk %}{% else %}{% url 'distribution:dashboard' %}{% endif %}">Anuluj</a>
+      <button type="submit">{% if title %}Zapisz metrykę{% else %}Zapisz i przejdź do tytułu{% endif %}</button>
+    </div>
+  </form>
+</main>
+</body>
+</html>

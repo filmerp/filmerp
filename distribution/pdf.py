@@ -11,7 +11,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
-PRIMARY = colors.HexColor("#2271b1")
+PRIMARY = colors.HexColor("#0060fd")
 ACCENT = colors.HexColor("#1d2327")
 LIGHT = colors.HexColor("#eef5f6")
 BORDER = colors.HexColor("#cfd8dc")

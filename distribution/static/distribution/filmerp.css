@@ -1,6 +1,6 @@
 :root {
-  --primary: #2271b1;
-  --secondary: #135e96;
+  --primary: #0060fd;
+  --secondary: #004dcc;
   --header-bg: #1d2327;
   --button-fg: #fff;
   --accent: #2c3338;
@@ -54,7 +54,7 @@ a {
 .brand-logo {
   display: block;
   width: auto;
-  height: 44px;
+  height: 40px;
   padding: 3px 7px;
   object-fit: contain;
   background: #fff;
@@ -91,7 +91,7 @@ a {
 }
 
 .app-nav a.active {
-  border-bottom-color: #72aee6;
+  border-bottom-color: #0060fd;
 }
 
 main {

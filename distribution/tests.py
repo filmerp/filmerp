@@ -267,8 +267,8 @@ class SettlementWorkflowTests(TestCase):
         ]
         expected_links = [
             reverse("distribution:dashboard"),
-            reverse("distribution:document_center"),
             reverse("distribution:title_list"),
+            reverse("distribution:document_center"),
             reverse("distribution:avails"),
             reverse("distribution:reports"),
             reverse("distribution:settlement_workbench"),
@@ -280,9 +280,11 @@ class SettlementWorkflowTests(TestCase):
             with self.subTest(page_url=page_url):
                 response = self.client.get(page_url)
                 self.assertEqual(response.status_code, 200)
-                nav_html = response.content.decode().split('<nav class="app-nav"', 1)[1].split("</nav>", 1)[0]
-                positions = [nav_html.index(f'href="{link}"') for link in expected_links]
+                shell_html = response.content.decode().split('<aside class="app-sidebar"', 1)[1].split("</aside>", 1)[0]
+                positions = [shell_html.index(f'href="{link}"') for link in expected_links]
                 self.assertEqual(positions, sorted(positions))
+                self.assertIn('id="sidebar-toggle"', shell_html)
+                self.assertIn("lucide-sidebar", shell_html)
 
     def test_dashboard_and_title_card_use_title_centric_workflow(self):
         response = self.client.get(reverse("distribution:dashboard"))

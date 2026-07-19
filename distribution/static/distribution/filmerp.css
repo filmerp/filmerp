@@ -77,22 +77,20 @@ a {
 }
 
 .sidebar-logo-viewport {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 174px;
   height: 40px;
   overflow: hidden;
-  background: #fff;
   transition: width .18s ease;
 }
 
 .brand-logo {
   display: block;
-  width: auto;
-  height: 40px;
-  padding: 3px 7px;
+  width: 174px;
+  height: auto;
   max-width: none;
-  object-fit: contain;
-  background: #fff;
+  flex: 0 0 auto;
 }
 
 .sidebar-icon {

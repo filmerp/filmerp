@@ -1,0 +1,14 @@
+{% load static %}
+<svg class="{{ logo_class }}" viewBox="0 0 480 107" role="img" aria-label="FILMERP" xmlns="http://www.w3.org/2000/svg">
+  <title>FILMERP</title>
+  <defs>
+    <filter id="{{ logo_filter_id }}" color-interpolation-filters="sRGB">
+      <feColorMatrix in="SourceGraphic" type="matrix" values="
+        1 0 0 0 0
+        0 1 0 0 0
+        0 0 1 0 0
+       -1 -1 -1 3 0"/>
+    </filter>
+  </defs>
+  <image href="{% static 'distribution/filmerp-logo-blue.jpg' %}" width="480" height="107" filter="url(#{{ logo_filter_id }})"/>
+</svg>

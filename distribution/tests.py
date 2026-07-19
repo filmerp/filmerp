@@ -313,7 +313,7 @@ class SettlementWorkflowTests(TestCase):
         created = Title.objects.get(title_pl="Nowy film workflow")
         self.assertRedirects(response, reverse("distribution:title_detail", args=[created.pk]))
 
-    def test_admin_save_returns_to_matching_title_stage(self):
+    def test_admin_save_stays_in_admin(self):
         response = self.client.post(reverse("admin:distribution_salesreport_add"), {
             "title": self.title.pk,
             "counterparty": self.cinema.pk,
@@ -331,7 +331,18 @@ class SettlementWorkflowTests(TestCase):
             "_save": "Zapisz",
         })
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response.url, f"{reverse('distribution:title_detail', args=[self.title.pk])}#finance")
+        self.assertEqual(response.url, reverse("admin:distribution_salesreport_changelist"))
+
+    def test_admin_uses_application_sidebar_and_settings_links(self):
+        response = self.client.get(reverse("admin:index"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'class="app-sidebar"')
+        self.assertContains(response, "Panel administracyjny")
+        self.assertContains(response, "Użytkownicy i role")
+        self.assertContains(response, "Zmień hasło")
+        self.assertNotContains(response, ">DASHBOARD<")
+        userlinks = response.content.decode().split('id="user-tools"', 1)[1].split("</div>", 1)[0]
+        self.assertNotIn(reverse("admin:password_change"), userlinks)
 
     def test_admin_filters_are_collapsed_and_legacy_waterfall_is_hidden(self):
         response = self.client.get(reverse("admin:distribution_salesreport_changelist"))

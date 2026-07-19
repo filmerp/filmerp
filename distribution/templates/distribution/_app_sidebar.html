@@ -1,0 +1,153 @@
+{% load static %}
+{% static 'distribution/lucide-sidebar.svg' as sidebar_icons %}
+{% with current=request.resolver_match.url_name %}
+<aside class="app-sidebar" id="app-sidebar" aria-label="Menu FILMERP">
+  <div class="sidebar-header">
+    <a class="sidebar-brand" href="{% url 'distribution:dashboard' %}" aria-label="FILMERP - Panel główny">
+      <span class="sidebar-logo-viewport">
+        {% include "distribution/_filmerp_logo.html" with logo_class="brand-logo" logo_filter_id="filmerp-sidebar-logo-filter" %}
+      </span>
+    </a>
+    <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-controls="app-sidebar" aria-expanded="true" aria-label="Zwiń menu" data-tooltip="Zwiń menu">
+      <svg class="sidebar-icon sidebar-toggle-expanded" aria-hidden="true"><use href="{{ sidebar_icons }}#panel-left-close"></use></svg>
+      <svg class="sidebar-icon sidebar-toggle-collapsed" aria-hidden="true"><use href="{{ sidebar_icons }}#panel-left-open"></use></svg>
+      <svg class="sidebar-icon sidebar-toggle-mobile" aria-hidden="true"><use href="{{ sidebar_icons }}#x"></use></svg>
+    </button>
+  </div>
+
+  <nav class="sidebar-nav" aria-label="Główna nawigacja">
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Praca</div>
+      <a class="sidebar-link {% if current == 'dashboard' %}active{% endif %}" href="{% url 'distribution:dashboard' %}" data-tooltip="Panel główny" {% if current == 'dashboard' %}aria-current="page"{% endif %}>
+        <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#layout-dashboard"></use></svg>
+        <span class="sidebar-label">Panel główny</span>
+      </a>
+      <a class="sidebar-link {% if current == 'title_list' or current == 'title_detail' or current == 'title_create' or current == 'title_edit' or current == 'contract_waterfall_wizard' %}active{% endif %}" href="{% url 'distribution:title_list' %}" data-tooltip="Tytuły" {% if current == 'title_list' or current == 'title_detail' or current == 'title_create' or current == 'title_edit' or current == 'contract_waterfall_wizard' %}aria-current="page"{% endif %}>
+        <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#clapperboard"></use></svg>
+        <span class="sidebar-label">Tytuły</span>
+      </a>
+      <a class="sidebar-link {% if current == 'document_center' %}active{% endif %}" href="{% url 'distribution:document_center' %}" data-tooltip="Dokumenty" {% if current == 'document_center' %}aria-current="page"{% endif %}>
+        <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#file-text"></use></svg>
+        <span class="sidebar-label">Dokumenty</span>
+      </a>
+      <a class="sidebar-link {% if current == 'avails' %}active{% endif %}" href="{% url 'distribution:avails' %}" data-tooltip="Avails" {% if current == 'avails' %}aria-current="page"{% endif %}>
+        <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#globe"></use></svg>
+        <span class="sidebar-label">Avails</span>
+      </a>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-label">Finanse</div>
+      <a class="sidebar-link {% if current == 'reports' %}active{% endif %}" href="{% url 'distribution:reports' %}" data-tooltip="Raporty" {% if current == 'reports' %}aria-current="page"{% endif %}>
+        <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#chart-no-axes-combined"></use></svg>
+        <span class="sidebar-label">Raporty</span>
+      </a>
+      <a class="sidebar-link {% if current == 'settlement_workbench' %}active{% endif %}" href="{% url 'distribution:settlement_workbench' %}" data-tooltip="Rozliczenia" {% if current == 'settlement_workbench' %}aria-current="page"{% endif %}>
+        <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#calculator"></use></svg>
+        <span class="sidebar-label">Rozliczenia</span>
+      </a>
+      <a class="sidebar-link {% if current == 'statement_center' %}active{% endif %}" href="{% url 'distribution:statement_center' %}" data-tooltip="Statement Center" {% if current == 'statement_center' %}aria-current="page"{% endif %}>
+        <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#receipt-text"></use></svg>
+        <span class="sidebar-label">Statement Center</span>
+      </a>
+    </div>
+  </nav>
+
+  <div class="sidebar-footer">
+    <div class="sidebar-section-label">Ustawienia</div>
+    <a class="sidebar-link {% if admin_shell and current != 'password_change' and current != 'auth_user_changelist' and current != 'auth_group_changelist' %}active{% endif %}" href="{% url 'admin:index' %}" data-tooltip="Panel administracyjny" {% if admin_shell and current != 'password_change' and current != 'auth_user_changelist' and current != 'auth_group_changelist' %}aria-current="page"{% endif %}>
+      <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#database"></use></svg>
+      <span class="sidebar-label">Panel administracyjny</span>
+    </a>
+    {% if perms.auth.view_user %}
+      <a class="sidebar-link {% if current == 'auth_user_changelist' or current == 'auth_group_changelist' %}active{% endif %}" href="{% url 'admin:auth_user_changelist' %}" data-tooltip="Użytkownicy i role" {% if current == 'auth_user_changelist' or current == 'auth_group_changelist' %}aria-current="page"{% endif %}>
+        <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#users"></use></svg>
+        <span class="sidebar-label">Użytkownicy i role</span>
+      </a>
+    {% endif %}
+    {% if request.user.has_usable_password %}
+      <a class="sidebar-link {% if current == 'password_change' %}active{% endif %}" href="{% url 'admin:password_change' %}" data-tooltip="Zmień hasło" {% if current == 'password_change' %}aria-current="page"{% endif %}>
+        <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#lock-keyhole"></use></svg>
+        <span class="sidebar-label">Zmień hasło</span>
+      </a>
+    {% endif %}
+  </div>
+</aside>
+
+<button class="sidebar-overlay" id="sidebar-overlay" type="button" aria-label="Zamknij menu" tabindex="-1"></button>
+{% if admin_shell %}
+  <button class="mobile-menu-toggle admin-mobile-menu-toggle" id="mobile-menu-toggle" type="button" aria-controls="app-sidebar" aria-expanded="false" aria-label="Otwórz menu">
+    <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#menu"></use></svg>
+  </button>
+{% endif %}
+{% endwith %}
+
+<script>
+  (function () {
+    const body = document.body;
+    const sidebar = document.getElementById("app-sidebar");
+    const toggle = document.getElementById("sidebar-toggle");
+    const mobileToggle = document.getElementById("mobile-menu-toggle");
+    const overlay = document.getElementById("sidebar-overlay");
+    if (!sidebar || !toggle || !mobileToggle || !overlay) return;
+
+    const desktop = window.matchMedia("(min-width: 961px)");
+    const storageKey = "filmerp-sidebar-collapsed";
+    let collapsed = false;
+
+    try { collapsed = window.localStorage.getItem(storageKey) === "1"; } catch (error) { collapsed = false; }
+
+    function updateControls() {
+      const mobileOpen = body.classList.contains("sidebar-mobile-open");
+      const sidebarHidden = !desktop.matches && !mobileOpen;
+      toggle.setAttribute("aria-expanded", String(desktop.matches ? !collapsed : mobileOpen));
+      toggle.setAttribute("aria-label", desktop.matches ? (collapsed ? "Rozwiń menu" : "Zwiń menu") : "Zamknij menu");
+      toggle.dataset.tooltip = collapsed ? "Rozwiń menu" : "Zwiń menu";
+      mobileToggle.setAttribute("aria-expanded", String(mobileOpen));
+      sidebar.setAttribute("aria-hidden", String(sidebarHidden));
+      if (sidebarHidden) sidebar.setAttribute("inert", "");
+      else sidebar.removeAttribute("inert");
+    }
+
+    function applyLayout() {
+      if (desktop.matches) {
+        body.classList.remove("sidebar-mobile-open");
+        body.classList.toggle("sidebar-collapsed", collapsed);
+      } else {
+        body.classList.remove("sidebar-collapsed");
+      }
+      updateControls();
+    }
+
+    toggle.addEventListener("click", function () {
+      if (desktop.matches) {
+        collapsed = !collapsed;
+        try { window.localStorage.setItem(storageKey, collapsed ? "1" : "0"); } catch (error) {}
+        applyLayout();
+      } else {
+        body.classList.remove("sidebar-mobile-open");
+        updateControls();
+        mobileToggle.focus();
+      }
+    });
+
+    mobileToggle.addEventListener("click", function () {
+      body.classList.add("sidebar-mobile-open");
+      updateControls();
+    });
+    overlay.addEventListener("click", function () {
+      body.classList.remove("sidebar-mobile-open");
+      updateControls();
+      mobileToggle.focus();
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !desktop.matches && body.classList.contains("sidebar-mobile-open")) {
+        body.classList.remove("sidebar-mobile-open");
+        updateControls();
+        mobileToggle.focus();
+      }
+    });
+    if (desktop.addEventListener) desktop.addEventListener("change", applyLayout);
+    applyLayout();
+  })();
+</script>

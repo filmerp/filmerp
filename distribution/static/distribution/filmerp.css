@@ -1,16 +1,16 @@
 :root {
-  --primary: #066e78;
-  --secondary: #055c64;
-  --header-bg: #066e78;
-  --button-fg: #f06b97;
-  --accent: #3b4148;
-  --body-bg: #f5f5f5;
-  --body-fg: #1f2933;
-  --muted: #6b7280;
-  --border: #dfe3e8;
+  --primary: #2271b1;
+  --secondary: #135e96;
+  --header-bg: #1d2327;
+  --button-fg: #fff;
+  --accent: #2c3338;
+  --body-bg: #f0f0f1;
+  --body-fg: #1d2327;
+  --muted: #646970;
+  --border: #c3c4c7;
   --card-bg: #fff;
-  --danger: #ba2121;
-  --success: #047857;
+  --danger: #d63638;
+  --success: #00a32a;
   --shadow: 0 1px 2px rgba(0, 0, 0, .08);
 }
 
@@ -54,7 +54,7 @@ a {
 .brand-logo {
   display: block;
   width: auto;
-  height: 53px;
+  height: 44px;
   padding: 3px 7px;
   object-fit: contain;
   background: #fff;
@@ -91,7 +91,7 @@ a {
 }
 
 .app-nav a.active {
-  border-bottom-color: var(--button-fg);
+  border-bottom-color: #72aee6;
 }
 
 main {
@@ -422,7 +422,7 @@ form {
 label {
   display: grid;
   gap: 6px;
-  color: #4b5563;
+  color: #50575e;
   font-size: 13px;
   font-weight: 650;
 }
@@ -431,7 +431,7 @@ input,
 select {
   min-width: 0;
   padding: 9px 10px;
-  border: 1px solid #c7cdd4;
+  border: 1px solid #8c8f94;
   border-radius: 4px;
   background: #fff;
   color: var(--body-fg);

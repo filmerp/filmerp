@@ -1,7 +1,7 @@
 {% load static %}
 <header class="app-header">
   <a class="app-brand" href="{% url 'distribution:dashboard' %}" aria-label="FILMERP - Dashboard">
-    <img src="{% static 'distribution/filmerplogo-header.png' %}" alt="FILMERP" class="brand-logo">
+    <img src="{% static 'distribution/filmerp-logo-blue.jpg' %}" alt="FILMERP" class="brand-logo" width="480" height="107" decoding="async" fetchpriority="high">
   </a>
   {% with current=request.resolver_match.url_name %}
   <nav class="app-nav" aria-label="Główna nawigacja">

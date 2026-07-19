@@ -78,7 +78,7 @@ class SalesReportInline(admin.TabularInline):
 class CostInline(admin.TabularInline):
     model = Cost
     extra = 0
-    fields = ("category", "cost_date", "currency", "net_amount", "vat_amount", "recoupable", "paid")
+    fields = ("category", "cost_date", "currency", "net_amount", "vat_rate", "recoupable", "paid")
     show_change_link = True
 
 
@@ -225,7 +225,7 @@ class TitleAdmin(admin.ModelAdmin):
         response["Content-Disposition"] = 'attachment; filename="filmerp_marketplace_titles.xlsx"'
         return response
 
-    @admin.display(description="net revenue")
+    @admin.display(description="Netto")
     def net_revenue_display(self, obj):
         return obj.net_revenue_total
 
@@ -498,7 +498,7 @@ class SalesReportAdmin(admin.ModelAdmin):
     search_fields = ("title__title_pl", "title__original_title", "counterparty__name", "source_reference")
     autocomplete_fields = ("title", "counterparty", "sales_agreement", "territory")
 
-    @admin.display(description="net revenue")
+    @admin.display(description="Netto")
     def net_revenue_display(self, obj):
         return obj.net_revenue
 
@@ -518,12 +518,13 @@ class DocumentInboxItemAdmin(admin.ModelAdmin):
 @admin.register(Cost)
 class CostAdmin(admin.ModelAdmin):
     form = CostAdminForm
-    list_display = ("title", "category", "supplier", "cost_date", "currency", "net_amount", "gross_amount_display", "waterfall_scope_display", "recouped_display", "outstanding_display", "recoupable", "paid")
+    list_display = ("title", "category", "supplier", "cost_date", "currency", "net_amount", "vat_rate", "gross_amount_display", "waterfall_scope_display", "recouped_display", "outstanding_display", "recoupable", "paid")
     list_filter = ("category", "currency", "recoupable", "scope_mode", "paid", "cost_date")
     search_fields = ("title__title_pl", "title__original_title", "supplier__name", "notes")
     autocomplete_fields = ("title", "supplier")
+    readonly_fields = ("vat_amount_display", "gross_amount_display")
     fieldsets = (
-        ("Podstawowe", {"fields": ("title", "category", "supplier", "cost_date", "currency", "net_amount", "vat_amount", "paid")}),
+        ("Podstawowe", {"fields": ("title", "category", "supplier", "cost_date", "currency", "net_amount", "vat_rate", "vat_amount_display", "gross_amount_display", "paid")}),
         ("P&A / waterfall / recoupment", {"fields": ("recoupable", "scope_mode", "scope_fields", "allocation_percentages", *COST_ALLOCATION_FIELD_NAMES)}),
         ("Pliki i uwagi", {"fields": ("invoice_file", "notes")}),
     )
@@ -532,9 +533,13 @@ class CostAdmin(admin.ModelAdmin):
         js = ("distribution/cost-scope.js",)
         css = {"all": ("distribution/cost-scope.css",)}
 
-    @admin.display(description="kwota brutto")
+    @admin.display(description="Brutto (VAT)")
     def gross_amount_display(self, obj):
-        return obj.gross_amount
+        return obj.gross_amount if obj else "0.00"
+
+    @admin.display(description="kwota VAT")
+    def vat_amount_display(self, obj):
+        return obj.vat_amount if obj else "0.00"
 
     @admin.display(description="waterfall fields")
     def waterfall_scope_display(self, obj):
@@ -717,11 +722,11 @@ class RoyaltyStatementAdmin(admin.ModelAdmin):
             count += 1
         messages.success(request, f"Wygenerowano PDF dla statementow: {count}.")
 
-    @admin.display(description="gross")
+    @admin.display(description="Brutto")
     def gross_revenue_display(self, obj):
         return obj.gross_revenue
 
-    @admin.display(description="net")
+    @admin.display(description="Netto")
     def net_revenue_display(self, obj):
         return obj.net_revenue
 

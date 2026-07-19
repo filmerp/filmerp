@@ -186,7 +186,10 @@
 {% block extrahead %}
 {{ block.super }}
 <link rel="icon" href="{% static 'distribution/filmerp-favicon.svg' %}" type="image/svg+xml">
+<link rel="stylesheet" href="{% static 'distribution/admin-ux.css' %}">
 <script src="{% static 'distribution/filmerp-sidebar.js' %}" defer></script>
+<script src="{% static 'distribution/admin-ux.js' %}" defer></script>
+<script src="{% static 'distribution/cost-vat.js' %}" defer></script>
 <script>
   document.addEventListener("DOMContentLoaded", function () {
     const changelist = document.getElementById("changelist");

@@ -100,12 +100,12 @@ def build_royalty_statement_pdf(statement) -> ContentFile:
     ]))
     story.extend([identity_table, Paragraph("Settlement summary", styles["Section"])])
 
-    remaining_label = "Remaining after waterfall" if run else "Net receipts"
+    remaining_label = "Pozostało po waterfall" if run else "Podstawa podziału"
     summary = [
-        ["Gross revenue", money(statement.gross_revenue, statement.currency)],
+        ["Brutto", money(statement.gross_revenue, statement.currency)],
         ["Reported deductions", money(deductions, statement.currency)],
-        ["VAT / withholding", money(withholding, statement.currency)],
-        ["Net revenue", money(statement.net_revenue, statement.currency)],
+        ["Podatki i potrącenia u źródła", money(withholding, statement.currency)],
+        ["Netto", money(statement.net_revenue, statement.currency)],
         ["Recoupable costs in period", money(statement.recoupable_costs, statement.currency)],
         [remaining_label, money(statement.net_receipts, statement.currency)],
         ["AMOUNT DUE TO RECIPIENT", money(statement.amount_due, statement.currency)],
@@ -140,7 +140,7 @@ def build_royalty_statement_pdf(statement) -> ContentFile:
         story.append(waterfall_table)
 
     story.append(Paragraph("Revenue detail", styles["Section"]))
-    sales_rows = [["Source / field", "Territory", "Period", "Gross", "Deductions", "Net"]]
+    sales_rows = [["Source / field", "Territory", "Period", "Brutto", "Deductions", "Netto"]]
     for report in sales:
         sales_rows.append([
             Paragraph(f"{escape(report.counterparty.name)}<br/>{escape(report.get_exploitation_field_display())}", styles["Small"]),
@@ -157,7 +157,7 @@ def build_royalty_statement_pdf(statement) -> ContentFile:
     story.append(sales_table)
 
     story.append(Paragraph("Recoupable cost detail", styles["Section"]))
-    cost_rows = [["Category", "Date", "Supplier", "Scope", "Recovered" if run else "Net amount"]]
+    cost_rows = [["Category", "Date", "Supplier", "Scope", "Recovered" if run else "Netto (VAT)"]]
     for cost in costs:
         scope = cost.scope_label or "-"
         cost_rows.append([

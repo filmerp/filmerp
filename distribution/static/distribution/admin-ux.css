@@ -1,0 +1,43 @@
+.related-widget-wrapper-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-inline: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  vertical-align: middle;
+}
+
+.related-widget-wrapper-link img {
+  width: 15px;
+  height: 15px;
+}
+
+.vat-live-preview {
+  display: block;
+  margin-top: 5px;
+  color: #646970;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.submit-row .filmerp-cancel-link {
+  float: right;
+  margin-left: 8px;
+  padding: 10px 15px;
+  border: 1px solid #8c8f94;
+  border-radius: 4px;
+  background: #fff;
+  color: #2c3338;
+  font-weight: 600;
+  line-height: 15px;
+}
+
+.submit-row .filmerp-cancel-link:hover,
+.submit-row .filmerp-cancel-link:focus-visible {
+  border-color: #0058f8;
+  color: #0058f8;
+}

@@ -140,8 +140,8 @@
             <label>Data kosztu {{ cost_form.cost_date }}</label>
             <label>Kategoria {{ cost_form.category }}</label>
             <label>Waluta {{ cost_form.currency }}</label>
-            <label>Netto {{ cost_form.net_amount }}</label>
-            <label>VAT {{ cost_form.vat_amount }}</label>
+            <label>Netto (VAT) {{ cost_form.net_amount }}</label>
+            <label>VAT (%) {{ cost_form.vat_rate }}</label>
             <label class="check-label">{{ cost_form.recoupable }} Recoupable</label>
             <fieldset class="cost-scope-panel">
               <legend>Jakiego zakresu eksploatacji dotyczy koszt?</legend>
@@ -218,5 +218,6 @@
   });
 </script>
 <script src="{% static 'distribution/cost-scope.js' %}"></script>
+<script src="{% static 'distribution/cost-vat.js' %}"></script>
 </body>
 </html>

@@ -62,6 +62,8 @@ class CostScopeFormMixin(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if "vat_rate" in self.fields:
+            self.fields["vat_rate"].widget.attrs.update({"step": "0.01", "min": "0", "max": "100", "inputmode": "decimal"})
         self.fields["scope_mode"].widget = forms.RadioSelect(choices=CostScopeMode.choices)
         initial_allocations = getattr(self.instance, "allocation_percentages", {}) or {}
         for value, _ in ExploitationField.choices:
@@ -193,7 +195,7 @@ class CostInvoiceUploadForm(CostScopeFormMixin):
             "currency",
             "category",
             "net_amount",
-            "vat_amount",
+            "vat_rate",
             "recoupable",
             "scope_mode",
             "scope_fields",
@@ -260,7 +262,7 @@ class DocumentCostForm(CostScopeFormMixin):
             "currency",
             "category",
             "net_amount",
-            "vat_amount",
+            "vat_rate",
             "recoupable",
             "scope_mode",
             "scope_fields",
@@ -278,9 +280,16 @@ class DocumentCostForm(CostScopeFormMixin):
         extracted = document.extracted_data or {}
         self.fields["title"].initial = document.title_id or extracted.get("title_id")
         self.fields["supplier_name"].initial = extracted.get("supplier_name", "")
-        for field_name in ("cost_date", "currency", "net_amount", "vat_amount"):
+        for field_name in ("cost_date", "currency", "net_amount"):
             if extracted.get(field_name) not in (None, ""):
                 self.fields[field_name].initial = extracted[field_name]
+        if extracted.get("vat_rate") not in (None, ""):
+            self.fields["vat_rate"].initial = extracted["vat_rate"]
+        elif extracted.get("vat_amount") not in (None, ""):
+            self.fields["vat_rate"].initial = Cost.infer_vat_rate(
+                extracted.get("net_amount"),
+                extracted.get("vat_amount"),
+            )
 
     def save(self, commit=True):
         instance = super().save(commit=False)

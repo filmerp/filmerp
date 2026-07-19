@@ -92,7 +92,7 @@
 
   <section class="grid">
     {% for total in report_totals %}
-    <div class="card"><div class="label">{{ total.currency }} · przychód netto</div><div class="metric positive">{{ total.net_revenue }}</div><div class="muted">brutto {{ total.gross_revenue }} · koszty {{ total.cost_total }} · marża {{ total.margin }}</div></div>
+    <div class="card"><div class="label">{{ total.currency }} · Netto</div><div class="metric positive">{{ total.net_revenue }}</div><div class="muted">Brutto {{ total.gross_revenue }} · koszty Netto (VAT) {{ total.cost_total }} · marża {{ total.margin }}</div></div>
     {% endfor %}
   </section>
 
@@ -152,7 +152,7 @@
     <div class="card">
       <h2>Koszty per tytul</h2>
       <table>
-        <thead><tr><th>Tytul</th><th class="num">Netto</th><th class="num">Brutto</th><th class="num">Pozycje</th></tr></thead>
+        <thead><tr><th>Tytul</th><th class="num">Netto (VAT)</th><th class="num">Brutto (VAT)</th><th class="num">Pozycje</th></tr></thead>
         <tbody>
           {% for row in costs_by_title %}
           <tr><td>{{ row.title__title_pl }}</td><td class="num">{{ row.net }} {{ row.currency }}</td><td class="num">{{ row.gross }} {{ row.currency }}</td><td class="num">{{ row.costs }}</td></tr>

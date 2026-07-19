@@ -451,7 +451,12 @@ class SettlementWorkflowTests(TestCase):
         self.assertEqual(cost_add_response.status_code, 200)
         self.assertContains(cost_add_response, "Podział procentowy")
         self.assertContains(cost_add_response, "allocation_cinema")
+        self.assertContains(cost_add_response, "Netto (VAT)")
+        self.assertContains(cost_add_response, "VAT (%)")
+        self.assertContains(cost_add_response, "Brutto (VAT)")
+        self.assertContains(cost_add_response, "distribution/admin-ux.js")
 
+        return_url = f'{reverse("distribution:title_detail", args=[self.title.pk])}#finance'
         cost_save_response = self.client.post(reverse("admin:distribution_cost_add"), {
             "title": self.title.pk,
             "category": CostCategory.PA,
@@ -459,17 +464,22 @@ class SettlementWorkflowTests(TestCase):
             "cost_date": "2026-06-15",
             "currency": Currency.PLN,
             "net_amount": "1000.00",
-            "vat_amount": "230.00",
+            "vat_rate": "23.00",
             "recoupable": "on",
             "scope_mode": CostScopeMode.ALLOCATED,
             "allocation_cinema": "60.00",
             "allocation_svod": "40.00",
             "invoice_file": "",
             "notes": "Podział z panelu admina",
+            "return_to": return_url,
             "_save": "Zapisz",
         })
         self.assertEqual(cost_save_response.status_code, 302)
+        self.assertEqual(cost_save_response.url, return_url)
         admin_cost = Cost.objects.get(notes="Podział z panelu admina")
+        self.assertEqual(admin_cost.vat_rate, Decimal("23.00"))
+        self.assertEqual(admin_cost.vat_amount, Decimal("230.00"))
+        self.assertEqual(admin_cost.gross_amount, Decimal("1230.00"))
         self.assertEqual(admin_cost.scope_fields, [ExploitationField.CINEMA, ExploitationField.SVOD])
         self.assertEqual(admin_cost.allocation_percentages, {
             ExploitationField.CINEMA: "60.00",
@@ -526,7 +536,8 @@ class SettlementWorkflowTests(TestCase):
         self.assertIn("Koszty P&A", workbook.sheetnames)
         self.assertIn("Alokacje kosztów", workbook.sheetnames)
         self.assertEqual(workbook["Tytuły"]["B2"].value, self.title.title_pl)
-        self.assertEqual(workbook["Koszty P&A"]["L2"].value, "Kino")
+        self.assertEqual(workbook["Koszty P&A"]["H1"].value, "VAT (%)")
+        self.assertEqual(workbook["Koszty P&A"]["M2"].value, "Kino")
 
         payload["export_format"] = "csv_zip"
         response = self.client.post(reverse("distribution:title_catalog_export"), payload)
@@ -629,7 +640,7 @@ class SettlementWorkflowTests(TestCase):
             "currency": Currency.PLN,
             "category": CostCategory.PA,
             "net_amount": "200.00",
-            "vat_amount": "46.00",
+            "vat_rate": "23.00",
             "recoupable": "on",
             "scope_mode": CostScopeMode.ALL,
             "invoice_file": invoice,
@@ -637,6 +648,8 @@ class SettlementWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         cost = Cost.objects.get(title=self.title)
         self.assertEqual(cost.net_amount, Decimal("200.00"))
+        self.assertEqual(cost.vat_amount, Decimal("46.00"))
+        self.assertEqual(cost.gross_amount, Decimal("246.00"))
         self.assertTrue(cost.recoupable)
         self.assertTrue(cost.invoice_file.name.endswith(".pdf"))
 
@@ -667,7 +680,7 @@ class SettlementWorkflowTests(TestCase):
             "category": CostCategory.PA,
             "currency": Currency.PLN,
             "net_amount": "500.00",
-            "vat_amount": "115.00",
+            "vat_rate": "23.00",
             "recoupable": "on",
             "scope_mode": CostScopeMode.ALL,
         })
@@ -675,6 +688,8 @@ class SettlementWorkflowTests(TestCase):
         document.refresh_from_db()
         self.assertEqual(document.status, DocumentStatus.PROCESSED)
         self.assertEqual(document.cost.net_amount, Decimal("500.00"))
+        self.assertEqual(document.cost.vat_amount, Decimal("115.00"))
+        self.assertEqual(document.cost.gross_amount, Decimal("615.00"))
         self.assertEqual(document.cost.title, self.title)
         self.assertEqual(Cost.objects.filter(title=self.title).count(), 1)
 

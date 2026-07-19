@@ -29,6 +29,14 @@
   width: 92px;
 }
 
+.vat-live-preview {
+  display: block;
+  margin-top: 5px;
+  color: #646970;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 [hidden] {
   display: none !important;
 }

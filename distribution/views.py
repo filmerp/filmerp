@@ -993,10 +993,10 @@ def reports_export_csv(request):
         "period_start",
         "period_end",
         "currency",
-        "gross_revenue",
+        "brutto",
         "deductions",
-        "vat_withholding",
-        "net_revenue",
+        "podatki_i_potracenia_u_zrodla",
+        "netto",
         "source_reference",
     ])
     for report in sales_reports:
@@ -1031,8 +1031,8 @@ def _waterfall_export_csv(filters):
         "period_end",
         "status",
         "currency",
-        "gross_revenue",
-        "net_revenue",
+        "brutto",
+        "netto",
         "allocated_amount",
         "closing_available",
         "calculated_at",
@@ -1093,7 +1093,7 @@ def _statement_center_export_xlsx(statements, filters):
     details = workbook.create_sheet("Statements")
     _append_table(
         details,
-        ["Title", "Recipient", "Period start", "Period end", "Currency", "Gross", "Net", "Recoupable costs", "Distributor fee", "Net receipts", "Amount due", "Status", "Sent at", "Paid at", "PDF"],
+        ["Title", "Recipient", "Period start", "Period end", "Currency", "Brutto", "Netto", "Recoupable costs", "Distributor fee", "Podstawa podziału", "Amount due", "Status", "Sent at", "Paid at", "PDF"],
         [
             [
                 statement.title.title_pl,
@@ -1144,7 +1144,7 @@ def _reports_export_xlsx(filters):
     sales_sheet = workbook.create_sheet("Sales reports")
     _append_table(
         sales_sheet,
-        ["Title", "Counterparty", "Field", "Territory", "Period start", "Period end", "Currency", "Gross", "Deductions", "VAT withholding", "Net", "Source"],
+        ["Title", "Counterparty", "Field", "Territory", "Period start", "Period end", "Currency", "Brutto", "Deductions", "Podatki i potrącenia u źródła", "Netto", "Source"],
         [
             [
                 report.title.title_pl,
@@ -1167,7 +1167,7 @@ def _reports_export_xlsx(filters):
     waterfall_sheet = workbook.create_sheet("Waterfall")
     _append_table(
         waterfall_sheet,
-        ["Title", "Plan", "Version", "Period start", "Period end", "Status", "Currency", "Gross revenue", "Net revenue", "Allocated", "Remaining", "Calculated at", "Finalized at"],
+        ["Title", "Plan", "Version", "Period start", "Period end", "Status", "Currency", "Brutto", "Netto", "Allocated", "Remaining", "Calculated at", "Finalized at"],
         [
             [
                 run.plan.title.title_pl,
@@ -1191,7 +1191,7 @@ def _reports_export_xlsx(filters):
     costs_sheet = workbook.create_sheet("Costs")
     _append_table(
         costs_sheet,
-        ["Title", "Supplier", "Category", "Scope mode", "Scope", "Allocation percentages", "Date", "Currency", "Net", "VAT", "Gross", "Recoupable", "Recovered", "Outstanding", "Paid"],
+        ["Title", "Supplier", "Category", "Scope mode", "Scope", "Allocation percentages", "Date", "Currency", "Netto (VAT)", "VAT (%)", "Kwota VAT", "Brutto (VAT)", "Recoupable", "Recovered", "Outstanding", "Paid"],
         [
             [
                 cost.title.title_pl,
@@ -1203,6 +1203,7 @@ def _reports_export_xlsx(filters):
                 cost.cost_date,
                 cost.currency,
                 cost.net_amount,
+                cost.vat_rate,
                 cost.vat_amount,
                 cost.gross_amount,
                 "yes" if cost.recoupable else "no",

@@ -219,7 +219,7 @@ def build_catalog_export(title_ids, *, date_from=None, date_to=None):
         ExportSheet(
             "Podsumowanie",
             "01_podsumowanie.csv",
-            ["ID tytułu", "Tytuł", "Waluta", "Przychód brutto", "Przychód netto", "Koszty netto", "Koszty recoupable", "Odzyskano w rozliczeniach", "Statementy do wypłaty", "Liczba raportów", "Liczba kosztów", "Liczba statementów", "Umowy nabycia", "Okna praw", "Materiały"],
+            ["ID tytułu", "Tytuł", "Waluta", "Brutto", "Netto", "Koszty Netto (VAT)", "Koszty recoupable", "Odzyskano w rozliczeniach", "Statementy do wypłaty", "Liczba raportów", "Liczba kosztów", "Liczba statementów", "Umowy nabycia", "Okna praw", "Materiały"],
             summary_rows,
         ),
         ExportSheet(
@@ -249,7 +249,7 @@ def build_catalog_export(title_ids, *, date_from=None, date_to=None):
         ExportSheet(
             "Raporty sprzedaży",
             "06_raporty_sprzedazy.csv",
-            ["ID", "Tytuł", "Kontrahent", "Umowa", "Pole eksploatacji", "Terytorium", "Okres od", "Okres do", "Waluta", "Brutto", "Potrącenia", "VAT withholding", "Netto", "Status", "Referencja", "Plik", "Uwagi"],
+            ["ID", "Tytuł", "Kontrahent", "Umowa", "Pole eksploatacji", "Terytorium", "Okres od", "Okres do", "Waluta", "Brutto", "Potrącenia", "Podatki i potrącenia u źródła", "Netto", "Status", "Referencja", "Plik", "Uwagi"],
             [[item.pk, item.title.title_pl, item.counterparty.name, item.sales_agreement.contract_number if item.sales_agreement else "", item.get_exploitation_field_display(), item.territory.name if item.territory else "", item.period_start, item.period_end, item.currency, item.gross_revenue, item.deductions, item.vat_withholding, item.net_revenue, item.get_status_display(), item.source_reference, _file_name(item.source_file), item.notes] for item in sales_reports],
         ),
         ExportSheet(
@@ -261,8 +261,8 @@ def build_catalog_export(title_ids, *, date_from=None, date_to=None):
         ExportSheet(
             "Koszty P&A",
             "08_koszty_pa.csv",
-            ["ID", "Tytuł", "Dostawca", "Kategoria", "Data", "Waluta", "Netto", "VAT", "Brutto", "Recoupable", "Tryb zakresu", "Zakres", "Podział procentowy", "Odzyskano łącznie", "Pozostało do odzyskania", "Zapłacono", "Faktura", "Uwagi"],
-            [[item.pk, item.title.title_pl, item.supplier.name if item.supplier else "", item.get_category_display(), item.cost_date, item.currency, item.net_amount, item.vat_amount, item.gross_amount, _yes(item.recoupable), item.get_scope_mode_display(), item.scope_label, _join(f"{field_labels.get(field, field)} {percent}%" for field, percent in item.allocation_percentages.items()), _cost_recovered(item), _cost_outstanding(item), _yes(item.paid), _file_name(item.invoice_file), item.notes] for item in costs],
+            ["ID", "Tytuł", "Dostawca", "Kategoria", "Data", "Waluta", "Netto (VAT)", "VAT (%)", "Kwota VAT", "Brutto (VAT)", "Recoupable", "Tryb zakresu", "Zakres", "Podział procentowy", "Odzyskano łącznie", "Pozostało do odzyskania", "Zapłacono", "Faktura", "Uwagi"],
+            [[item.pk, item.title.title_pl, item.supplier.name if item.supplier else "", item.get_category_display(), item.cost_date, item.currency, item.net_amount, item.vat_rate, item.vat_amount, item.gross_amount, _yes(item.recoupable), item.get_scope_mode_display(), item.scope_label, _join(f"{field_labels.get(field, field)} {percent}%" for field, percent in item.allocation_percentages.items()), _cost_recovered(item), _cost_outstanding(item), _yes(item.paid), _file_name(item.invoice_file), item.notes] for item in costs],
         ),
         ExportSheet(
             "Materiały",
@@ -285,7 +285,7 @@ def build_catalog_export(title_ids, *, date_from=None, date_to=None):
         ExportSheet(
             "Rozliczenia waterfall",
             "12_rozliczenia_waterfall.csv",
-            ["ID", "Tytuł", "Plan", "Wersja", "Okres od", "Okres do", "Status", "Waluta", "Przychód brutto", "Przychód netto", "Rozdzielono", "Pozostało", "Przeliczono", "Zatwierdzono", "Zatwierdził", "Uwagi"],
+            ["ID", "Tytuł", "Plan", "Wersja", "Okres od", "Okres do", "Status", "Waluta", "Brutto", "Netto", "Rozdzielono", "Pozostało", "Przeliczono", "Zatwierdzono", "Zatwierdził", "Uwagi"],
             [[item.pk, item.plan.title.title_pl, item.plan.name, item.plan.version, item.period_start, item.period_end, item.get_status_display(), item.plan.currency, item.gross_revenue, item.net_revenue, item.allocated_amount, item.closing_available, item.calculated_at.replace(tzinfo=None) if item.calculated_at else "", item.finalized_at.replace(tzinfo=None) if item.finalized_at else "", item.finalized_by.get_username() if item.finalized_by else "", item.notes] for item in runs],
         ),
         ExportSheet(
@@ -303,7 +303,7 @@ def build_catalog_export(title_ids, *, date_from=None, date_to=None):
         ExportSheet(
             "Statementy",
             "15_statementy.csv",
-            ["ID", "Tytuł", "Odbiorca", "Okres od", "Okres do", "Waluta", "Plan", "Rozliczenie waterfall ID", "Przychód brutto", "Przychód netto", "Koszty odzyskane", "Fee dystrybutora", "Net receipts", "Do wypłaty", "Status", "Wysłano", "Zapłacono", "PDF", "Uwagi"],
+            ["ID", "Tytuł", "Odbiorca", "Okres od", "Okres do", "Waluta", "Plan", "Rozliczenie waterfall ID", "Brutto", "Netto", "Koszty odzyskane", "Prowizja dystrybutora", "Podstawa podziału", "Do wypłaty", "Status", "Wysłano", "Zapłacono", "PDF", "Uwagi"],
             [[item.pk, item.title.title_pl, item.recipient.name, item.period_start, item.period_end, item.currency, item.waterfall_plan.name if item.waterfall_plan else "", item.waterfall_run_id or "", item.gross_revenue, item.net_revenue, item.recoupable_costs, item.distributor_fee_amount, item.net_receipts, item.amount_due, item.get_status_display(), item.sent_at or "", item.paid_at or "", _file_name(item.statement_file), item.notes] for item in statements],
         ),
     ]

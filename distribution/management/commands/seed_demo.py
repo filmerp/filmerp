@@ -170,7 +170,7 @@ class Command(BaseCommand):
             defaults={
                 "currency": Currency.PLN,
                 "net_amount": Decimal("4000.00"),
-                "vat_amount": Decimal("920.00"),
+                "vat_rate": Decimal("23.00"),
                 "recoupable": True,
                 "paid": True,
             },

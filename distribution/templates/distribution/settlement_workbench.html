@@ -176,7 +176,7 @@
         <h3>Koszty</h3>
         <div class="table-scroll"><table>
           <thead><tr><th>Data</th><th>Kategoria</th><th>Dostawca</th><th>Zakres P&A</th><th class="num">Netto</th><th>FV</th></tr></thead>
-          <tbody>{% for cost in costs %}<tr><td>{{ cost.cost_date }}</td><td>{{ cost.get_category_display }}</td><td>{{ cost.supplier|default:"—" }}</td><td>{{ cost.scope_label }}</td><td class="num">{{ cost.net_amount }} {{ cost.currency }}</td><td>{% if cost.invoice_file %}<a href="{{ cost.invoice_file.url }}">plik</a>{% else %}<span class="muted">brak</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="6" class="muted">Brak kosztów.</td></tr>{% endfor %}</tbody>
+          <tbody>{% for cost in costs %}<tr><td>{{ cost.cost_date }}</td><td>{{ cost.get_category_display }}</td><td>{{ cost.supplier|default:"—" }}</td><td>{{ cost.scope_label }}</td><td class="num">{{ cost.net_amount }} {{ cost.currency }}<small>Netto (VAT)</small></td><td>{% if cost.invoice_file %}<a href="{{ cost.invoice_file.url }}">plik</a>{% else %}<span class="muted">brak</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="6" class="muted">Brak kosztów.</td></tr>{% endfor %}</tbody>
         </table></div>
       </div>
     </div>
@@ -189,8 +189,8 @@
       <span class="status-pill {{ run.status }}">{{ run.get_status_display }}</span>
     </div>
     <div class="settlement-totals">
-      <div><span>Gross</span><strong>{{ run.gross_revenue }} {{ currency }}</strong></div>
-      <div><span>Net</span><strong>{{ run.net_revenue }} {{ currency }}</strong></div>
+      <div><span>Brutto</span><strong>{{ run.gross_revenue }} {{ currency }}</strong></div>
+      <div><span>Netto</span><strong>{{ run.net_revenue }} {{ currency }}</strong></div>
       <div><span>Rozdzielono</span><strong>{{ run.allocated_amount }} {{ currency }}</strong></div>
       <div><span>Pozostało</span><strong>{{ run.closing_available }} {{ currency }}</strong></div>
     </div>

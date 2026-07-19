@@ -5,6 +5,7 @@ from typing import Iterable
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -495,8 +496,8 @@ class RightsWindow(TimestampedModel):
             models.Index(fields=["title", "exploitation_field", "date_from", "date_to"]),
             models.Index(fields=["source", "status"]),
         ]
-        verbose_name = "rights window / pole eksploatacji"
-        verbose_name_plural = "rights windows / pola eksploatacji"
+        verbose_name = "okno praw"
+        verbose_name_plural = "okna praw"
 
     def __str__(self) -> str:
         return f"{self.title} | {self.get_exploitation_field_display()} | {self.date_from}–{self.date_to}"
@@ -821,9 +822,15 @@ class SalesReport(TimestampedModel):
     period_start = models.DateField("okres od")
     period_end = models.DateField("okres do")
     currency = models.CharField("waluta", max_length=3, choices=Currency.choices, default=Currency.PLN)
-    gross_revenue = models.DecimalField("przychód brutto", max_digits=14, decimal_places=2, default=Decimal("0.00"))
-    deductions = models.DecimalField("potrącenia / fees", max_digits=14, decimal_places=2, default=Decimal("0.00"))
-    vat_withholding = models.DecimalField("VAT / withholding", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    gross_revenue = models.DecimalField(
+        "Brutto",
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Przychód przed potrąceniami dystrybucyjnymi. Nie jest to kwota brutto z VAT.",
+    )
+    deductions = models.DecimalField("potrącenia", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    vat_withholding = models.DecimalField("podatki i potrącenia u źródła", max_digits=14, decimal_places=2, default=Decimal("0.00"))
     status = models.CharField("status", max_length=30, choices=ReportStatus.choices, default=ReportStatus.IMPORTED)
     source_reference = models.CharField("Import ID / ref", max_length=255, blank=True)
     source_file = models.FileField("plik źródłowy", upload_to="sales_reports/", blank=True)
@@ -852,8 +859,22 @@ class Cost(TimestampedModel):
     supplier = models.ForeignKey(Counterparty, null=True, blank=True, on_delete=models.SET_NULL, related_name="costs", verbose_name="dostawca")
     cost_date = models.DateField("data kosztu")
     currency = models.CharField("waluta", max_length=3, choices=Currency.choices, default=Currency.PLN)
-    net_amount = models.DecimalField("kwota netto", max_digits=14, decimal_places=2, default=Decimal("0.00"))
-    vat_amount = models.DecimalField("VAT", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    net_amount = models.DecimalField(
+        "Netto (VAT)",
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        help_text="Kwota bez VAT z faktury.",
+    )
+    vat_rate = models.DecimalField(
+        "VAT (%)",
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("23.00"),
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
+        help_text="Stawka procentowa. Kwota VAT i Brutto (VAT) zostaną obliczone automatycznie.",
+    )
+    vat_amount = models.DecimalField("kwota VAT", max_digits=14, decimal_places=2, default=Decimal("0.00"), editable=False)
     recoupable = models.BooleanField("recoupable?", default=True)
     scope_mode = models.CharField("zakres kosztu", max_length=20, choices=CostScopeMode.choices, default=CostScopeMode.ALL)
     scope_fields = models.JSONField("wybrane pola eksploatacji", default=list, blank=True)
@@ -872,8 +893,8 @@ class Cost(TimestampedModel):
 
     class Meta:
         ordering = ["-cost_date", "title__title_pl"]
-        verbose_name = "koszt P&A / delivery / materiały"
-        verbose_name_plural = "koszty P&A / delivery / materiały"
+        verbose_name = "koszt P&A i dystrybucji"
+        verbose_name_plural = "koszty P&A i dystrybucji"
 
     def __str__(self) -> str:
         return f"{self.title} / {self.get_category_display()} / {self.net_amount} {self.currency}"
@@ -882,7 +903,18 @@ class Cost(TimestampedModel):
     def gross_amount(self) -> Decimal:
         return (self.net_amount or Decimal("0.00")) + (self.vat_amount or Decimal("0.00"))
 
+    @staticmethod
+    def infer_vat_rate(net_amount, vat_amount) -> Decimal:
+        net = Decimal(str(net_amount or "0"))
+        vat = Decimal(str(vat_amount or "0"))
+        if net <= 0 or vat <= 0:
+            return Decimal("0.00")
+        return (vat * Decimal("100.00") / net).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
     def clean(self):
+        if self.vat_rate is not None and not Decimal("0.00") <= self.vat_rate <= Decimal("100.00"):
+            raise ValidationError({"vat_rate": "Stawka VAT musi mieścić się w zakresie od 0% do 100%."})
+
         valid_fields = {value for value, _ in ExploitationField.choices}
         selected = list(dict.fromkeys(self.scope_fields or []))
         invalid = set(selected) - valid_fields
@@ -906,6 +938,12 @@ class Cost(TimestampedModel):
                 raise ValidationError({"allocation_percentages": "Suma udziałów musi wynosić 100%."})
 
     def save(self, *args, **kwargs):
+        self.vat_amount = (
+            (self.net_amount or Decimal("0.00"))
+            * (self.vat_rate or Decimal("0.00"))
+            / Decimal("100.00")
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
         if self.scope_mode == CostScopeMode.ALL:
             self.scope_fields = []
             self.allocation_percentages = {}
@@ -924,6 +962,8 @@ class Cost(TimestampedModel):
         self.applies_to_all_exploitation_fields = self.scope_mode == CostScopeMode.ALL
         self.exploitation_fields = ",".join(self.scope_fields)
         self.exploitation_field = self.scope_fields[0] if len(self.scope_fields) == 1 else ""
+        if kwargs.get("update_fields") and ({"net_amount", "vat_rate"} & set(kwargs["update_fields"])):
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"vat_amount"}
         super().save(*args, **kwargs)
 
     def waterfall_exploitation_fields(self) -> set[str]:
@@ -1052,8 +1092,8 @@ class TitleMaterial(TimestampedModel):
             models.Index(fields=["asset_type", "status"]),
             models.Index(fields=["due_date"]),
         ]
-        verbose_name = "materiał / delivery"
-        verbose_name_plural = "materiały / delivery"
+        verbose_name = "materiał tytułu"
+        verbose_name_plural = "materiały tytułu"
 
     def __str__(self) -> str:
         field = self.get_exploitation_field_display() if self.exploitation_field else "ogólne"
@@ -1265,8 +1305,8 @@ class WaterfallRun(TimestampedModel):
     period_start = models.DateField("okres od")
     period_end = models.DateField("okres do")
     status = models.CharField("status", max_length=20, choices=WaterfallRunStatus.choices, default=WaterfallRunStatus.DRAFT)
-    gross_revenue = models.DecimalField("gross revenue", max_digits=16, decimal_places=2, default=Decimal("0.00"))
-    net_revenue = models.DecimalField("net revenue", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    gross_revenue = models.DecimalField("Brutto", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+    net_revenue = models.DecimalField("Netto", max_digits=16, decimal_places=2, default=Decimal("0.00"))
     allocated_amount = models.DecimalField("rozdzielono", max_digits=16, decimal_places=2, default=Decimal("0.00"))
     closing_available = models.DecimalField("pozostalo po waterfall", max_digits=16, decimal_places=2, default=Decimal("0.00"))
     calculation_snapshot = models.JSONField("snapshot kalkulacji", default=dict, blank=True)

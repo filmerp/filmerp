@@ -357,6 +357,7 @@ class SettlementWorkflowTests(TestCase):
                 self.assertEqual(positions, sorted(positions))
                 self.assertIn('id="sidebar-toggle"', shell_html)
                 self.assertIn("lucide-sidebar", shell_html)
+                self.assertContains(response, "distribution/filmerp-sidebar.js")
 
     def test_dashboard_and_title_card_use_title_centric_workflow(self):
         response = self.client.get(reverse("distribution:dashboard"))
@@ -412,6 +413,7 @@ class SettlementWorkflowTests(TestCase):
         self.assertContains(response, "Panel administracyjny")
         self.assertContains(response, "Użytkownicy i role")
         self.assertContains(response, "Zmień hasło")
+        self.assertContains(response, "distribution/filmerp-sidebar.js")
         self.assertNotContains(response, ">DASHBOARD<")
         userlinks = response.content.decode().split('id="user-tools"', 1)[1].split("</div>", 1)[0]
         self.assertNotIn(reverse("admin:password_change"), userlinks)

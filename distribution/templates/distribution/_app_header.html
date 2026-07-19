@@ -19,3 +19,4 @@
   {% if request.user.is_authenticated %}<div class="app-header-user">{{ request.user.get_full_name|default:request.user.username }}</div>{% endif %}
 </header>
 {% endwith %}
+<script src="{% static 'distribution/filmerp-sidebar.js' %}" defer></script>

@@ -185,6 +185,7 @@
 
 {% block extrahead %}
 {{ block.super }}
+<script src="{% static 'distribution/filmerp-sidebar.js' %}" defer></script>
 <script>
   document.addEventListener("DOMContentLoaded", function () {
     const changelist = document.getElementById("changelist");

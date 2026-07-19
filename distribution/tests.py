@@ -29,6 +29,7 @@ from .models import (
     ExploitationField,
     RoyaltyStatement,
     SalesReport,
+    StatementStatus,
     WaterfallAllocationMode,
     WaterfallPlan,
     WaterfallParticipant,
@@ -435,6 +436,31 @@ class SettlementWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, reverse("admin:distribution_salesreport_changelist"))
 
+    def test_related_admin_add_returns_to_parent_and_selects_created_record(self):
+        booking_add = reverse("admin:distribution_cinemabooking_add")
+        booking_response = self.client.get(booking_add)
+        self.assertEqual(booking_response.status_code, 200)
+        self.assertContains(booking_response, "Box office brutto (przed podziałem z kinem)")
+        self.assertContains(booking_response, "P&A, MG i pozostałe recoupmenty są rozliczane później.")
+
+        response = self.client.post(reverse("admin:distribution_counterparty_add"), {
+            "name": "Nowe kino z formularza",
+            "counterparty_type": "cinema",
+            "payment_terms_days": "30",
+            "reporting_cycle": "none",
+            "return_to": booking_add,
+            "filmerp_parent_key": "test-parent-state",
+            "filmerp_parent_field": "id_cinema",
+            "_save": "Zapisz",
+        })
+        created = Counterparty.objects.get(name="Nowe kino z formularza")
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(response.url.startswith(f"{booking_add}?"))
+        self.assertIn("filmerp_restore=1", response.url)
+        self.assertIn("filmerp_parent_key=test-parent-state", response.url)
+        self.assertIn("filmerp_related_field=id_cinema", response.url)
+        self.assertIn(f"filmerp_related_id={created.pk}", response.url)
+
     def test_admin_uses_application_sidebar_and_settings_links(self):
         response = self.client.get(reverse("admin:index"))
         self.assertEqual(response.status_code, 200)
@@ -644,9 +670,9 @@ class SettlementWorkflowTests(TestCase):
             "Gross Receipts",
             "Net Revenue",
             "Commission Allocations",
-            "AMOUNT DUE TO PARTICIPANT",
-            "Szczegóły przychodów",
-            "Potrącenia",
+            "AMOUNT DUE TO RECIPIENT",
+            "Revenue Detail",
+            "Reported Deductions",
         ):
             self.assertIn(term, pdf_text)
 
@@ -682,11 +708,30 @@ class SettlementWorkflowTests(TestCase):
             recipient_share_percent=Decimal("50.00"),
         )
         statement.freeze_calculation(lock=True)
+        RoyaltyStatement.objects.create(
+            title=self.title,
+            recipient=self.producer,
+            period_start=date(2026, 7, 1),
+            period_end=date(2026, 7, 31),
+            currency=Currency.PLN,
+        )
 
         response = self.client.get(reverse("distribution:statement_center"))
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["status_counts"][StatementStatus.DRAFT], 2)
         for term in ("Gross Receipts", "Net Revenue", "Distributor Fee", "Net Receipts", "Amount Due"):
             self.assertContains(response, term)
+
+        status_response = self.client.post(reverse("distribution:statement_center"), {
+            "statement_ids": [str(statement.pk)],
+            "action": "change_status",
+            "target_status": StatementStatus.SENT,
+        })
+        self.assertRedirects(status_response, reverse("distribution:statement_center"))
+        statement.refresh_from_db()
+        self.assertEqual(statement.status, StatementStatus.SENT)
+        self.assertIsNotNone(statement.sent_at)
+        self.assertIsNotNone(statement.locked_at)
 
         export = self.client.get(reverse("distribution:statement_center"), {"export": "xlsx"})
         workbook = load_workbook(BytesIO(export.content), read_only=True, data_only=True)

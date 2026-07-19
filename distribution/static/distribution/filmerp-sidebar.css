@@ -1,8 +1,8 @@
 :root {
-  --sidebar-expanded: 236px;
-  --sidebar-collapsed: 72px;
+  --sidebar-expanded: 218px;
+  --sidebar-collapsed: 64px;
   --sidebar-width: var(--sidebar-expanded);
-  --topbar-height: 58px;
+  --topbar-height: 52px;
 }
 
 body.filmerp-shell {
@@ -40,7 +40,7 @@ body.filmerp-shell.sidebar-collapsed {
   justify-content: space-between;
   gap: 8px;
   min-height: var(--topbar-height);
-  padding: 8px 10px 8px 14px;
+  padding: 6px 9px 6px 12px;
   border-bottom: 1px solid #3c434a;
 }
 
@@ -55,15 +55,15 @@ body.filmerp-shell.sidebar-collapsed {
 .sidebar-logo-viewport {
   display: flex;
   align-items: center;
-  width: 158px;
-  height: 40px;
+  width: 142px;
+  height: 36px;
   overflow: hidden;
   transition: width .18s ease;
 }
 
 .brand-logo {
   display: block;
-  width: 158px;
+  width: 142px;
   height: auto;
   max-width: none;
   flex: 0 0 auto;
@@ -71,8 +71,8 @@ body.filmerp-shell.sidebar-collapsed {
 
 .sidebar-icon {
   display: block;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   flex: 0 0 auto;
   fill: none;
   stroke: currentColor;
@@ -86,9 +86,9 @@ body.filmerp-shell.sidebar-collapsed {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  min-height: 36px;
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
   padding: 0;
   border: 1px solid transparent;
   border-radius: 4px;
@@ -120,7 +120,7 @@ body.sidebar-collapsed .sidebar-link::after {
   background: #1d2327;
   color: #fff;
   content: attr(data-tooltip);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   line-height: 1.2;
   opacity: 0;
@@ -145,7 +145,7 @@ body.sidebar-collapsed .sidebar-link:focus-visible::after {
 
 .sidebar-nav {
   min-height: 0;
-  padding: 14px 0;
+  padding: 12px 0;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-color: #50575e transparent;
@@ -153,14 +153,14 @@ body.sidebar-collapsed .sidebar-link:focus-visible::after {
 }
 
 .sidebar-section + .sidebar-section {
-  margin-top: 18px;
+  margin-top: 16px;
 }
 
 .sidebar-section-label {
   min-height: 24px;
-  padding: 4px 20px;
+  padding: 3px 18px;
   color: #8c8f94;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   letter-spacing: .04em;
   text-transform: uppercase;
@@ -171,14 +171,14 @@ body.sidebar-collapsed .sidebar-link:focus-visible::after {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 44px;
+  gap: 10px;
+  min-height: 40px;
   width: 100%;
   margin: 2px 0;
-  padding: 10px 20px;
+  padding: 8px 18px;
   border-radius: 0;
   color: #dcdcde;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Roboto", "Helvetica Neue", Arial, sans-serif;
   line-height: 1.45;
@@ -211,15 +211,21 @@ body.sidebar-collapsed .sidebar-link:focus-visible::after {
 
 .sidebar-footer {
   margin-top: auto;
-  padding: 10px 0;
+  padding: 8px 0;
   border-top: 1px solid #3c434a;
 }
 
 .sidebar-logout-form {
+  display: block !important;
+  width: 100%;
+  min-width: 0;
   margin: 0;
 }
 
 .app-sidebar .sidebar-logout-button {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
   border: 0;
   background: transparent;
   color: #dcdcde;
@@ -263,24 +269,28 @@ body.sidebar-collapsed .sidebar-link {
   padding-inline: 0;
 }
 
+body.sidebar-collapsed .sidebar-logout-button {
+  justify-content: center;
+}
+
 .app-header {
   position: sticky;
   z-index: 800;
   top: 0;
   min-height: var(--topbar-height);
-  padding: 0 32px;
+  padding: 0 28px;
   border-bottom: 1px solid var(--border, #c3c4c7);
   background: #fff;
   color: var(--body-fg, #1d2327);
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
 .app-page-title {
   min-width: 0;
   overflow: hidden;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -291,7 +301,7 @@ body.sidebar-collapsed .sidebar-link {
   margin-left: auto;
   overflow: hidden;
   color: var(--muted, #646970);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;

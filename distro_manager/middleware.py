@@ -7,6 +7,8 @@ class AdminReturnMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
+        if getattr(response, "_filmerp_admin_return", False):
+            return response
         return_url = request.POST.get("return_to")
         skip_return = any(key in request.POST for key in ("_continue", "_addanother", "_saveasnew", "_popup"))
 

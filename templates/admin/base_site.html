@@ -58,13 +58,18 @@
   body {
     font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Roboto", "Helvetica Neue", Arial, sans-serif;
   }
+  body.filmerp-admin-shell {
+    font-size: 13px;
+  }
   #header {
     background: #1d2327;
     color: #f0f0f1;
   }
   body.filmerp-admin-shell #header {
+    box-sizing: border-box;
     min-height: var(--topbar-height);
-    padding-inline: 32px;
+    padding-block: 0;
+    padding-inline: 28px;
   }
   body.filmerp-admin-shell #container {
     min-width: 0;
@@ -76,6 +81,15 @@
   body.filmerp-admin-shell .main,
   body.filmerp-admin-shell #content-start {
     min-width: 0;
+  }
+  body.filmerp-admin-shell #content {
+    padding: 20px 28px;
+  }
+  body.filmerp-admin-shell div.breadcrumbs {
+    padding: 8px 28px;
+  }
+  body.filmerp-admin-shell .form-row {
+    padding-block: 8px;
   }
   #header a:link,
   #header a:visited {
@@ -117,7 +131,7 @@
     max-width: min(620px, 52vw);
     overflow: hidden;
     color: #f0f0f1;
-    font-size: 17px;
+    font-size: 15px;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -155,7 +169,7 @@
     margin: 0 0 10px;
   }
   .filmerp-filter-toggle {
-    padding: 8px 12px;
+    padding: 7px 11px;
     border: 1px solid #0058f8;
     border-radius: 4px;
     background: #fff;
@@ -179,6 +193,9 @@
     body.filmerp-admin-shell div.breadcrumbs {
       padding-inline: 16px;
     }
+    body.filmerp-admin-shell #content {
+      padding: 18px 16px;
+    }
   }
 </style>
 {% endblock %}
@@ -188,7 +205,7 @@
 <link rel="icon" href="{% static 'distribution/filmerp-favicon.svg' %}" type="image/svg+xml">
 <link rel="stylesheet" href="{% static 'distribution/admin-ux.css' %}">
 <script src="{% static 'distribution/filmerp-sidebar.js' %}" defer></script>
-<script src="{% static 'distribution/admin-ux.js' %}" defer></script>
+<script src="{% static 'distribution/admin-ux.js' %}?v=20260720-2" defer></script>
 <script src="{% static 'distribution/cost-vat.js' %}" defer></script>
 <script>
   document.addEventListener("DOMContentLoaded", function () {

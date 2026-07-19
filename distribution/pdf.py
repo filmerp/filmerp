@@ -65,6 +65,7 @@ def _table_style(*, header=True, amount_column=None):
             ("FONTNAME", (0, 0), (-1, 0), FONT_BOLD),
             ("FONTSIZE", (0, 0), (-1, 0), 8),
         ])
+    commands.append(("FONTNAME", (0, 1 if header else 0), (-1, -1), FONT_REGULAR))
     commands.append(("FONTSIZE", (0, 1 if header else 0), (-1, -1), 7.5))
     if amount_column is not None:
         commands.append(("ALIGN", (amount_column, 1 if header else 0), (amount_column, -1), "RIGHT"))
@@ -89,22 +90,6 @@ def build_royalty_statement_pdf(statement) -> ContentFile:
     styles.add(ParagraphStyle(name="Section", parent=styles["Heading3"], fontSize=11, leading=14, textColor=PRIMARY, spaceBefore=12, spaceAfter=6, fontName=FONT_BOLD))
     styles.add(ParagraphStyle(name="Small", parent=styles["Normal"], fontSize=7.5, leading=10, textColor=colors.HexColor("#4b5563"), fontName=FONT_REGULAR))
     styles.add(ParagraphStyle(name="Amount", parent=styles["Small"], alignment=2, textColor=colors.black))
-    styles.add(ParagraphStyle(name="TableHeader", parent=styles["Normal"], fontSize=7, leading=8, textColor=colors.white, fontName=FONT_BOLD))
-
-    def bilingual_label(english, polish, *, inverse=False):
-        primary_color = "#ffffff" if inverse else "#4b5563"
-        secondary_color = "#dbeafe" if inverse else "#667085"
-        return Paragraph(
-            f"<font color='{primary_color}'><b>{escape(english)}</b></font>"
-            f"<br/><font size='7' color='{secondary_color}'>{escape(polish)}</font>",
-            styles["Small"],
-        )
-
-    def bilingual_header(english, polish):
-        return Paragraph(
-            f"{escape(english)}<br/><font size='6' color='#dbeafe'>{escape(polish)}</font>",
-            styles["TableHeader"],
-        )
 
     sales = list(statement.sales_queryset().select_related("counterparty", "territory"))
     costs = list(statement.recoupable_costs_queryset().select_related("supplier"))
@@ -124,55 +109,50 @@ def build_royalty_statement_pdf(statement) -> ContentFile:
         Spacer(1, 2 * mm),
     ]
     identity = [
-        [bilingual_label("Document", "Dokument"), Paragraph(document_number, styles["Small"]), bilingual_label("Generated", "Wygenerowano"), Paragraph(timezone.localdate().isoformat(), styles["Small"])],
-        [bilingual_label("Title", "Tytuł"), Paragraph(escape(str(statement.title)), styles["Small"]), bilingual_label("Currency", "Waluta"), Paragraph(statement.currency, styles["Small"])],
-        [bilingual_label("Recipient", "Odbiorca"), Paragraph(escape(str(statement.recipient)), styles["Small"]), bilingual_label("Period", "Okres"), Paragraph(f"{statement.period_start} - {statement.period_end}", styles["Small"])],
-        [bilingual_label("Calculation Basis", "Podstawa kalkulacji"), Paragraph(escape(statement.calculation_basis_label), styles["Small"]), bilingual_label("Status", "Status"), Paragraph(escape(statement.get_status_display()), styles["Small"])],
+        ["Document", Paragraph(document_number, styles["Small"]), "Generated", Paragraph(timezone.localdate().isoformat(), styles["Small"])],
+        ["Title", Paragraph(escape(str(statement.title)), styles["Small"]), "Currency", Paragraph(statement.currency, styles["Small"])],
+        ["Recipient", Paragraph(escape(str(statement.recipient)), styles["Small"]), "Period", Paragraph(f"{statement.period_start} - {statement.period_end}", styles["Small"])],
     ]
-    identity_table = Table(identity, colWidths=[35 * mm, 57 * mm, 34 * mm, 50 * mm])
+    if statement.waterfall_plan_id or statement.waterfall_run_id:
+        identity.append([
+            "Calculation basis",
+            Paragraph(escape(statement.calculation_basis_label), styles["Small"]),
+            "Status",
+            Paragraph(escape(statement.get_status_display()), styles["Small"]),
+        ])
+    identity_table = Table(identity, colWidths=[30 * mm, 64 * mm, 26 * mm, 56 * mm])
     identity_table.setStyle(TableStyle([
         ("GRID", (0, 0), (-1, -1), 0.35, BORDER),
         ("BACKGROUND", (0, 0), (0, -1), LIGHT),
         ("BACKGROUND", (2, 0), (2, -1), LIGHT),
+        ("FONTNAME", (0, 0), (-1, -1), FONT_REGULAR),
         ("FONTNAME", (0, 0), (0, -1), FONT_BOLD),
         ("FONTNAME", (2, 0), (2, -1), FONT_BOLD),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("PADDING", (0, 0), (-1, -1), 5),
     ]))
-    story.extend([identity_table, Paragraph("Settlement Summary / Podsumowanie rozliczenia", styles["Section"])])
+    story.extend([identity_table, Paragraph("Settlement Summary", styles["Section"])])
 
-    recoupment_label = (
-        bilingual_label("Cost Recoupment in Waterfall", "Koszty odzyskane w waterfallu")
-        if run
-        else bilingual_label("Recoupable Costs", "Koszty podlegające odzyskaniu")
-    )
-    fee_label = (
-        bilingual_label("Commission Allocations", "Alokacje prowizji")
-        if run
-        else bilingual_label("Distributor Fee", "Prowizja dystrybutora")
-    )
-    remaining_label = (
-        bilingual_label("Closing Balance", "Saldo końcowe waterfall")
-        if run
-        else bilingual_label("Net Receipts", "Wpływy netto do podziału")
-    )
+    recoupment_label = "Cost Recoupment in Waterfall" if run else "Recoupable Costs in Period"
+    fee_label = "Commission Allocations" if run else f"Distributor Fee ({statement.applied_distributor_fee_percent:.2f}%)"
+    remaining_label = "Closing Balance" if run else "Net Receipts"
     summary = [
-        [bilingual_label("Gross Receipts", "Przychody brutto dystrybucyjne"), money(statement.gross_revenue, statement.currency)],
-        [bilingual_label("Deductions", "Potrącenia dystrybucyjne"), money(deductions, statement.currency)],
-        [bilingual_label("Taxes / Withholding", "Podatki i potrącenia u źródła"), money(withholding, statement.currency)],
-        [bilingual_label("Net Revenue", "Przychody netto dystrybucyjne"), money(statement.net_revenue, statement.currency)],
+        ["Gross Receipts", money(statement.gross_revenue, statement.currency)],
+        ["Reported Deductions", money(deductions, statement.currency)],
+        ["Taxes / Withholding", money(withholding, statement.currency)],
+        ["Net Revenue", money(statement.net_revenue, statement.currency)],
         [recoupment_label, money(statement.recoupable_costs, statement.currency)],
         [fee_label, money(statement.distributor_fee_amount, statement.currency)],
         [remaining_label, money(statement.net_receipts, statement.currency)],
     ]
     if not run:
         summary.append([
-            bilingual_label("Participant Share", "Udział odbiorcy"),
+            "Recipient Share",
             f"{statement.applied_recipient_share_percent:.2f}%",
         ])
     summary.append([
-        bilingual_label("AMOUNT DUE TO PARTICIPANT", "KWOTA NALEŻNA ODBIORCY", inverse=True),
+        "AMOUNT DUE TO RECIPIENT",
         money(statement.amount_due, statement.currency),
     ])
     summary_table = Table(summary, colWidths=[116 * mm, 60 * mm])
@@ -180,34 +160,18 @@ def build_royalty_statement_pdf(statement) -> ContentFile:
         ("GRID", (0, 0), (-1, -1), 0.35, BORDER),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
         ("PADDING", (0, 0), (-1, -1), 6),
+        ("FONTNAME", (0, 0), (-1, -1), FONT_REGULAR),
         ("BACKGROUND", (0, -1), (-1, -1), PRIMARY),
         ("TEXTCOLOR", (0, -1), (-1, -1), colors.white),
         ("FONTNAME", (0, -1), (-1, -1), FONT_BOLD),
         ("FONTSIZE", (0, -1), (-1, -1), 10),
     ]))
-    if run:
-        calculation_note = (
-            "<b>Calculation logic / Logika kalkulacji:</b> Amount Due is the sum of allocations assigned "
-            "to this participant in the approved waterfall. / Kwota należna jest sumą alokacji przypisanych "
-            "temu odbiorcy w zatwierdzonym waterfallu."
-        )
-    else:
-        calculation_note = (
-            "<b>Calculation logic / Logika kalkulacji:</b> Gross Receipts - Deductions - Taxes / Withholding "
-            "= Net Revenue; Net Revenue - Recoupable Costs - Distributor Fee = Net Receipts; Net Receipts x "
-            "Participant Share = Amount Due."
-        )
-    story.extend([summary_table, Spacer(1, 2 * mm), Paragraph(calculation_note, styles["Small"])])
+    story.append(summary_table)
 
     if run:
         recipient_lines = list(run.lines.filter(beneficiary=statement.recipient).select_related("step"))
-        story.append(Paragraph("Recipient Waterfall / Waterfall odbiorcy", styles["Section"]))
-        waterfall_rows = [[
-            bilingual_header("Phase / Step", "Faza / krok"),
-            bilingual_header("Calculation Base", "Podstawa"),
-            bilingual_header("Allocation", "Alokacja"),
-            bilingual_header("Recoupment Balance", "Saldo recoupment"),
-        ]]
+        story.append(Paragraph("Recipient Waterfall", styles["Section"]))
+        waterfall_rows = [["Phase / step", "Calculation base", "Allocation", "Recoupment balance"]]
         for line in recipient_lines:
             waterfall_rows.append([
                 Paragraph(escape(f"{line.phase}. {line.step.name}"), styles["Small"]),
@@ -221,40 +185,25 @@ def build_royalty_statement_pdf(statement) -> ContentFile:
         waterfall_table.setStyle(_table_style(amount_column=2))
         story.append(waterfall_table)
 
-    story.append(Paragraph("Revenue Detail / Szczegóły przychodów", styles["Section"]))
-    sales_rows = [[
-        bilingual_header("Source / Right", "Źródło / pole"),
-        bilingual_header("Territory", "Terytorium"),
-        bilingual_header("Period", "Okres"),
-        bilingual_header("Gross Receipts", "Przychody brutto"),
-        bilingual_header("Deductions", "Potrącenia"),
-        bilingual_header("Taxes / WHT", "Podatki / WHT"),
-        bilingual_header("Net Revenue", "Przychody netto"),
-    ]]
+    story.append(Paragraph("Revenue Detail", styles["Section"]))
+    sales_rows = [["Source / Field", "Territory", "Period", "Gross Receipts", "Total Deductions", "Net Revenue"]]
     for report in sales:
         sales_rows.append([
             Paragraph(f"{escape(report.counterparty.name)}<br/>{escape(report.get_exploitation_field_display())}", styles["Small"]),
             Paragraph(escape(report.territory.name if report.territory else "-"), styles["Small"]),
             Paragraph(f"{report.period_start}<br/>{report.period_end}", styles["Small"]),
             Paragraph(money(report.gross_revenue, report.currency), styles["Amount"]),
-            Paragraph(money(report.deductions, report.currency), styles["Amount"]),
-            Paragraph(money(report.vat_withholding, report.currency), styles["Amount"]),
+            Paragraph(money(report.deductions + report.vat_withholding, report.currency), styles["Amount"]),
             Paragraph(money(report.net_revenue, report.currency), styles["Amount"]),
         ])
     if len(sales_rows) == 1:
-        sales_rows.append(["No revenue reports in this period.", "", "", "", "", "", ""])
-    sales_table = Table(sales_rows, repeatRows=1, colWidths=[38 * mm, 22 * mm, 28 * mm, 23 * mm, 22 * mm, 22 * mm, 22 * mm])
-    sales_table.setStyle(_table_style(amount_column=6))
+        sales_rows.append(["No revenue reports in this period.", "", "", "", "", ""])
+    sales_table = Table(sales_rows, repeatRows=1, colWidths=[44 * mm, 24 * mm, 31 * mm, 26 * mm, 28 * mm, 24 * mm])
+    sales_table.setStyle(_table_style(amount_column=5))
     story.append(sales_table)
 
-    story.append(Paragraph("Recoupable Costs / Koszty podlegające odzyskaniu", styles["Section"]))
-    cost_rows = [[
-        bilingual_header("Category", "Kategoria"),
-        bilingual_header("Date", "Data"),
-        bilingual_header("Supplier", "Dostawca"),
-        bilingual_header("Scope", "Zakres"),
-        bilingual_header("Recovered in Run", "Odzyskano w rozliczeniu") if run else bilingual_header("Recoupable Amount", "Kwota do odzyskania bez VAT"),
-    ]]
+    story.append(Paragraph("Recoupable Cost Detail", styles["Section"]))
+    cost_rows = [["Category", "Date", "Supplier", "Scope", "Recovered in Run" if run else "Net Cost"]]
     for cost in costs:
         scope = cost.scope_label or "-"
         cost_rows.append([

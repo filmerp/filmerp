@@ -1,10 +1,12 @@
+from urllib.parse import parse_qsl, urlencode as encode_query, urlsplit, urlunsplit
+
 from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db.models import Sum
 from django.http import HttpResponse
 from django.urls import reverse
-from django.utils.http import urlencode
+from django.utils.http import urlencode, url_has_allowed_host_and_scheme
 from django.utils.html import format_html
 
 from .marketplace import export_marketplace_csv, export_marketplace_xlsx
@@ -41,6 +43,58 @@ from .waterfall_engine import calculate_waterfall_run, finalize_waterfall_run
 admin.site.site_header = "Panel administracyjny"
 admin.site.site_title = "Panel administracyjny"
 admin.site.index_title = "Panel administracyjny"
+
+
+class FilmerpModelAdmin(admin.ModelAdmin):
+    """Preserve the parent admin form when related records are edited in-page."""
+
+    def _related_parent_response(self, request, obj, response):
+        return_url = request.POST.get("return_to")
+        parent_key = request.POST.get("filmerp_parent_key")
+        parent_field = request.POST.get("filmerp_parent_field")
+        skip_return = any(key in request.POST for key in ("_continue", "_addanother", "_saveasnew", "_popup"))
+        if (
+            not return_url
+            or not parent_key
+            or not parent_field
+            or skip_return
+            or response.status_code not in {301, 302, 303}
+            or not url_has_allowed_host_and_scheme(
+                return_url,
+                allowed_hosts={request.get_host()},
+                require_https=request.is_secure(),
+            )
+        ):
+            return response
+
+        parts = urlsplit(return_url)
+        helper_names = {
+            "filmerp_restore",
+            "filmerp_parent_key",
+            "filmerp_parent_field",
+            "filmerp_related_field",
+            "filmerp_related_id",
+            "filmerp_related_label",
+        }
+        query = [(key, value) for key, value in parse_qsl(parts.query, keep_blank_values=True) if key not in helper_names]
+        query.extend([
+            ("filmerp_restore", "1"),
+            ("filmerp_parent_key", parent_key),
+            ("filmerp_related_field", parent_field),
+            ("filmerp_related_id", str(obj.pk)),
+            ("filmerp_related_label", str(obj)),
+        ])
+        response["Location"] = urlunsplit((parts.scheme, parts.netloc, parts.path, encode_query(query), parts.fragment))
+        response._filmerp_admin_return = True
+        return response
+
+    def response_add(self, request, obj, post_url_continue=None):
+        response = super().response_add(request, obj, post_url_continue)
+        return self._related_parent_response(request, obj, response)
+
+    def response_change(self, request, obj):
+        response = super().response_change(request, obj)
+        return self._related_parent_response(request, obj, response)
 
 
 class RightsWindowInline(admin.TabularInline):
@@ -124,6 +178,21 @@ class CostAdminForm(CostScopeFormMixin):
         exclude = ("exploitation_field", "applies_to_all_exploitation_fields", "exploitation_fields")
 
 
+class CinemaBookingAdminForm(forms.ModelForm):
+    class Meta:
+        model = CinemaBooking
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["box_office_gross"].label = "Box office brutto (przed podziałem z kinem)"
+        self.fields["box_office_gross"].help_text = (
+            "Łączna sprzedaż biletów brutto, zwykle z VAT, przed udziałem kina. "
+            "P&A, MG i pozostałe recoupmenty są rozliczane później."
+        )
+        self.fields["distributor_share_percent"].label = "Udział dystrybutora po podziale z kinem (%)"
+
+
 class WaterfallPlanAdminForm(forms.ModelForm):
     exploitation_fields = forms.MultipleChoiceField(
         label="Pola eksploatacji",
@@ -160,7 +229,7 @@ class WaterfallStepAdminForm(forms.ModelForm):
 
 
 @admin.register(Title)
-class TitleAdmin(admin.ModelAdmin):
+class TitleAdmin(FilmerpModelAdmin):
     list_display = (
         "title_pl",
         "original_title",
@@ -239,27 +308,27 @@ class TitleAdmin(admin.ModelAdmin):
 
 
 @admin.register(Counterparty)
-class CounterpartyAdmin(admin.ModelAdmin):
+class CounterpartyAdmin(FilmerpModelAdmin):
     list_display = ("name", "counterparty_type", "country", "contact_person", "email", "payment_terms_days", "reporting_cycle")
     list_filter = ("counterparty_type", "country", "reporting_cycle")
     search_fields = ("name", "vat_id", "contact_person", "email")
 
 
 @admin.register(Territory)
-class TerritoryAdmin(admin.ModelAdmin):
+class TerritoryAdmin(FilmerpModelAdmin):
     list_display = ("name", "code", "parent")
     search_fields = ("name", "code")
     list_filter = ("parent",)
 
 
 @admin.register(LanguageVersion)
-class LanguageVersionAdmin(admin.ModelAdmin):
+class LanguageVersionAdmin(FilmerpModelAdmin):
     list_display = ("name", "code")
     search_fields = ("name", "code")
 
 
 @admin.register(AcquisitionAgreement)
-class AcquisitionAgreementAdmin(admin.ModelAdmin):
+class AcquisitionAgreementAdmin(FilmerpModelAdmin):
     list_display = ("contract_number", "title", "licensor", "status", "signed_date", "rights_start", "rights_end", "currency", "mg_advance")
     list_filter = ("status", "currency", "pa_recoupable")
     search_fields = ("contract_number", "title__title_pl", "title__original_title", "licensor__name")
@@ -268,7 +337,7 @@ class AcquisitionAgreementAdmin(admin.ModelAdmin):
 
 
 @admin.register(SalesAgreement)
-class SalesAgreementAdmin(admin.ModelAdmin):
+class SalesAgreementAdmin(FilmerpModelAdmin):
     list_display = (
         "contract_number",
         "title",
@@ -303,7 +372,7 @@ def audit_selected_rights(modeladmin, request, queryset):
 
 
 @admin.register(RightsWindow)
-class RightsWindowAdmin(admin.ModelAdmin):
+class RightsWindowAdmin(FilmerpModelAdmin):
     list_display = (
         "title",
         "source",
@@ -355,7 +424,7 @@ class RightsWindowAdmin(admin.ModelAdmin):
 
 
 @admin.register(RightsIssue)
-class RightsIssueAdmin(admin.ModelAdmin):
+class RightsIssueAdmin(FilmerpModelAdmin):
     list_display = ("severity", "issue_type", "rights_window", "conflicting_window", "resolved", "created_at")
     list_filter = ("severity", "issue_type", "resolved")
     search_fields = ("rights_window__title__title_pl", "message")
@@ -364,7 +433,8 @@ class RightsIssueAdmin(admin.ModelAdmin):
 
 
 @admin.register(CinemaBooking)
-class CinemaBookingAdmin(admin.ModelAdmin):
+class CinemaBookingAdmin(FilmerpModelAdmin):
+    form = CinemaBookingAdminForm
     list_display = (
         "title",
         "cinema",
@@ -421,7 +491,7 @@ def approve_all_valid_rows_for_selected_imports(modeladmin, request, queryset):
 
 
 @admin.register(CinemaReportImport)
-class CinemaReportImportAdmin(admin.ModelAdmin):
+class CinemaReportImportAdmin(FilmerpModelAdmin):
     list_display = ("original_filename", "source_file", "status", "parsed_at", "imported_at", "rows_link", "created_at")
     list_filter = ("status", "created_at", "parsed_at", "imported_at")
     search_fields = ("original_filename", "source_file", "parser_notes")
@@ -443,7 +513,7 @@ class CinemaReportImportAdmin(admin.ModelAdmin):
 
 
 @admin.register(CinemaReportImportRow)
-class CinemaReportImportRowAdmin(admin.ModelAdmin):
+class CinemaReportImportRowAdmin(FilmerpModelAdmin):
     list_display = (
         "report_import",
         "status",
@@ -481,7 +551,7 @@ class CinemaReportImportRowAdmin(admin.ModelAdmin):
 
 
 @admin.register(SalesReport)
-class SalesReportAdmin(admin.ModelAdmin):
+class SalesReportAdmin(FilmerpModelAdmin):
     list_display = (
         "title",
         "counterparty",
@@ -504,7 +574,7 @@ class SalesReportAdmin(admin.ModelAdmin):
 
 
 @admin.register(DocumentInboxItem)
-class DocumentInboxItemAdmin(admin.ModelAdmin):
+class DocumentInboxItemAdmin(FilmerpModelAdmin):
     list_display = ("original_filename", "document_type", "status", "classification_confidence", "title", "counterparty", "created_at")
     list_filter = ("document_type", "status", "created_at")
     search_fields = ("original_filename", "file_hash", "title__title_pl", "counterparty__name", "notes")
@@ -516,7 +586,7 @@ class DocumentInboxItemAdmin(admin.ModelAdmin):
 
 
 @admin.register(Cost)
-class CostAdmin(admin.ModelAdmin):
+class CostAdmin(FilmerpModelAdmin):
     form = CostAdminForm
     list_display = ("title", "category", "supplier", "cost_date", "currency", "net_amount", "vat_rate", "gross_amount_display", "waterfall_scope_display", "recouped_display", "outstanding_display", "recoupable", "paid")
     list_filter = ("category", "currency", "recoupable", "scope_mode", "paid", "cost_date")
@@ -555,7 +625,7 @@ class CostAdmin(admin.ModelAdmin):
 
 
 @admin.register(TitleMaterial)
-class TitleMaterialAdmin(admin.ModelAdmin):
+class TitleMaterialAdmin(FilmerpModelAdmin):
     list_display = (
         "title",
         "asset_type",
@@ -597,7 +667,7 @@ class WaterfallStepInline(admin.TabularInline):
 
 
 @admin.register(WaterfallPlan)
-class WaterfallPlanAdmin(admin.ModelAdmin):
+class WaterfallPlanAdmin(FilmerpModelAdmin):
     form = WaterfallPlanAdminForm
     list_display = ("title", "name", "version", "status", "currency", "scope_display", "effective_from", "effective_to")
     list_filter = ("status", "currency", "applies_to_all_exploitation_fields")
@@ -614,7 +684,7 @@ class WaterfallPlanAdmin(admin.ModelAdmin):
 
 
 @admin.register(WaterfallStep)
-class WaterfallStepAdmin(admin.ModelAdmin):
+class WaterfallStepAdmin(FilmerpModelAdmin):
     form = WaterfallStepAdminForm
     list_display = ("plan", "phase", "sort_order", "name", "step_type", "allocation_mode", "beneficiary", "active")
     list_filter = ("step_type", "allocation_mode", "active", "plan__currency")
@@ -645,7 +715,7 @@ class WaterfallRunLineInline(admin.TabularInline):
 
 
 @admin.register(WaterfallRun)
-class WaterfallRunAdmin(admin.ModelAdmin):
+class WaterfallRunAdmin(FilmerpModelAdmin):
     list_display = ("plan", "period_start", "period_end", "status", "net_revenue", "allocated_amount", "closing_available", "calculated_at")
     list_filter = ("status", "plan__currency", "period_end")
     search_fields = ("plan__title__title_pl", "plan__name", "notes")
@@ -674,7 +744,7 @@ class WaterfallRunAdmin(admin.ModelAdmin):
 
 
 @admin.register(WaterfallRunLine)
-class WaterfallRunLineAdmin(admin.ModelAdmin):
+class WaterfallRunLineAdmin(FilmerpModelAdmin):
     list_display = ("run", "sequence", "phase", "step", "beneficiary", "allocated_amount", "closing_recoupment")
     list_filter = ("run__status", "run__plan__currency", "phase")
     search_fields = ("run__plan__title__title_pl", "step__name", "beneficiary__name")
@@ -691,7 +761,7 @@ class WaterfallRunLineAdmin(admin.ModelAdmin):
 
 
 @admin.register(RoyaltyStatement)
-class RoyaltyStatementAdmin(admin.ModelAdmin):
+class RoyaltyStatementAdmin(FilmerpModelAdmin):
     list_display = (
         "title",
         "recipient",

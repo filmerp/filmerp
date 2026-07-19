@@ -768,27 +768,32 @@ def statement_center(request):
                 statement.statement_file.save(pdf_file.name, pdf_file, save=True)
                 generated += 1
             messages.success(request, f"Wygenerowano PDF: {generated}.")
-        elif action == "mark_sent":
+        elif action == "change_status":
+            target_status = request.POST.get("target_status")
+            status_labels = dict(StatementStatus.choices)
+            if target_status not in status_labels:
+                messages.warning(request, "Wybierz prawidłowy status.")
+                return redirect(request.get_full_path())
+
+            lock_statuses = {StatementStatus.SENT, StatementStatus.APPROVED, StatementStatus.PAID}
+            updated = 0
             for statement in statements:
-                statement.freeze_calculation(lock=True)
-            updated = statements.update(status=StatementStatus.SENT, sent_at=timezone.localdate())
-            messages.success(request, f"Oznaczono jako wyslane: {updated}.")
-        elif action == "mark_approved":
-            for statement in statements:
-                statement.freeze_calculation(lock=True)
-            updated = statements.update(status=StatementStatus.APPROVED)
-            messages.success(request, f"Oznaczono jako zaakceptowane: {updated}.")
-        elif action == "mark_paid":
-            for statement in statements:
-                statement.freeze_calculation(lock=True)
-            updated = statements.update(status=StatementStatus.PAID, paid_at=timezone.localdate())
-            messages.success(request, f"Oznaczono jako oplacone: {updated}.")
-        elif action == "mark_disputed":
-            updated = statements.update(status=StatementStatus.DISPUTED)
-            messages.success(request, f"Oznaczono jako sporne: {updated}.")
+                if target_status in lock_statuses:
+                    statement.freeze_calculation(lock=True)
+                statement.status = target_status
+                update_fields = ["status", "updated_at"]
+                if target_status == StatementStatus.SENT and not statement.sent_at:
+                    statement.sent_at = timezone.localdate()
+                    update_fields.append("sent_at")
+                if target_status == StatementStatus.PAID and not statement.paid_at:
+                    statement.paid_at = timezone.localdate()
+                    update_fields.append("paid_at")
+                statement.save(update_fields=update_fields)
+                updated += 1
+            messages.success(request, f"Zmieniono status na „{status_labels[target_status]}”: {updated}.")
         else:
             messages.warning(request, "Nieznana akcja.")
-        return redirect("distribution:statement_center")
+        return redirect(request.get_full_path())
 
     statements, filters = _filtered_statements(request)
     if request.GET.get("export") == "xlsx":
@@ -804,7 +809,7 @@ def statement_center(request):
         })
     status_counts = {
         row["status"]: row["count"]
-        for row in statements.values("status").annotate(count=Count("id"))
+        for row in statements.order_by().values("status").annotate(count=Count("id"))
     }
     status_count_rows = [
         {"value": value, "label": label, "count": status_counts.get(value, 0)}

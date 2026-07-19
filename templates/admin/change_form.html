@@ -4,4 +4,8 @@
   {{ block.super }}
   {% firstof request.GET.return_to request.POST.return_to request.META.HTTP_REFERER as return_url %}
   {% if return_url %}<input type="hidden" name="return_to" value="{{ return_url }}">{% endif %}
+  {% if request.GET.filmerp_parent_key %}
+    <input type="hidden" name="filmerp_parent_key" value="{{ request.GET.filmerp_parent_key }}">
+    <input type="hidden" name="filmerp_parent_field" value="{{ request.GET.filmerp_parent_field }}">
+  {% endif %}
 {% endblock %}

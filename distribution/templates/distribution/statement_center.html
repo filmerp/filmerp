@@ -14,7 +14,7 @@
   <div class="page-heading">
     <div>
       <h1>Statement Center</h1>
-      <div class="muted">centrum pracy nad royalty statements: PDF, statusy, płatności i eksport</div>
+      <div class="muted">Centrum pracy nad royalty statements: PDF, statusy, płatności i eksport</div>
     </div>
     <div class="action-bar">
       <a class="button" href="/admin/distribution/royaltystatement/add/">Dodaj statement</a>
@@ -40,7 +40,7 @@
     {% endfor %}
   </section>
 
-  <section class="statement-logic" aria-label="Statement calculation logic">
+  <section class="statement-logic" aria-label="Logika obliczeń statementu">
     <strong>Statement Logic / Logika statementu</strong>
     <span>Gross Receipts - Deductions - Taxes / Withholding = Net Revenue</span>
     <span>Net Revenue - Recoupable Costs - Distributor Fee = Net Receipts</span>
@@ -84,63 +84,61 @@
     </form>
   </section>
 
-  <form method="post">
+  <form method="post" class="statement-center-form">
     {% csrf_token %}
     <section class="card">
       <div class="section-header">
         <h2>Royalty statements</h2>
-        <div class="row-actions">
-          <button class="button export" type="submit" name="action" value="generate_pdf">Generuj PDF</button>
-          <button class="button export" type="submit" name="action" value="mark_sent">Oznacz wysłane</button>
-          <button class="button export" type="submit" name="action" value="mark_approved">Oznacz zaakceptowane</button>
-          <button class="button export" type="submit" name="action" value="mark_paid">Oznacz opłacone</button>
-          <button class="button export" type="submit" name="action" value="mark_disputed">Oznacz sporne</button>
+        <div class="statement-actions">
+          <button class="button export compact-button" type="submit" name="action" value="generate_pdf">Generuj PDF</button>
+          <div class="statement-status-control">
+            <label class="visually-hidden" for="target-status">Nowy status zaznaczonych statementów</label>
+            <select id="target-status" name="target_status">
+              <option value="">Zmień status na…</option>
+              {% for value,label in statement_statuses %}
+              <option value="{{ value }}">{{ label }}</option>
+              {% endfor %}
+            </select>
+            <button class="button compact-button" type="submit" name="action" value="change_status">Zastosuj</button>
+          </div>
         </div>
       </div>
       <div class="table-scroll">
-        <table>
+        <table class="statement-table">
           <thead>
             <tr>
-              <th></th>
+              <th><input id="select-all-statements" type="checkbox" aria-label="Zaznacz wszystkie statementy"></th>
               <th>Tytuł</th>
               <th>Odbiorca</th>
               <th>Okres</th>
               <th class="num"><span class="statement-term">Gross Receipts<small>Przychody brutto</small></span></th>
               <th class="num"><span class="statement-term">Net Revenue<small>Przychody netto</small></span></th>
-              <th class="num"><span class="statement-term">Recoupable Costs<small>Koszty do odzyskania</small></span></th>
-              <th class="num"><span class="statement-term">Distributor Fee<small>Prowizja dystrybutora</small></span></th>
               <th class="num"><span class="statement-term">Net Receipts / Balance<small>Wpływy netto / saldo</small></span></th>
               <th class="num"><span class="statement-term">Amount Due<small>Do wypłaty</small></span></th>
               <th>Status</th>
-              <th>PDF</th>
-              <th></th>
             </tr>
           </thead>
           <tbody>
             {% for statement in statements %}
             <tr>
               <td><input type="checkbox" name="statement_ids" value="{{ statement.id }}"></td>
-              <td>{{ statement.title.title_pl }}</td>
+              <td>
+                <strong>{{ statement.title.title_pl }}</strong>
+                <span class="statement-row-links">
+                  {% if statement.statement_file %}<a href="{{ statement.statement_file.url }}">PDF</a>{% endif %}
+                  <a href="/admin/distribution/royaltystatement/{{ statement.id }}/change/">Edytuj</a>
+                </span>
+              </td>
               <td>{{ statement.recipient.name }}</td>
-              <td>{{ statement.period_start }} - {{ statement.period_end }}</td>
+              <td><span class="statement-period">{{ statement.period_start|date:"d.m.Y" }}<br>{{ statement.period_end|date:"d.m.Y" }}</span></td>
               <td class="num">{{ statement.gross_revenue }} {{ statement.currency }}</td>
               <td class="num">{{ statement.net_revenue }} {{ statement.currency }}</td>
-              <td class="num">{{ statement.recoupable_costs }} {{ statement.currency }}</td>
-              <td class="num">{{ statement.distributor_fee_amount }} {{ statement.currency }}</td>
               <td class="num">{{ statement.net_receipts }} {{ statement.currency }}</td>
               <td class="num">{{ statement.amount_due }} {{ statement.currency }}</td>
               <td><span class="status-pill {{ statement.status }}">{{ statement.get_status_display }}</span></td>
-              <td>
-                {% if statement.statement_file %}
-                <a href="{{ statement.statement_file.url }}">pobierz</a>
-                {% else %}
-                <span class="muted">brak</span>
-                {% endif %}
-              </td>
-              <td><a class="button export" href="/admin/distribution/royaltystatement/{{ statement.id }}/change/">Edytuj</a></td>
             </tr>
             {% empty %}
-            <tr><td colspan="13" class="muted">Brak statementów dla wybranych filtrów.</td></tr>
+            <tr><td colspan="9" class="muted">Brak statementów dla wybranych filtrów.</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -148,5 +146,12 @@
     </section>
   </form>
 </main>
+<script>
+  document.getElementById("select-all-statements")?.addEventListener("change", function () {
+    document.querySelectorAll('input[name="statement_ids"]').forEach((checkbox) => {
+      checkbox.checked = this.checked;
+    });
+  });
+</script>
 </body>
 </html>

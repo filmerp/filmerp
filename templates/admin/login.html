@@ -1,0 +1,34 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block title %}{% if form.errors %}{% translate "Error:" %} {% endif %}{{ block.super }}{% endblock %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'admin/css/login.css' %}">{{ form.media }}{% endblock %}
+{% block bodyclass %}{{ block.super }} login{% endblock %}
+{% block usertools %}{% endblock %}
+{% block nav-global %}{% endblock %}
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+{% block nav-breadcrumbs %}{% endblock %}
+
+{% block content %}
+{% if form.errors and not form.non_field_errors %}
+  <p class="errornote">Nazwa użytkownika lub hasło są nieprawidłowe.</p>
+{% endif %}
+{% for error in form.non_field_errors %}<p class="errornote">{{ error }}</p>{% endfor %}
+
+<div id="content-main">
+  <form action="{% url 'filmerp_login' %}" method="post" id="login-form">
+    {% csrf_token %}
+    <div class="form-row">
+      {{ form.username.errors }}
+      {{ form.username.label_tag }} {{ form.username }}
+    </div>
+    <div class="form-row">
+      {{ form.password.errors }}
+      {{ form.password.label_tag }} {{ form.password }}
+      <input type="hidden" name="next" value="{% url 'distribution:dashboard' %}">
+    </div>
+    <div class="submit-row"><input type="submit" value="Zaloguj się"></div>
+  </form>
+</div>
+{% endblock %}

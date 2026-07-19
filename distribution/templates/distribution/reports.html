@@ -40,6 +40,55 @@
     </form>
   </section>
 
+  <section class="catalog-export" aria-labelledby="export-360-title">
+    <div class="section-header">
+      <div>
+        <h2 id="export-360-title">Eksport 360 tytułów</h2>
+        <div class="muted">Pełna metryka, umowy, prawa, wpływy, koszty P&A, waterfall i statementy w jednym uporządkowanym eksporcie.</div>
+      </div>
+    </div>
+    <form method="post" action="{% url 'distribution:title_catalog_export' %}" id="export-360-form" class="catalog-export-form">
+      {% csrf_token %}
+      <fieldset class="catalog-export-titles">
+        <legend>Tytuły</legend>
+        <div class="catalog-export-title-tools">
+          <label class="catalog-master-check">{{ catalog_export_form.export_all }} <span>Wszystkie tytuły</span></label>
+          <label class="catalog-search"><span>Znajdź tytuł</span><input type="search" id="catalog-title-search" placeholder="Wpisz tytuł"></label>
+        </div>
+        <div class="catalog-title-list" id="catalog-title-list">
+          {% for title in titles %}
+          <label data-title-option><input type="checkbox" name="title_ids" value="{{ title.pk }}"> <span>{{ title.title_pl }}{% if title.original_title %}<small>{{ title.original_title }}</small>{% endif %}</span></label>
+          {% empty %}<div class="muted">Brak tytułów do eksportu.</div>{% endfor %}
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Format</legend>
+        <div class="segmented-control">
+          <label><input type="radio" name="export_format" value="xlsx" checked><span>Excel XLSX</span></label>
+          <label><input type="radio" name="export_format" value="csv_zip"><span>CSV w ZIP</span></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Zakres danych finansowych</legend>
+        <div class="segmented-control">
+          <label><input type="radio" name="financial_scope" value="all" checked><span>Cała historia</span></label>
+          <label><input type="radio" name="financial_scope" value="period"><span>Wybrany okres</span></label>
+        </div>
+        <div class="catalog-period" id="catalog-period" hidden>
+          <label>Od <input type="date" name="date_from"></label>
+          <label>Do <input type="date" name="date_to"></label>
+        </div>
+      </fieldset>
+
+      <div class="catalog-export-action">
+        <button type="submit">Generuj Eksport 360</button>
+        <small>XLSX tworzy osobne arkusze. ZIP zawiera te same dane w osobnych plikach CSV.</small>
+      </div>
+    </form>
+  </section>
+
   <section class="grid">
     {% for total in report_totals %}
     <div class="card"><div class="label">{{ total.currency }} · przychód netto</div><div class="metric positive">{{ total.net_revenue }}</div><div class="muted">brutto {{ total.gross_revenue }} · koszty {{ total.cost_total }} · marża {{ total.margin }}</div></div>
@@ -136,5 +185,40 @@
     </div>
   </section>
 </main>
+<script>
+  (function () {
+    const form = document.getElementById("export-360-form");
+    if (!form) return;
+    const allTitles = form.querySelector('[name="export_all"]');
+    const titleInputs = Array.from(form.querySelectorAll('[name="title_ids"]'));
+    const titleList = document.getElementById("catalog-title-list");
+    const search = document.getElementById("catalog-title-search");
+    const period = document.getElementById("catalog-period");
+    const scopeInputs = Array.from(form.querySelectorAll('[name="financial_scope"]'));
+
+    allTitles.checked = true;
+    function syncTitles() {
+      titleList.classList.toggle("disabled", allTitles.checked);
+      titleInputs.forEach(function (input) { input.disabled = allTitles.checked; });
+    }
+    allTitles.addEventListener("change", syncTitles);
+    syncTitles();
+
+    search.addEventListener("input", function () {
+      const query = search.value.trim().toLocaleLowerCase("pl");
+      form.querySelectorAll("[data-title-option]").forEach(function (label) {
+        label.hidden = Boolean(query) && !label.textContent.toLocaleLowerCase("pl").includes(query);
+      });
+    });
+
+    function syncPeriod() {
+      const isPeriod = scopeInputs.some(function (input) { return input.checked && input.value === "period"; });
+      period.hidden = !isPeriod;
+      period.querySelectorAll("input").forEach(function (input) { input.required = isPeriod; });
+    }
+    scopeInputs.forEach(function (input) { input.addEventListener("change", syncPeriod); });
+    syncPeriod();
+  })();
+</script>
 </body>
 </html>

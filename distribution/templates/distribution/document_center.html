@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Centrum dokumentów | FILMERP</title>
   <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+  <link rel="stylesheet" href="{% static 'distribution/cost-scope.css' %}">
 </head>
 <body>
 {% include "distribution/_app_header.html" %}
@@ -140,9 +141,17 @@
             <label>Waluta {{ cost_form.currency }}</label>
             <label>Netto {{ cost_form.net_amount }}</label>
             <label>VAT {{ cost_form.vat_amount }}</label>
-            <label>Pole eksploatacji {{ cost_form.exploitation_field }}</label>
             <label class="check-label">{{ cost_form.recoupable }} Recoupable</label>
-            <label class="check-label">{{ cost_form.applies_to_all_exploitation_fields }} Wszystkie pola</label>
+            <fieldset class="cost-scope-panel">
+              <legend>Jakiego zakresu eksploatacji dotyczy koszt?</legend>
+              <div class="cost-scope-options">{{ cost_form.scope_mode }}</div>
+              <div class="cost-scope-fields" data-cost-scope-selected>{{ cost_form.scope_fields }}</div>
+              <div class="cost-allocation-grid" data-cost-scope-allocated>
+                {% for row in cost_form.allocation_rows %}<label><span>{{ row.label }}</span>{{ row.field }}</label>{% endfor %}
+              </div>
+              {{ cost_form.allocation_percentages }}
+              {{ cost_form.scope_fields.errors }}{{ cost_form.allocation_percentages.errors }}
+            </fieldset>
             <button type="submit">Zatwierdź i utwórz koszt</button>
           </form>
           {% else %}<div class="readonly-notice">Brak uprawnienia do tworzenia kosztów.</div>{% endif %}
@@ -207,5 +216,6 @@
     });
   });
 </script>
+<script src="{% static 'distribution/cost-scope.js' %}"></script>
 </body>
 </html>

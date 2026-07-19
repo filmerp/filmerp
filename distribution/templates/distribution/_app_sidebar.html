@@ -5,7 +5,7 @@
   <div class="sidebar-header">
     <a class="sidebar-brand" href="{% url 'distribution:dashboard' %}" aria-label="FILMERP - Panel główny">
       <span class="sidebar-logo-viewport">
-        {% include "distribution/_filmerp_logo.html" with logo_class="brand-logo" logo_filter_id="filmerp-sidebar-logo-filter" %}
+        {% include "distribution/_filmerp_logo.html" with logo_class="brand-logo" %}
       </span>
     </a>
     <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-controls="app-sidebar" aria-expanded="true" aria-label="Zwiń menu" data-tooltip="Zwiń menu">
@@ -55,18 +55,18 @@
 
   <div class="sidebar-footer">
     <div class="sidebar-section-label">Ustawienia</div>
-    <a class="sidebar-link {% if admin_shell and current != 'password_change' and current != 'auth_user_changelist' and current != 'auth_group_changelist' %}active{% endif %}" href="{% url 'admin:index' %}" data-tooltip="Panel administracyjny" {% if admin_shell and current != 'password_change' and current != 'auth_user_changelist' and current != 'auth_group_changelist' %}aria-current="page"{% endif %}>
+    <a class="sidebar-link {% if admin_shell and current != 'password_change' and current != 'password_change_done' and 'auth_user' not in current and 'auth_group' not in current %}active{% endif %}" href="{% url 'admin:index' %}" data-tooltip="Panel administracyjny" {% if admin_shell and current != 'password_change' and current != 'password_change_done' and 'auth_user' not in current and 'auth_group' not in current %}aria-current="page"{% endif %}>
       <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#database"></use></svg>
       <span class="sidebar-label">Panel administracyjny</span>
     </a>
     {% if perms.auth.view_user %}
-      <a class="sidebar-link {% if current == 'auth_user_changelist' or current == 'auth_group_changelist' %}active{% endif %}" href="{% url 'admin:auth_user_changelist' %}" data-tooltip="Użytkownicy i role" {% if current == 'auth_user_changelist' or current == 'auth_group_changelist' %}aria-current="page"{% endif %}>
+      <a class="sidebar-link {% if 'auth_user' in current or 'auth_group' in current %}active{% endif %}" href="{% url 'admin:auth_user_changelist' %}" data-tooltip="Użytkownicy i role" {% if 'auth_user' in current or 'auth_group' in current %}aria-current="page"{% endif %}>
         <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#users"></use></svg>
         <span class="sidebar-label">Użytkownicy i role</span>
       </a>
     {% endif %}
     {% if request.user.has_usable_password %}
-      <a class="sidebar-link {% if current == 'password_change' %}active{% endif %}" href="{% url 'admin:password_change' %}" data-tooltip="Zmień hasło" {% if current == 'password_change' %}aria-current="page"{% endif %}>
+      <a class="sidebar-link {% if current == 'password_change' or current == 'password_change_done' %}active{% endif %}" href="{% url 'admin:password_change' %}" data-tooltip="Zmień hasło" {% if current == 'password_change' or current == 'password_change_done' %}aria-current="page"{% endif %}>
         <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#lock-keyhole"></use></svg>
         <span class="sidebar-label">Zmień hasło</span>
       </a>

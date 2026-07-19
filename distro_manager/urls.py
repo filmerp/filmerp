@@ -3,7 +3,10 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import include, path
 
+from distribution.views import DashboardLoginView
+
 urlpatterns = [
+    path("admin/login/", DashboardLoginView.as_view(), name="filmerp_login"),
     path("admin/", admin.site.urls),
     path("", include("distribution.urls")),
 ]

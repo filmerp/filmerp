@@ -3,6 +3,7 @@ from io import BytesIO
 from xml.sax.saxutils import escape
 
 from django.core.files.base import ContentFile
+from django.db.models import Sum
 from django.utils import timezone
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -11,7 +12,7 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
-PRIMARY = colors.HexColor("#0060fd")
+PRIMARY = colors.HexColor("#0058f8")
 ACCENT = colors.HexColor("#1d2327")
 LIGHT = colors.HexColor("#eef5f6")
 BORDER = colors.HexColor("#cfd8dc")
@@ -67,6 +68,11 @@ def build_royalty_statement_pdf(statement) -> ContentFile:
     deductions = sum((report.deductions for report in sales), Decimal("0.00"))
     withholding = sum((report.vat_withholding for report in sales), Decimal("0.00"))
     run = statement.waterfall_run
+    recovered_by_cost = {}
+    if run:
+        for row in run.lines.order_by().values("cost_allocations__cost_id").annotate(total=Sum("cost_allocations__allocated_amount")):
+            if row["cost_allocations__cost_id"]:
+                recovered_by_cost[row["cost_allocations__cost_id"]] = row["total"] or Decimal("0.00")
     document_number = f"RS-{statement.pk:06d}"
 
     story = [
@@ -151,15 +157,15 @@ def build_royalty_statement_pdf(statement) -> ContentFile:
     story.append(sales_table)
 
     story.append(Paragraph("Recoupable cost detail", styles["Section"]))
-    cost_rows = [["Category", "Date", "Supplier", "Scope", "Net amount"]]
+    cost_rows = [["Category", "Date", "Supplier", "Scope", "Recovered" if run else "Net amount"]]
     for cost in costs:
-        scope = "All fields" if cost.applies_to_all_exploitation_fields else ", ".join(sorted(cost.waterfall_exploitation_fields())) or "-"
+        scope = cost.scope_label or "-"
         cost_rows.append([
             cost.get_category_display(),
             str(cost.cost_date),
             Paragraph(escape(cost.supplier.name if cost.supplier else "-"), styles["Small"]),
             Paragraph(escape(scope), styles["Small"]),
-            money(cost.net_amount, cost.currency),
+            money(recovered_by_cost.get(cost.pk, cost.net_amount), cost.currency),
         ])
     if len(cost_rows) == 1:
         cost_rows.append(["No recoupable costs in this period.", "", "", "", ""])

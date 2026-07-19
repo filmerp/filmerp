@@ -3,6 +3,7 @@ from decimal import Decimal
 from io import BytesIO
 import shutil
 import tempfile
+from zipfile import ZipFile
 
 from django.contrib import admin
 from django.contrib.auth import get_user_model
@@ -12,11 +13,12 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 
 from .models import (
     Cost,
     CostCategory,
+    CostScopeMode,
     AcquisitionAgreement,
     Counterparty,
     Currency,
@@ -32,6 +34,7 @@ from .models import (
     WaterfallRecoupmentItem,
     WaterfallRecoupmentRule,
     WaterfallRun,
+    WaterfallRunCostAllocation,
     WaterfallRunStatus,
     WaterfallStep,
     WaterfallStepType,
@@ -159,7 +162,8 @@ class WaterfallV2Tests(TestCase):
         Cost.objects.create(
             title=self.title, category=CostCategory.PA, cost_date=date(2026, 2, 1),
             currency=Currency.PLN, net_amount=Decimal("100.00"), recoupable=True,
-            exploitation_field=ExploitationField.CINEMA,
+            scope_mode=CostScopeMode.SELECTED,
+            scope_fields=[ExploitationField.CINEMA],
         )
         statement = RoyaltyStatement.objects.create(
             title=self.title, recipient=self.producer,
@@ -183,6 +187,74 @@ class WaterfallV2Tests(TestCase):
         self.assertEqual(rows[Currency.PLN]["net"], Decimal("100.00"))
         self.assertEqual(rows[Currency.EUR]["net"], Decimal("50.00"))
         self.assertEqual(set(rows), {Currency.PLN, Currency.EUR})
+
+    def test_pa_percentage_split_uses_field_pools_and_never_recoups_twice(self):
+        cost = Cost.objects.create(
+            title=self.title,
+            category=CostCategory.PA,
+            cost_date=date(2026, 1, 10),
+            currency=Currency.PLN,
+            net_amount=Decimal("500.00"),
+            recoupable=True,
+            scope_mode=CostScopeMode.ALLOCATED,
+            allocation_percentages={
+                ExploitationField.CINEMA: "80.00",
+                ExploitationField.SVOD: "20.00",
+            },
+        )
+        step = WaterfallStep.objects.create(
+            plan=self.plan,
+            phase=0,
+            name="Zwrot P&A według pól",
+            step_type=WaterfallStepType.RECOUPMENT,
+            beneficiary=self.distributor,
+            include_recoupable_costs=True,
+        )
+        self.add_sales(date(2026, 1, 1), date(2026, 3, 31), gross="100.00", field=ExploitationField.CINEMA)
+        self.add_sales(date(2026, 1, 1), date(2026, 3, 31), gross="400.00", field=ExploitationField.SVOD)
+        first = calculate_waterfall_run(WaterfallRun.objects.create(
+            plan=self.plan, period_start=date(2026, 1, 1), period_end=date(2026, 3, 31),
+        ))
+
+        allocations = list(
+            WaterfallRunCostAllocation.objects.filter(run_line__run=first, cost=cost)
+            .order_by("exploitation_field")
+            .values_list("exploitation_field", "allocated_amount")
+        )
+        self.assertEqual(allocations, [
+            (ExploitationField.CINEMA, Decimal("100.00")),
+            (ExploitationField.SVOD, Decimal("100.00")),
+        ])
+        self.assertEqual(first.lines.get(step=step).allocated_amount, Decimal("200.00"))
+        finalize_waterfall_run(first)
+
+        self.add_sales(date(2026, 4, 1), date(2026, 6, 30), gross="300.00", field=ExploitationField.CINEMA)
+        second = calculate_waterfall_run(WaterfallRun.objects.create(
+            plan=self.plan, period_start=date(2026, 4, 1), period_end=date(2026, 6, 30),
+        ))
+        self.assertEqual(second.lines.get(step=step).allocated_amount, Decimal("300.00"))
+        finalize_waterfall_run(second)
+        self.assertEqual(cost.recouped_amount, Decimal("500.00"))
+        self.assertEqual(cost.outstanding_recoupment, Decimal("0.00"))
+        statement = RoyaltyStatement.objects.create(
+            title=self.title,
+            recipient=self.distributor,
+            period_start=date(2026, 4, 1),
+            period_end=date(2026, 6, 30),
+            currency=Currency.PLN,
+            waterfall_plan=self.plan,
+            waterfall_run=second,
+        )
+        statement.freeze_calculation(lock=True)
+        self.assertEqual(statement.recoupable_costs, Decimal("300.00"))
+        self.assertEqual(list(statement.recoupable_costs_queryset()), [cost])
+
+        self.add_sales(date(2026, 7, 1), date(2026, 9, 30), gross="500.00", field=ExploitationField.CINEMA)
+        third = calculate_waterfall_run(WaterfallRun.objects.create(
+            plan=self.plan, period_start=date(2026, 7, 1), period_end=date(2026, 9, 30),
+        ))
+        self.assertEqual(third.lines.get(step=step).allocated_amount, Decimal("0.00"))
+        self.assertFalse(WaterfallRunCostAllocation.objects.filter(run_line__run=third, cost=cost).exists())
 
 
 class SettlementWorkflowTests(TestCase):
@@ -343,6 +415,17 @@ class SettlementWorkflowTests(TestCase):
         self.assertNotContains(response, ">DASHBOARD<")
         userlinks = response.content.decode().split('id="user-tools"', 1)[1].split("</div>", 1)[0]
         self.assertNotIn(reverse("admin:password_change"), userlinks)
+        self.assertContains(response, "distribution/filmerp-logo.svg")
+        self.assertNotContains(response, "filter=id")
+
+    def test_login_always_opens_dashboard_even_with_admin_next(self):
+        self.client.logout()
+        response = self.client.post(reverse("filmerp_login"), {
+            "username": "finance",
+            "password": "test-pass",
+            "next": reverse("admin:index"),
+        })
+        self.assertRedirects(response, reverse("distribution:dashboard"))
 
     def test_admin_filters_are_collapsed_and_legacy_waterfall_is_hidden(self):
         response = self.client.get(reverse("admin:distribution_salesreport_changelist"))
@@ -356,6 +439,35 @@ class SettlementWorkflowTests(TestCase):
         self.assertContains(index_response, "Rozliczenia waterfall okresów")
         self.assertNotContains(index_response, "Kroki waterfall")
         self.assertNotContains(index_response, "Pozycje kalkulacji waterfall")
+
+        cost_add_response = self.client.get(reverse("admin:distribution_cost_add"))
+        self.assertEqual(cost_add_response.status_code, 200)
+        self.assertContains(cost_add_response, "Podział procentowy")
+        self.assertContains(cost_add_response, "allocation_cinema")
+
+        cost_save_response = self.client.post(reverse("admin:distribution_cost_add"), {
+            "title": self.title.pk,
+            "category": CostCategory.PA,
+            "supplier": "",
+            "cost_date": "2026-06-15",
+            "currency": Currency.PLN,
+            "net_amount": "1000.00",
+            "vat_amount": "230.00",
+            "recoupable": "on",
+            "scope_mode": CostScopeMode.ALLOCATED,
+            "allocation_cinema": "60.00",
+            "allocation_svod": "40.00",
+            "invoice_file": "",
+            "notes": "Podział z panelu admina",
+            "_save": "Zapisz",
+        })
+        self.assertEqual(cost_save_response.status_code, 302)
+        admin_cost = Cost.objects.get(notes="Podział z panelu admina")
+        self.assertEqual(admin_cost.scope_fields, [ExploitationField.CINEMA, ExploitationField.SVOD])
+        self.assertEqual(admin_cost.allocation_percentages, {
+            ExploitationField.CINEMA: "60.00",
+            ExploitationField.SVOD: "40.00",
+        })
 
     def test_reports_show_period_settlements_from_current_waterfall(self):
         run = calculate_waterfall_run(WaterfallRun.objects.create(
@@ -380,6 +492,43 @@ class SettlementWorkflowTests(TestCase):
         })
         self.assertEqual(export_response.status_code, 200)
         self.assertEqual(export_response["Content-Type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    def test_export_360_supports_xlsx_and_csv_zip(self):
+        Cost.objects.create(
+            title=self.title,
+            category=CostCategory.PA,
+            cost_date=date(2026, 6, 10),
+            currency=Currency.PLN,
+            net_amount=Decimal("200.00"),
+            recoupable=True,
+            scope_mode=CostScopeMode.SELECTED,
+            scope_fields=[ExploitationField.CINEMA],
+        )
+        payload = {
+            "export_all": "on",
+            "export_format": "xlsx",
+            "financial_scope": "period",
+            "date_from": "2026-06-01",
+            "date_to": "2026-06-30",
+        }
+        response = self.client.post(reverse("distribution:title_catalog_export"), payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        workbook = load_workbook(BytesIO(response.content), read_only=True, data_only=True)
+        self.assertIn("Podsumowanie", workbook.sheetnames)
+        self.assertIn("Koszty P&A", workbook.sheetnames)
+        self.assertIn("Alokacje kosztów", workbook.sheetnames)
+        self.assertEqual(workbook["Tytuły"]["B2"].value, self.title.title_pl)
+        self.assertEqual(workbook["Koszty P&A"]["L2"].value, "Kino")
+
+        payload["export_format"] = "csv_zip"
+        response = self.client.post(reverse("distribution:title_catalog_export"), payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/zip")
+        with ZipFile(BytesIO(response.content)) as archive:
+            self.assertIn("02_tytuly.csv", archive.namelist())
+            self.assertIn("15_statementy.csv", archive.namelist())
+            self.assertTrue(archive.read("02_tytuly.csv").startswith(b"\xef\xbb\xbf"))
 
     def test_contract_wizard_creates_versioned_agreement_and_waterfall(self):
         distributor = Counterparty.objects.create(name="FILMERP Dystrybucja")
@@ -475,7 +624,7 @@ class SettlementWorkflowTests(TestCase):
             "net_amount": "200.00",
             "vat_amount": "46.00",
             "recoupable": "on",
-            "applies_to_all_exploitation_fields": "on",
+            "scope_mode": CostScopeMode.ALL,
             "invoice_file": invoice,
         })
         self.assertEqual(response.status_code, 302)
@@ -513,7 +662,7 @@ class SettlementWorkflowTests(TestCase):
             "net_amount": "500.00",
             "vat_amount": "115.00",
             "recoupable": "on",
-            "applies_to_all_exploitation_fields": "on",
+            "scope_mode": CostScopeMode.ALL,
         })
         self.assertEqual(response.status_code, 302)
         document.refresh_from_db()

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import avails, contract_waterfall_wizard, dashboard, document_center, reports, reports_export_csv, settlement_workbench, statement_center, title_detail, title_list, title_setup
+from .views import avails, contract_waterfall_wizard, dashboard, document_center, reports, reports_export_csv, settlement_workbench, statement_center, title_catalog_export, title_detail, title_list, title_setup
 
 app_name = "distribution"
 
@@ -17,4 +17,5 @@ urlpatterns = [
     path("statements/", statement_center, name="statement_center"),
     path("reports/", reports, name="reports"),
     path("reports/export/", reports_export_csv, name="reports_export_csv"),
+    path("reports/export-360/", title_catalog_export, name="title_catalog_export"),
 ]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Iterable
 
 from django.conf import settings
@@ -177,6 +177,12 @@ class CostCategory(models.TextChoices):
     SALES_COMMISSION = "sales_commission", "prowizje sprzedażowe"
     LEGAL = "legal", "koszty prawne"
     OTHER = "other", "inne"
+
+
+class CostScopeMode(models.TextChoices):
+    ALL = "all", "Wszystkie pola"
+    SELECTED = "selected", "Wybrane pola"
+    ALLOCATED = "allocated", "Podział procentowy"
 
 
 class RecoupmentItemType(models.TextChoices):
@@ -849,11 +855,15 @@ class Cost(TimestampedModel):
     net_amount = models.DecimalField("kwota netto", max_digits=14, decimal_places=2, default=Decimal("0.00"))
     vat_amount = models.DecimalField("VAT", max_digits=14, decimal_places=2, default=Decimal("0.00"))
     recoupable = models.BooleanField("recoupable?", default=True)
-    exploitation_field = models.CharField("pole eksploatacji", max_length=40, choices=ExploitationField.choices, blank=True)
-    applies_to_all_exploitation_fields = models.BooleanField("dotyczy wszystkich pol eksploatacji?", default=False)
+    scope_mode = models.CharField("zakres kosztu", max_length=20, choices=CostScopeMode.choices, default=CostScopeMode.ALL)
+    scope_fields = models.JSONField("wybrane pola eksploatacji", default=list, blank=True)
+    allocation_percentages = models.JSONField("podział procentowy na pola", default=dict, blank=True)
+    exploitation_field = models.CharField("pole eksploatacji", max_length=40, choices=ExploitationField.choices, blank=True, editable=False)
+    applies_to_all_exploitation_fields = models.BooleanField("dotyczy wszystkich pol eksploatacji?", default=False, editable=False)
     exploitation_fields = models.TextField(
         "pola eksploatacji dla waterfall",
         blank=True,
+        editable=False,
         help_text="Lista pol oddzielona przecinkami. Uzywane do przypisania kosztu do wielu pol w waterfall.",
     )
     invoice_file = models.FileField("faktura", upload_to="costs/", blank=True)
@@ -872,16 +882,99 @@ class Cost(TimestampedModel):
     def gross_amount(self) -> Decimal:
         return (self.net_amount or Decimal("0.00")) + (self.vat_amount or Decimal("0.00"))
 
+    def clean(self):
+        valid_fields = {value for value, _ in ExploitationField.choices}
+        selected = list(dict.fromkeys(self.scope_fields or []))
+        invalid = set(selected) - valid_fields
+        if invalid:
+            raise ValidationError({"scope_fields": f"Nieznane pola eksploatacji: {', '.join(sorted(invalid))}."})
+
+        percentages = self.allocation_percentages or {}
+        invalid_allocations = set(percentages) - valid_fields
+        if invalid_allocations:
+            raise ValidationError({"allocation_percentages": f"Nieznane pola eksploatacji: {', '.join(sorted(invalid_allocations))}."})
+
+        if self.scope_mode == CostScopeMode.SELECTED and not selected:
+            raise ValidationError({"scope_fields": "Wybierz co najmniej jedno pole eksploatacji."})
+        if self.scope_mode == CostScopeMode.ALLOCATED:
+            if not percentages:
+                raise ValidationError({"allocation_percentages": "Wprowadź podział procentowy kosztu."})
+            values = [Decimal(str(value)) for value in percentages.values()]
+            if any(value <= 0 for value in values):
+                raise ValidationError({"allocation_percentages": "Każdy udział musi być większy od zera."})
+            if sum(values, Decimal("0.00")) != Decimal("100.00"):
+                raise ValidationError({"allocation_percentages": "Suma udziałów musi wynosić 100%."})
+
+    def save(self, *args, **kwargs):
+        if self.scope_mode == CostScopeMode.ALL:
+            self.scope_fields = []
+            self.allocation_percentages = {}
+        elif self.scope_mode == CostScopeMode.SELECTED:
+            self.scope_fields = list(dict.fromkeys(self.scope_fields or []))
+            self.allocation_percentages = {}
+        else:
+            self.allocation_percentages = {
+                field: str(Decimal(str(value)).quantize(Decimal("0.01")))
+                for field, value in (self.allocation_percentages or {}).items()
+                if Decimal(str(value)) > 0
+            }
+            self.scope_fields = list(self.allocation_percentages)
+
+        # Pola legacy pozostają zsynchronizowane na czas bezpiecznej migracji danych.
+        self.applies_to_all_exploitation_fields = self.scope_mode == CostScopeMode.ALL
+        self.exploitation_fields = ",".join(self.scope_fields)
+        self.exploitation_field = self.scope_fields[0] if len(self.scope_fields) == 1 else ""
+        super().save(*args, **kwargs)
+
     def waterfall_exploitation_fields(self) -> set[str]:
-        values = {value.strip() for value in self.exploitation_fields.split(",") if value.strip()}
-        if self.exploitation_field:
-            values.add(self.exploitation_field)
-        return values
+        if self.scope_mode == CostScopeMode.ALL:
+            return {value for value, _ in ExploitationField.choices}
+        return set(self.scope_fields or [])
 
     def applies_to_exploitation_field(self, exploitation_field: str) -> bool:
-        if self.applies_to_all_exploitation_fields:
+        if self.scope_mode == CostScopeMode.ALL:
             return True
         return exploitation_field in self.waterfall_exploitation_fields()
+
+    @property
+    def scope_label(self) -> str:
+        if self.scope_mode == CostScopeMode.ALL:
+            return CostScopeMode.ALL.label
+        labels = dict(ExploitationField.choices)
+        if self.scope_mode == CostScopeMode.ALLOCATED:
+            return ", ".join(
+                f"{labels.get(field, field)} {percentage}%"
+                for field, percentage in self.allocation_percentages.items()
+            )
+        return ", ".join(labels.get(field, field) for field in self.scope_fields)
+
+    def recoupment_portions(self) -> list[dict]:
+        amount = (self.net_amount or Decimal("0.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if self.scope_mode != CostScopeMode.ALLOCATED:
+            return [{"exploitation_field": "", "amount": amount}]
+
+        ordered_fields = [value for value, _ in ExploitationField.choices if value in self.allocation_percentages]
+        portions = []
+        for field in ordered_fields:
+            percentage = Decimal(str(self.allocation_percentages[field]))
+            portion_amount = (amount * percentage / Decimal("100.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            portions.append({"exploitation_field": field, "amount": portion_amount})
+        if portions:
+            portions[-1]["amount"] += amount - sum((item["amount"] for item in portions), Decimal("0.00"))
+        return portions
+
+    @property
+    def recouped_amount(self) -> Decimal:
+        total = self.waterfall_allocations.filter(
+            run_line__run__status=WaterfallRunStatus.FINALIZED,
+        ).aggregate(total=models.Sum("allocated_amount"))["total"]
+        return (total or Decimal("0.00")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    @property
+    def outstanding_recoupment(self) -> Decimal:
+        if not self.recoupable:
+            return Decimal("0.00")
+        return max((self.net_amount or Decimal("0.00")) - self.recouped_amount, Decimal("0.00"))
 
 
 class DocumentInboxItem(TimestampedModel):
@@ -1161,6 +1254,8 @@ class WaterfallStep(TimestampedModel):
             raise ValidationError({"exploitation_fields": f"Nieznane pola: {', '.join(sorted(invalid_fields))}."})
         if self.step_type == WaterfallStepType.RECOUPMENT and not (self.target_amount or self.include_title_mg or self.include_recoupable_costs):
             raise ValidationError("Krok recoupmentu wymaga kwoty celu, MG tytulu albo kosztow recoupable.")
+        if self.include_recoupable_costs and self.allocation_mode != WaterfallAllocationMode.SEQUENTIAL:
+            raise ValidationError({"allocation_mode": "Koszty fakturowe muszą być odzyskiwane kolejno, aby nie rozliczyć tej samej faktury podwójnie."})
         if self.plan_id and self.plan.runs.filter(status=WaterfallRunStatus.FINALIZED).exists():
             raise ValidationError("Plan ma zatwierdzone rozliczenia. Utworz nowa wersje planu zamiast zmieniac kroki.")
 
@@ -1222,6 +1317,33 @@ class WaterfallRunLine(TimestampedModel):
         return f"{self.run} / {self.sequence}. {self.step.name}"
 
 
+class WaterfallRunCostAllocation(TimestampedModel):
+    run_line = models.ForeignKey(WaterfallRunLine, on_delete=models.CASCADE, related_name="cost_allocations", verbose_name="pozycja waterfall")
+    cost = models.ForeignKey(Cost, on_delete=models.PROTECT, related_name="waterfall_allocations", verbose_name="koszt / faktura")
+    exploitation_field = models.CharField("część pola eksploatacji", max_length=40, choices=ExploitationField.choices, blank=True)
+    allocated_amount = models.DecimalField("odzyskana kwota", max_digits=16, decimal_places=2, default=Decimal("0.00"))
+
+    class Meta:
+        ordering = ["run_line", "cost__cost_date", "cost_id", "exploitation_field"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run_line", "cost", "exploitation_field"],
+                name="unique_run_line_cost_portion",
+            )
+        ]
+        indexes = [models.Index(fields=["cost", "exploitation_field"])]
+        verbose_name = "alokacja odzyskanego kosztu"
+        verbose_name_plural = "alokacje odzyskanych kosztów"
+
+    def clean(self):
+        if self.allocated_amount <= 0:
+            raise ValidationError({"allocated_amount": "Odzyskana kwota musi być większa od zera."})
+
+    def __str__(self) -> str:
+        field = self.get_exploitation_field_display() if self.exploitation_field else "wspólna pula"
+        return f"{self.cost} / {field} / {self.allocated_amount}"
+
+
 class RoyaltyStatement(TimestampedModel):
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="royalty_statements", verbose_name="tytuł")
     recipient = models.ForeignKey(Counterparty, on_delete=models.PROTECT, related_name="royalty_statements", verbose_name="odbiorca statementu")
@@ -1268,11 +1390,15 @@ class RoyaltyStatement(TimestampedModel):
             title=self.title,
             currency=self.currency,
             recoupable=True,
-            cost_date__gte=self.period_start,
-            cost_date__lte=self.period_end,
         )
         if self.locked_at and self.calculation_snapshot.get("cost_ids") is not None:
             return costs.filter(pk__in=self.calculation_snapshot["cost_ids"])
+        if self.waterfall_run_id:
+            allocation_cost_ids = WaterfallRunCostAllocation.objects.filter(
+                run_line__run=self.waterfall_run,
+            ).values_list("cost_id", flat=True)
+            return costs.filter(pk__in=allocation_cost_ids)
+        costs = costs.filter(cost_date__gte=self.period_start, cost_date__lte=self.period_end)
         plan = self.waterfall_plan or (self.waterfall_run.plan if self.waterfall_run_id else None)
         if plan and not plan.applies_to_all_exploitation_fields:
             plan_fields = plan.scoped_exploitation_fields()
@@ -1296,6 +1422,7 @@ class RoyaltyStatement(TimestampedModel):
 
         if self.waterfall_run_id:
             run_lines = self.waterfall_run.lines.filter(beneficiary=self.recipient).select_related("step")
+            cost_allocations = WaterfallRunCostAllocation.objects.filter(run_line__run=self.waterfall_run)
             amount_due = sum((line.allocated_amount for line in run_lines), Decimal("0.00"))
             distributor_fee = sum(
                 (line.allocated_amount for line in self.waterfall_run.lines.select_related("step") if line.step.step_type == WaterfallStepType.COMMISSION),
@@ -1303,6 +1430,8 @@ class RoyaltyStatement(TimestampedModel):
             )
             gross_revenue = self.waterfall_run.gross_revenue
             net_revenue = self.waterfall_run.net_revenue
+            recoupable_costs = cost_allocations.aggregate(total=models.Sum("allocated_amount"))["total"] or Decimal("0.00")
+            costs = list(Cost.objects.filter(pk__in=cost_allocations.values_list("cost_id", flat=True).distinct()))
             net_receipts = self.waterfall_run.closing_available
 
         return {
@@ -1346,6 +1475,10 @@ class RoyaltyStatement(TimestampedModel):
         frozen = self._snapshot_decimal("recoupable_costs") if self.locked_at else None
         if frozen is not None:
             return frozen
+        if self.waterfall_run_id:
+            return WaterfallRunCostAllocation.objects.filter(
+                run_line__run=self.waterfall_run,
+            ).aggregate(total=models.Sum("allocated_amount"))["total"] or Decimal("0.00")
         return sum((c.net_amount for c in self.recoupable_costs_queryset()), Decimal("0.00"))
 
     @property
@@ -1360,6 +1493,8 @@ class RoyaltyStatement(TimestampedModel):
         frozen = self._snapshot_decimal("net_receipts") if self.locked_at else None
         if frozen is not None:
             return frozen
+        if self.waterfall_run_id:
+            return self.waterfall_run.closing_available
         return self.net_revenue - self.recoupable_costs - self.distributor_fee_amount
 
     @property

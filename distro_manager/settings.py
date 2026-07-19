@@ -108,5 +108,6 @@ if not DEBUG:
     }
 
 LOGIN_URL = "/admin/login/"
+LOGIN_REDIRECT_URL = "/"
 EMAIL_BACKEND = os.getenv("EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "rights@example.com")

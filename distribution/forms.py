@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django import forms
 
 from .models import (
@@ -6,6 +8,7 @@ from .models import (
     CinemaReportImport,
     Cost,
     CostCategory,
+    CostScopeMode,
     Counterparty,
     CounterpartyType,
     Currency,
@@ -14,6 +17,85 @@ from .models import (
     Territory,
     Title,
 )
+
+
+COST_ALLOCATION_FIELD_NAMES = tuple(f"allocation_{value}" for value, _ in ExploitationField.choices)
+
+
+def _cost_allocation_field(label):
+    return forms.DecimalField(
+        label=label,
+        required=False,
+        min_value=Decimal("0.01"),
+        max_value=Decimal("100.00"),
+        max_digits=5,
+        decimal_places=2,
+        widget=forms.NumberInput(attrs={"step": "0.01", "inputmode": "decimal"}),
+    )
+
+
+class CostScopeFormMixin(forms.ModelForm):
+    scope_fields = forms.MultipleChoiceField(
+        label="Wybrane pola eksploatacji",
+        choices=ExploitationField.choices,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+    )
+    allocation_percentages = forms.JSONField(required=False, widget=forms.HiddenInput)
+    allocation_cinema = _cost_allocation_field("Kino")
+    allocation_festivals = _cost_allocation_field("Festiwale")
+    allocation_non_theatrical = _cost_allocation_field("Non-theatrical / edukacja")
+    allocation_linear_tv = _cost_allocation_field("TV linearna")
+    allocation_pay_tv = _cost_allocation_field("Pay TV")
+    allocation_free_tv = _cost_allocation_field("Free TV")
+    allocation_svod = _cost_allocation_field("SVOD")
+    allocation_tvod = _cost_allocation_field("TVOD")
+    allocation_est = _cost_allocation_field("EST / DTO")
+    allocation_avod = _cost_allocation_field("AVOD")
+    allocation_fast = _cost_allocation_field("FAST")
+    allocation_airlines = _cost_allocation_field("Linie lotnicze")
+    allocation_hotels = _cost_allocation_field("Hotele / hospitality")
+    allocation_clips = _cost_allocation_field("Clips / fragmenty")
+    allocation_promo_internet = _cost_allocation_field("Internet promocyjny")
+    allocation_home_video = _cost_allocation_field("Home video / DVD / Blu-ray")
+    allocation_other = _cost_allocation_field("Inne")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["scope_mode"].widget = forms.RadioSelect(choices=CostScopeMode.choices)
+        initial_allocations = getattr(self.instance, "allocation_percentages", {}) or {}
+        for value, _ in ExploitationField.choices:
+            self.fields[f"allocation_{value}"].initial = initial_allocations.get(value)
+
+    def clean(self):
+        cleaned = super().clean()
+        mode = cleaned.get("scope_mode")
+        if mode == CostScopeMode.ALL:
+            cleaned["scope_fields"] = []
+            cleaned["allocation_percentages"] = {}
+        elif mode == CostScopeMode.SELECTED:
+            cleaned["allocation_percentages"] = {}
+            if not cleaned.get("scope_fields"):
+                self.add_error("scope_fields", "Wybierz co najmniej jedno pole eksploatacji.")
+        elif mode == CostScopeMode.ALLOCATED:
+            allocations = {
+                value: str(cleaned[f"allocation_{value}"].quantize(Decimal("0.01")))
+                for value, _ in ExploitationField.choices
+                if cleaned.get(f"allocation_{value}") is not None
+            }
+            total = sum((Decimal(value) for value in allocations.values()), Decimal("0.00"))
+            if total != Decimal("100.00"):
+                self.add_error("allocation_percentages", f"Suma udziałów musi wynosić 100% (teraz {total}%).")
+            cleaned["allocation_percentages"] = allocations
+            cleaned["scope_fields"] = list(allocations)
+        return cleaned
+
+    @property
+    def allocation_rows(self):
+        return [
+            {"value": value, "label": label, "field": self[f"allocation_{value}"]}
+            for value, label in ExploitationField.choices
+        ]
 
 
 class ContractWaterfallWizardForm(forms.Form):
@@ -101,7 +183,7 @@ class CinemaReportUploadForm(forms.ModelForm):
         }
 
 
-class CostInvoiceUploadForm(forms.ModelForm):
+class CostInvoiceUploadForm(CostScopeFormMixin):
     supplier_name = forms.CharField(label="Dostawca", max_length=255, required=False)
 
     class Meta:
@@ -113,8 +195,9 @@ class CostInvoiceUploadForm(forms.ModelForm):
             "net_amount",
             "vat_amount",
             "recoupable",
-            "applies_to_all_exploitation_fields",
-            "exploitation_field",
+            "scope_mode",
+            "scope_fields",
+            "allocation_percentages",
             "invoice_file",
         )
         widgets = {
@@ -166,7 +249,7 @@ class DocumentClassificationForm(forms.ModelForm):
         fields = ("document_type",)
 
 
-class DocumentCostForm(forms.ModelForm):
+class DocumentCostForm(CostScopeFormMixin):
     supplier_name = forms.CharField(label="Dostawca", max_length=255, required=False)
 
     class Meta:
@@ -179,8 +262,9 @@ class DocumentCostForm(forms.ModelForm):
             "net_amount",
             "vat_amount",
             "recoupable",
-            "applies_to_all_exploitation_fields",
-            "exploitation_field",
+            "scope_mode",
+            "scope_fields",
+            "allocation_percentages",
         )
         widgets = {
             "cost_date": forms.DateInput(attrs={"type": "date"}),
@@ -213,3 +297,30 @@ class DocumentCostForm(forms.ModelForm):
         if commit:
             instance.save()
         return instance
+
+
+class TitleCatalogExportForm(forms.Form):
+    export_all = forms.BooleanField(required=False, initial=True)
+    title_ids = forms.ModelMultipleChoiceField(queryset=Title.objects.none(), required=False)
+    export_format = forms.ChoiceField(choices=(("xlsx", "Excel XLSX"), ("csv_zip", "Pakiet CSV ZIP")))
+    financial_scope = forms.ChoiceField(choices=(("all", "Cała historia"), ("period", "Wybrany okres")), initial="all")
+    date_from = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    date_to = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["title_ids"].queryset = Title.objects.order_by("title_pl")
+
+    def clean(self):
+        cleaned = super().clean()
+        if not cleaned.get("export_all") and not cleaned.get("title_ids"):
+            self.add_error("title_ids", "Wybierz co najmniej jeden tytuł albo zaznacz wszystkie tytuły.")
+        if cleaned.get("financial_scope") == "period":
+            if not cleaned.get("date_from") or not cleaned.get("date_to"):
+                self.add_error("date_from", "Podaj początek i koniec okresu.")
+            elif cleaned["date_from"] > cleaned["date_to"]:
+                self.add_error("date_to", "Koniec okresu nie może być wcześniejszy niż początek.")
+        else:
+            cleaned["date_from"] = None
+            cleaned["date_to"] = None
+        return cleaned

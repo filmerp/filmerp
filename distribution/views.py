@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.decorators import permission_required
+from django.contrib.auth.views import LoginView
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
 from django.http import HttpResponse
@@ -13,6 +14,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.dateparse import parse_date
 from django.utils import timezone
+from django.views.decorators.http import require_POST
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -28,7 +30,9 @@ from .forms import (
     DocumentUploadForm,
     ContractWaterfallWizardForm,
     TitleSetupForm,
+    TitleCatalogExportForm,
 )
+from .catalog_export import build_catalog_export, export_catalog_csv_zip, export_catalog_xlsx
 from .contract_wizard import create_contract_waterfall
 from .pdf import build_royalty_statement_pdf
 from .models import (
@@ -62,6 +66,14 @@ from .models import (
 )
 from .settlements import create_statement_documents
 from .waterfall_engine import calculate_waterfall_run, finalize_waterfall_run
+
+
+class DashboardLoginView(LoginView):
+    template_name = "admin/login.html"
+    redirect_authenticated_user = True
+
+    def get_success_url(self):
+        return reverse("distribution:dashboard")
 
 
 @login_required
@@ -523,7 +535,9 @@ def settlement_workbench(request):
     run = None
     if run_id:
         run = get_object_or_404(
-            WaterfallRun.objects.select_related("plan", "plan__title", "finalized_by"),
+            WaterfallRun.objects.select_related("plan", "plan__title", "finalized_by").prefetch_related(
+                "lines__cost_allocations__cost",
+            ),
             pk=run_id,
         )
 
@@ -920,8 +934,42 @@ def reports(request):
         "waterfall_totals": waterfall_totals,
         "overdue_agreements": SalesAgreement.objects.filter(invoice_paid=False, payment_due_date__lt=timezone.localdate()).select_related("title", "licensee")[:20],
         "open_issues": RightsIssue.objects.filter(resolved=False).select_related("rights_window", "rights_window__title")[:20],
+        "catalog_export_form": TitleCatalogExportForm(),
     }
     return render(request, "distribution/reports.html", context)
+
+
+@login_required
+@require_POST
+def title_catalog_export(request):
+    form = TitleCatalogExportForm(request.POST)
+    if not form.is_valid():
+        errors = " ".join(error for field_errors in form.errors.values() for error in field_errors)
+        messages.error(request, f"Nie można przygotować Eksportu 360. {errors}")
+        return redirect("distribution:reports")
+
+    if form.cleaned_data["export_all"]:
+        title_ids = list(Title.objects.values_list("pk", flat=True))
+    else:
+        title_ids = list(form.cleaned_data["title_ids"].values_list("pk", flat=True))
+
+    sheets = build_catalog_export(
+        title_ids,
+        date_from=form.cleaned_data["date_from"],
+        date_to=form.cleaned_data["date_to"],
+    )
+    stamp = timezone.localdate().isoformat()
+    if form.cleaned_data["export_format"] == "csv_zip":
+        response = HttpResponse(export_catalog_csv_zip(sheets), content_type="application/zip")
+        response["Content-Disposition"] = f'attachment; filename="filmerp_export_360_{stamp}.zip"'
+        return response
+
+    response = HttpResponse(
+        export_catalog_xlsx(sheets),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    response["Content-Disposition"] = f'attachment; filename="filmerp_export_360_{stamp}.xlsx"'
+    return response
 
 
 @login_required
@@ -1143,21 +1191,23 @@ def _reports_export_xlsx(filters):
     costs_sheet = workbook.create_sheet("Costs")
     _append_table(
         costs_sheet,
-        ["Title", "Supplier", "Category", "Base field", "Waterfall all fields", "Waterfall fields", "Date", "Currency", "Net", "VAT", "Gross", "Recoupable", "Paid"],
+        ["Title", "Supplier", "Category", "Scope mode", "Scope", "Allocation percentages", "Date", "Currency", "Net", "VAT", "Gross", "Recoupable", "Recovered", "Outstanding", "Paid"],
         [
             [
                 cost.title.title_pl,
                 cost.supplier.name if cost.supplier else "",
                 cost.get_category_display(),
-                cost.get_exploitation_field_display() if cost.exploitation_field else "",
-                "yes" if cost.applies_to_all_exploitation_fields else "no",
-                ", ".join(sorted(cost.waterfall_exploitation_fields())),
+                cost.get_scope_mode_display(),
+                cost.scope_label,
+                ", ".join(f"{field}: {percentage}%" for field, percentage in cost.allocation_percentages.items()),
                 cost.cost_date,
                 cost.currency,
                 cost.net_amount,
                 cost.vat_amount,
                 cost.gross_amount,
                 "yes" if cost.recoupable else "no",
+                cost.recouped_amount,
+                cost.outstanding_recoupment,
                 "yes" if cost.paid else "no",
             ]
             for cost in costs

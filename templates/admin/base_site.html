@@ -18,7 +18,7 @@
     <span class="filmerp-admin-page-title">{{ title|default:"Administracja" }}</span>
   {% else %}
     <a href="{% url 'admin:index' %}" class="filmerp-admin-logo-link">
-      {% include "distribution/_filmerp_logo.html" with logo_class="filmerp-admin-logo" logo_filter_id="filmerp-admin-logo-filter" %}
+      {% include "distribution/_filmerp_logo.html" with logo_class="filmerp-admin-logo" %}
     </a>
   {% endif %}
 </div>
@@ -29,8 +29,8 @@
 <link rel="stylesheet" href="{% static 'distribution/filmerp-sidebar.css' %}">
 <style>
   :root {
-    --primary: #0060fd;
-    --secondary: #004dcc;
+    --primary: #0058f8;
+    --secondary: #0046c7;
     --button-fg: #fff;
     --accent: #2c3338;
     --primary-fg: #fff;
@@ -48,12 +48,12 @@
     --header-bg: #1d2327;
     --header-link-color: #f0f0f1;
     --breadcrumbs-bg: #2c3338;
-    --link-fg: #0060fd;
-    --link-hover-color: #004dcc;
-    --button-bg: #0060fd;
-    --button-hover-bg: #004dcc;
-    --default-button-bg: #0060fd;
-    --default-button-hover-bg: #004dcc;
+    --link-fg: #0058f8;
+    --link-hover-color: #0046c7;
+    --button-bg: #0058f8;
+    --button-hover-bg: #0046c7;
+    --default-button-bg: #0058f8;
+    --default-button-hover-bg: #0046c7;
   }
   body {
     font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Roboto", "Helvetica Neue", Arial, sans-serif;
@@ -91,7 +91,7 @@
   .module h2,
   .module caption,
   .inline-group h2 {
-    background: #0060fd;
+    background: #0058f8;
     color: #fff;
   }
   #nav-sidebar .current-model {
@@ -140,13 +140,13 @@
   }
   body.login .submit-row input[type="submit"],
   body.login input[type="submit"] {
-    background: #0060fd !important;
+    background: #0058f8 !important;
     color: #fff !important;
-    border-color: #0060fd !important;
+    border-color: #0058f8 !important;
   }
   body.login .submit-row input[type="submit"]:hover,
   body.login input[type="submit"]:hover {
-    background: #004dcc !important;
+    background: #0046c7 !important;
     color: #fff !important;
   }
   .filmerp-filter-toggle-row {
@@ -156,16 +156,16 @@
   }
   .filmerp-filter-toggle {
     padding: 8px 12px;
-    border: 1px solid #0060fd;
+    border: 1px solid #0058f8;
     border-radius: 4px;
     background: #fff;
-    color: #0060fd;
+    color: #0058f8;
     cursor: pointer;
     font: inherit;
     font-weight: 700;
   }
   .filmerp-filter-toggle[aria-expanded="true"] {
-    background: #0060fd;
+    background: #0058f8;
     color: #fff;
   }
   #changelist-filter[hidden] {

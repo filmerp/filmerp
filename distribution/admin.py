@@ -10,6 +10,7 @@ from django.utils.html import format_html
 from .marketplace import export_marketplace_csv, export_marketplace_xlsx
 from .pdf import build_royalty_statement_pdf
 from .cinema_imports import approve_import_rows, parse_cinema_report_import
+from .forms import COST_ALLOCATION_FIELD_NAMES, CostScopeFormMixin
 from .models import (
     AcquisitionAgreement,
     CinemaBooking,
@@ -117,31 +118,10 @@ class CinemaReportImportRowInline(admin.TabularInline):
     show_change_link = True
 
 
-class CostAdminForm(forms.ModelForm):
-    waterfall_fields = forms.MultipleChoiceField(
-        label="Pola eksploatacji dla waterfall",
-        choices=ExploitationField.choices,
-        required=False,
-        widget=forms.CheckboxSelectMultiple,
-        help_text="Zaznacz pola, do ktorych koszt ma wejsc w waterfall. Gdy zaznaczysz 'wszystkie pola', te checkboxy sa ignorowane.",
-    )
-
+class CostAdminForm(CostScopeFormMixin):
     class Meta:
         model = Cost
-        fields = "__all__"
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if self.instance and self.instance.pk:
-            self.fields["waterfall_fields"].initial = sorted(self.instance.waterfall_exploitation_fields())
-
-    def save(self, commit=True):
-        instance = super().save(commit=False)
-        instance.exploitation_fields = ",".join(self.cleaned_data.get("waterfall_fields", []))
-        if commit:
-            instance.save()
-            self.save_m2m()
-        return instance
+        exclude = ("exploitation_field", "applies_to_all_exploitation_fields", "exploitation_fields")
 
 
 class WaterfallPlanAdminForm(forms.ModelForm):
@@ -538,15 +518,19 @@ class DocumentInboxItemAdmin(admin.ModelAdmin):
 @admin.register(Cost)
 class CostAdmin(admin.ModelAdmin):
     form = CostAdminForm
-    list_display = ("title", "category", "supplier", "cost_date", "currency", "net_amount", "gross_amount_display", "waterfall_scope_display", "recoupable", "paid")
-    list_filter = ("category", "currency", "recoupable", "applies_to_all_exploitation_fields", "paid", "cost_date")
+    list_display = ("title", "category", "supplier", "cost_date", "currency", "net_amount", "gross_amount_display", "waterfall_scope_display", "recouped_display", "outstanding_display", "recoupable", "paid")
+    list_filter = ("category", "currency", "recoupable", "scope_mode", "paid", "cost_date")
     search_fields = ("title__title_pl", "title__original_title", "supplier__name", "notes")
     autocomplete_fields = ("title", "supplier")
     fieldsets = (
         ("Podstawowe", {"fields": ("title", "category", "supplier", "cost_date", "currency", "net_amount", "vat_amount", "paid")}),
-        ("Waterfall / recoupment", {"fields": ("recoupable", "applies_to_all_exploitation_fields", "waterfall_fields", "exploitation_field")}),
+        ("P&A / waterfall / recoupment", {"fields": ("recoupable", "scope_mode", "scope_fields", "allocation_percentages", *COST_ALLOCATION_FIELD_NAMES)}),
         ("Pliki i uwagi", {"fields": ("invoice_file", "notes")}),
     )
+
+    class Media:
+        js = ("distribution/cost-scope.js",)
+        css = {"all": ("distribution/cost-scope.css",)}
 
     @admin.display(description="kwota brutto")
     def gross_amount_display(self, obj):
@@ -554,13 +538,15 @@ class CostAdmin(admin.ModelAdmin):
 
     @admin.display(description="waterfall fields")
     def waterfall_scope_display(self, obj):
-        if obj.applies_to_all_exploitation_fields:
-            return "wszystkie pola"
-        fields = obj.waterfall_exploitation_fields()
-        if not fields:
-            return "brak"
-        labels = dict(ExploitationField.choices)
-        return ", ".join(labels.get(field, field) for field in sorted(fields))
+        return obj.scope_label
+
+    @admin.display(description="odzyskano")
+    def recouped_display(self, obj):
+        return obj.recouped_amount
+
+    @admin.display(description="pozostało")
+    def outstanding_display(self, obj):
+        return obj.outstanding_recoupment
 
 
 @admin.register(TitleMaterial)

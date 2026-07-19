@@ -174,8 +174,8 @@
       <div>
         <h3>Koszty</h3>
         <div class="table-scroll"><table>
-          <thead><tr><th>Data</th><th>Kategoria</th><th>Dostawca</th><th class="num">Netto</th><th>FV</th></tr></thead>
-          <tbody>{% for cost in costs %}<tr><td>{{ cost.cost_date }}</td><td>{{ cost.get_category_display }}</td><td>{{ cost.supplier|default:"—" }}</td><td class="num">{{ cost.net_amount }} {{ cost.currency }}</td><td>{% if cost.invoice_file %}<a href="{{ cost.invoice_file.url }}">plik</a>{% else %}<span class="muted">brak</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="5" class="muted">Brak kosztów.</td></tr>{% endfor %}</tbody>
+          <thead><tr><th>Data</th><th>Kategoria</th><th>Dostawca</th><th>Zakres P&A</th><th class="num">Netto</th><th>FV</th></tr></thead>
+          <tbody>{% for cost in costs %}<tr><td>{{ cost.cost_date }}</td><td>{{ cost.get_category_display }}</td><td>{{ cost.supplier|default:"—" }}</td><td>{{ cost.scope_label }}</td><td class="num">{{ cost.net_amount }} {{ cost.currency }}</td><td>{% if cost.invoice_file %}<a href="{{ cost.invoice_file.url }}">plik</a>{% else %}<span class="muted">brak</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="6" class="muted">Brak kosztów.</td></tr>{% endfor %}</tbody>
         </table></div>
       </div>
     </div>
@@ -197,7 +197,7 @@
       <table>
         <thead><tr><th>Faza</th><th>Krok</th><th>Odbiorca</th><th class="num">Podstawa</th><th class="num">Alokacja</th><th class="num">Saldo recoupment</th><th class="num">Pozostało</th></tr></thead>
         <tbody>
-          {% for line in run.lines.all %}<tr><td>{{ line.phase }}</td><td><strong>{{ line.step.name }}</strong><div class="muted">{{ line.step.get_step_type_display }} · {{ line.step.get_allocation_mode_display }}</div></td><td>{{ line.beneficiary|default:"—" }}</td><td class="num">{{ line.calculation_base }}</td><td class="num">{{ line.allocated_amount }}</td><td class="num">{{ line.opening_recoupment }} → {{ line.closing_recoupment }}</td><td class="num">{{ line.closing_available }}</td></tr>{% empty %}<tr><td colspan="7" class="muted">Brak kroków kalkulacji.</td></tr>{% endfor %}
+          {% for line in run.lines.all %}<tr><td>{{ line.phase }}</td><td><strong>{{ line.step.name }}</strong><div class="muted">{{ line.step.get_step_type_display }} · {{ line.step.get_allocation_mode_display }}</div>{% for allocation in line.cost_allocations.all %}<small>P&A #{{ allocation.cost_id }} · {{ allocation.cost.get_category_display }} · {% if allocation.exploitation_field %}{{ allocation.get_exploitation_field_display }}{% else %}wspólna pula{% endif %}: {{ allocation.allocated_amount }} {{ allocation.cost.currency }}</small>{% endfor %}</td><td>{{ line.beneficiary|default:"—" }}</td><td class="num">{{ line.calculation_base }}</td><td class="num">{{ line.allocated_amount }}</td><td class="num">{{ line.opening_recoupment }} → {{ line.closing_recoupment }}</td><td class="num">{{ line.closing_available }}</td></tr>{% empty %}<tr><td colspan="7" class="muted">Brak kroków kalkulacji.</td></tr>{% endfor %}
         </tbody>
       </table>
     </div>

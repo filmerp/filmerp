@@ -48,64 +48,19 @@
 
   <section class="two">
     <div class="card">
-      <h2>Waterfall / recoupment</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Tytul</th>
-            <th>Pole</th>
-            <th class="num">Netto</th>
-            <th class="num">Koszty recoup.</th>
-            <th class="num">Pozycje recoup.</th>
-            <th class="num">Pula recoup.</th>
-            <th class="num">Odzyskane</th>
-            <th class="num">Do odzyskania</th>
-            <th class="num">Fee</th>
-            <th class="num">Dla partnera</th>
-            <th>Uczestnicy</th>
-          </tr>
-        </thead>
+      <div class="section-header">
+        <div><h2>Rozliczenia waterfall okresów</h2><div class="muted">Każdy wiersz to wynik zastosowania planu do konkretnego okresu.</div></div>
+        <a class="button export" href="/reports/export/?section=waterfall&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}&title={{ filters.title_id }}&counterparty={{ filters.counterparty_id }}">Eksport CSV</a>
+      </div>
+      <div class="table-scroll"><table>
+        <thead><tr><th>Tytuł / plan</th><th>Okres</th><th>Status</th><th class="num">Netto</th><th class="num">Rozdzielono</th><th class="num">Pozostało</th></tr></thead>
         <tbody>
-          {% for row in waterfall_rows %}
-          <tr>
-            <td>{{ row.rule.title }}</td>
-            <td>{{ row.rule.get_exploitation_field_display }}</td>
-            <td class="num">{{ row.net_revenue }} {{ row.rule.currency }}</td>
-            <td class="num">{{ row.recoupable_costs }}</td>
-            <td class="num">{{ row.manual_recoupment_items }}</td>
-            <td class="num">{{ row.recoupment_pool }}</td>
-            <td class="num">{{ row.recouped_amount }}</td>
-            <td class="num">{{ row.unrecouped_balance }}</td>
-            <td class="num">{{ row.distributor_fee }}</td>
-            <td class="num">{{ row.participant_share }}</td>
-            <td>
-              {% for allocation in row.participant_allocations %}
-              <div>{{ allocation.recipient }}: {{ allocation.amount }}{% if allocation.cap_applied %} <span class="muted">(cap/skalowanie)</span>{% endif %}</div>
-              {% empty %}
-              <span class="muted">brak</span>
-              {% endfor %}
-            </td>
-          </tr>
-          {% empty %}<tr><td colspan="11" class="muted">Brak aktywnych regul waterfall/recoupment.</td></tr>{% endfor %}
+          {% for run in waterfall_runs %}
+          <tr><td><strong>{{ run.plan.title }}</strong><small>{{ run.plan.name }} · v{{ run.plan.version }} · {{ run.plan.currency }}</small></td><td>{{ run.period_start }} – {{ run.period_end }}</td><td><span class="status-pill {{ run.status }}">{{ run.get_status_display }}</span></td><td class="num">{{ run.net_revenue }}</td><td class="num">{{ run.allocated_amount }}</td><td class="num">{{ run.closing_available }}</td></tr>
+          {% empty %}<tr><td colspan="6" class="muted">Brak rozliczeń waterfall dla wybranego okresu.</td></tr>{% endfor %}
         </tbody>
-        {% if waterfall_rows %}
-        <tfoot>
-          <tr>
-            <th colspan="2">Razem</th>
-            <th class="num">{{ waterfall_totals.net_revenue }}</th>
-            <th class="num">{{ waterfall_totals.recoupable_costs }}</th>
-            <th class="num">{{ waterfall_totals.manual_recoupment_items }}</th>
-            <th class="num">{{ waterfall_totals.recoupment_pool }}</th>
-            <th class="num">{{ waterfall_totals.recouped_amount }}</th>
-            <th class="num">{{ waterfall_totals.unrecouped_balance }}</th>
-            <th class="num">{{ waterfall_totals.distributor_fee }}</th>
-            <th class="num">{{ waterfall_totals.participant_share }}</th>
-            <th></th>
-          </tr>
-        </tfoot>
-        {% endif %}
-      </table>
-      <p><a class="button secondary" href="/reports/export/?section=waterfall&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}&title={{ filters.title_id }}&counterparty={{ filters.counterparty_id }}">Eksport waterfall CSV</a></p>
+        {% if waterfall_runs %}<tfoot><tr><th colspan="3">Razem</th><th class="num">{{ waterfall_totals.net_revenue|default:0 }}</th><th class="num">{{ waterfall_totals.allocated_amount|default:0 }}</th><th class="num">{{ waterfall_totals.closing_available|default:0 }}</th></tr></tfoot>{% endif %}
+      </table></div>
     </div>
 
     <div class="card">

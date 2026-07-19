@@ -4,10 +4,13 @@ from io import BytesIO
 import shutil
 import tempfile
 
+from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 from openpyxl import Workbook
 
@@ -25,6 +28,9 @@ from .models import (
     SalesReport,
     WaterfallAllocationMode,
     WaterfallPlan,
+    WaterfallParticipant,
+    WaterfallRecoupmentItem,
+    WaterfallRecoupmentRule,
     WaterfallRun,
     WaterfallRunStatus,
     WaterfallStep,
@@ -33,7 +39,46 @@ from .models import (
 )
 from .documents import classify_document
 from .roles import sync_role_groups
-from .waterfall_v2 import calculate_waterfall_run, finalize_waterfall_run
+from .waterfall_engine import calculate_waterfall_run, finalize_waterfall_run
+
+
+class LegacyWaterfallMigrationTests(TransactionTestCase):
+    reset_sequences = True
+
+    def test_legacy_rule_is_migrated_when_title_has_no_current_plan(self):
+        executor = MigrationExecutor(connection)
+        executor.migrate([("distribution", "0011_documentinboxitem")])
+        old_apps = executor.loader.project_state([("distribution", "0011_documentinboxitem")]).apps
+        CounterpartyOld = old_apps.get_model("distribution", "Counterparty")
+        TitleOld = old_apps.get_model("distribution", "Title")
+        LegacyRule = old_apps.get_model("distribution", "WaterfallRecoupmentRule")
+        producer = CounterpartyOld.objects.create(name="Producent migracji")
+        title = TitleOld.objects.create(title_pl="Film starego waterfallu", producer_id=producer.pk)
+        LegacyRule.objects.create(
+            title_id=title.pk,
+            exploitation_field="cinema",
+            currency="PLN",
+            recoupment_pool=Decimal("50000.00"),
+            distributor_fee_percent=Decimal("25.00"),
+            participant_share_percent=Decimal("50.00"),
+            include_recoupable_costs=True,
+            fee_after_recoupment=True,
+            active=True,
+        )
+
+        executor = MigrationExecutor(connection)
+        executor.migrate([("distribution", "0012_alter_waterfallplan_options_and_more")])
+        new_apps = executor.loader.project_state([("distribution", "0012_alter_waterfallplan_options_and_more")]).apps
+        Plan = new_apps.get_model("distribution", "WaterfallPlan")
+        Step = new_apps.get_model("distribution", "WaterfallStep")
+        plan = Plan.objects.get(title_id=title.pk)
+        self.assertEqual(plan.exploitation_fields, ["cinema"])
+        self.assertEqual(plan.status, "active")
+        self.assertEqual(list(Step.objects.filter(plan_id=plan.pk).order_by("phase", "sort_order").values_list("name", flat=True)), [
+            "Bazowy recoupment i koszty",
+            "Fee dystrybutora",
+            "Udział producenta / licencjodawcy",
+        ])
 
 
 class WaterfallV2Tests(TestCase):
@@ -266,6 +311,63 @@ class SettlementWorkflowTests(TestCase):
         created = Title.objects.get(title_pl="Nowy film workflow")
         self.assertRedirects(response, reverse("distribution:title_detail", args=[created.pk]))
 
+    def test_admin_save_returns_to_matching_title_stage(self):
+        response = self.client.post(reverse("admin:distribution_salesreport_add"), {
+            "title": self.title.pk,
+            "counterparty": self.cinema.pk,
+            "sales_agreement": "",
+            "exploitation_field": ExploitationField.CINEMA,
+            "territory": "",
+            "period_start": "2026-07-01",
+            "period_end": "2026-07-31",
+            "currency": Currency.PLN,
+            "gross_revenue": "125.00",
+            "deductions": "25.00",
+            "vat_withholding": "0.00",
+            "status": "checked",
+            "source_reference": "ADMIN-RETURN-TEST",
+            "_save": "Zapisz",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, f"{reverse('distribution:title_detail', args=[self.title.pk])}#finance")
+
+    def test_admin_filters_are_collapsed_and_legacy_waterfall_is_hidden(self):
+        response = self.client.get(reverse("admin:distribution_salesreport_changelist"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Pokaż filtry")
+        self.assertNotIn(WaterfallRecoupmentRule, admin.site._registry)
+        self.assertNotIn(WaterfallRecoupmentItem, admin.site._registry)
+        self.assertNotIn(WaterfallParticipant, admin.site._registry)
+        index_response = self.client.get(reverse("admin:index"))
+        self.assertContains(index_response, "Plany waterfall")
+        self.assertContains(index_response, "Rozliczenia waterfall okresów")
+        self.assertNotContains(index_response, "Kroki waterfall")
+        self.assertNotContains(index_response, "Pozycje kalkulacji waterfall")
+
+    def test_reports_show_period_settlements_from_current_waterfall(self):
+        run = calculate_waterfall_run(WaterfallRun.objects.create(
+            plan=self.plan,
+            period_start=date(2026, 6, 1),
+            period_end=date(2026, 6, 30),
+        ))
+        response = self.client.get(reverse("distribution:reports"), {
+            "date_from": "2026-06-01",
+            "date_to": "2026-06-30",
+            "title": self.title.pk,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Rozliczenia waterfall okresów")
+        self.assertContains(response, run.plan.name)
+        self.assertNotContains(response, "Pozycje recoup.")
+        export_response = self.client.get(reverse("distribution:reports_export_csv"), {
+            "format": "xlsx",
+            "date_from": "2026-06-01",
+            "date_to": "2026-06-30",
+            "title": self.title.pk,
+        })
+        self.assertEqual(export_response.status_code, 200)
+        self.assertEqual(export_response["Content-Type"], "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
     def test_contract_wizard_creates_versioned_agreement_and_waterfall(self):
         distributor = Counterparty.objects.create(name="FILMERP Dystrybucja")
         payload = {
@@ -305,7 +407,7 @@ class SettlementWorkflowTests(TestCase):
         response = self.client.get("/settlements/", self.workflow_payload())
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Miesieczny film")
-        self.assertContains(response, "Uruchom symulację")
+        self.assertContains(response, "Przelicz okres")
 
         response = self.client.post("/settlements/", {**self.workflow_payload(), "action": "simulate"})
         self.assertEqual(response.status_code, 302)

@@ -21,7 +21,6 @@ from distribution.models import (
     SalesReport,
     Territory,
     Title,
-    WaterfallRecoupmentRule,
 )
 
 

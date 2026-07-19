@@ -32,9 +32,15 @@
   <ol class="workflow-steps" aria-label="Etapy rozliczenia">
     <li class="{% if selected_title %}done{% else %}current{% endif %}"><span>1</span> Tytuł i okres</li>
     <li class="{% if run %}done{% elif selected_title %}current{% endif %}"><span>2</span> Dane źródłowe</li>
-    <li class="{% if run.status == 'finalized' %}done{% elif run %}current{% endif %}"><span>3</span> Symulacja</li>
+    <li class="{% if run.status == 'finalized' %}done{% elif run %}current{% endif %}"><span>3</span> Kalkulacja okresu</li>
     <li class="{% if statements %}done{% elif run.status == 'finalized' %}current{% endif %}"><span>4</span> Statementy</li>
   </ol>
+
+  <section class="settlement-concepts" aria-label="Jak działa waterfall">
+    <div><strong>Plan waterfall</strong><span>Stałe warunki umowy i kolejność: fee, P&A, MG, split.</span></div>
+    <div><strong>Rozliczenie robocze</strong><span>Przeliczenie planu dla wybranego miesiąca lub kwartału. Można je poprawiać.</span></div>
+    <div><strong>Rozliczenie zatwierdzone</strong><span>Zamrożony wynik do historii, na podstawie którego powstają statementy.</span></div>
+  </section>
 
   <section class="toolbar settlement-selector">
     <form method="get">
@@ -154,7 +160,7 @@
         <input type="hidden" name="date_to" value="{{ period_end|date:'Y-m-d' }}">
         <input type="hidden" name="currency" value="{{ currency }}">
         {% if run %}<input type="hidden" name="run" value="{{ run.pk }}">{% endif %}
-        <button type="submit" {% if not can_simulate or run.status == 'finalized' %}disabled{% endif %}>{% if run %}Przelicz ponownie{% else %}Uruchom symulację{% endif %}</button>
+        <button type="submit" {% if not can_simulate or run.status == 'finalized' %}disabled{% endif %}>{% if run %}Przelicz ponownie{% else %}Przelicz okres{% endif %}</button>
       </form>
     </div>
     <div class="two source-tables">
@@ -178,7 +184,7 @@
   {% if run %}
   <section class="workbench-section calculation-review">
     <div class="section-header">
-      <div><h2>Wynik symulacji</h2><div class="muted">{{ run.plan.name }} · v{{ run.plan.version }} · przeliczono {{ run.calculated_at|date:'Y-m-d H:i' }}</div></div>
+      <div><h2>Wynik rozliczenia okresu</h2><div class="muted">{{ run.plan.name }} · v{{ run.plan.version }} · przeliczono {{ run.calculated_at|date:'Y-m-d H:i' }}</div></div>
       <span class="status-pill {{ run.status }}">{{ run.get_status_display }}</span>
     </div>
     <div class="settlement-totals">

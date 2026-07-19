@@ -105,7 +105,59 @@
     background: #055c64 !important;
     color: #f06b97 !important;
   }
+  .filmerp-filter-toggle-row {
+    display: flex;
+    justify-content: flex-end;
+    margin: 0 0 10px;
+  }
+  .filmerp-filter-toggle {
+    padding: 8px 12px;
+    border: 1px solid #066e78;
+    border-radius: 4px;
+    background: #fff;
+    color: #066e78;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+  }
+  .filmerp-filter-toggle[aria-expanded="true"] {
+    background: #066e78;
+    color: #f06b97;
+  }
+  #changelist-filter[hidden] {
+    display: none !important;
+  }
 </style>
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const changelist = document.getElementById("changelist");
+    const filter = document.getElementById("changelist-filter");
+    if (!changelist || !filter) return;
+
+    const filterCount = filter.querySelectorAll("details").length || filter.querySelectorAll("h3").length;
+    const row = document.createElement("div");
+    row.className = "filmerp-filter-toggle-row";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "filmerp-filter-toggle";
+    button.setAttribute("aria-controls", "changelist-filter");
+    row.appendChild(button);
+    changelist.parentNode.insertBefore(row, changelist);
+
+    function setOpen(open) {
+      filter.hidden = !open;
+      changelist.classList.toggle("filtered", open);
+      button.setAttribute("aria-expanded", String(open));
+      button.textContent = open ? "Ukryj filtry" : `Pokaż filtry${filterCount ? ` (${filterCount})` : ""}`;
+    }
+    button.addEventListener("click", function () { setOpen(filter.hidden); });
+    setOpen(false);
+  });
+</script>
 {% endblock %}
 
 {% block userlinks %}

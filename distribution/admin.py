@@ -2,7 +2,7 @@ from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db.models import Sum
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from django.urls import reverse
 from django.utils.http import urlencode
 from django.utils.html import format_html
@@ -29,20 +29,58 @@ from .models import (
     Territory,
     Title,
     TitleMaterial,
-    WaterfallParticipant,
     WaterfallPlan,
-    WaterfallRecoupmentItem,
-    WaterfallRecoupmentRule,
     WaterfallRun,
     WaterfallRunLine,
     WaterfallRunStatus,
     WaterfallStep,
 )
-from .waterfall_v2 import calculate_waterfall_run, finalize_waterfall_run
+from .waterfall_engine import calculate_waterfall_run, finalize_waterfall_run
 
 admin.site.site_header = "FILMERP Panel Główny"
 admin.site.site_title = "FILMERP Panel Główny"
 admin.site.index_title = "FILMERP Panel Główny"
+
+
+class ReturnToTitleWorkspaceAdminMixin:
+    workspace_section = "metadata"
+
+    def _workspace_title(self, obj):
+        title = obj if isinstance(obj, Title) else getattr(obj, "title", None)
+        if title:
+            return title
+        plan = getattr(obj, "plan", None)
+        if plan:
+            return plan.title
+        run = getattr(obj, "run", None)
+        if run:
+            return run.plan.title
+        rights_window = getattr(obj, "rights_window", None)
+        if rights_window:
+            return rights_window.title
+        rows = getattr(obj, "rows", None)
+        if rows is not None:
+            row = rows.filter(title__isnull=False).select_related("title").first()
+            return row.title if row else None
+        return None
+
+    def _workspace_url(self, obj):
+        title = self._workspace_title(obj)
+        if not title:
+            return reverse("distribution:dashboard")
+        return f"{reverse('distribution:title_detail', args=[title.pk])}#{self.workspace_section}"
+
+    @staticmethod
+    def _keep_admin_open(request):
+        return any(key in request.POST for key in ("_continue", "_addanother", "_saveasnew")) or "_popup" in request.GET
+
+    def response_add(self, request, obj, post_url_continue=None):
+        response = super().response_add(request, obj, post_url_continue)
+        return response if self._keep_admin_open(request) else HttpResponseRedirect(self._workspace_url(obj))
+
+    def response_change(self, request, obj):
+        response = super().response_change(request, obj)
+        return response if self._keep_admin_open(request) else HttpResponseRedirect(self._workspace_url(obj))
 
 
 class RightsWindowInline(admin.TabularInline):
@@ -97,19 +135,6 @@ class TitleMaterialInline(admin.TabularInline):
         "delivered_at",
     )
     show_change_link = True
-
-
-class WaterfallRecoupmentItemInline(admin.TabularInline):
-    model = WaterfallRecoupmentItem
-    extra = 0
-    fields = ("priority", "item_type", "name", "amount", "recouped_to_date", "active")
-
-
-class WaterfallParticipantInline(admin.TabularInline):
-    model = WaterfallParticipant
-    extra = 0
-    fields = ("sort_order", "recipient", "participation_type", "share_percent", "payout_cap", "paid_to_date", "active")
-    autocomplete_fields = ("recipient",)
 
 
 class CinemaReportImportRowInline(admin.TabularInline):
@@ -196,7 +221,7 @@ class WaterfallStepAdminForm(forms.ModelForm):
 
 
 @admin.register(Title)
-class TitleAdmin(admin.ModelAdmin):
+class TitleAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
     list_display = (
         "title_pl",
         "original_title",
@@ -295,7 +320,8 @@ class LanguageVersionAdmin(admin.ModelAdmin):
 
 
 @admin.register(AcquisitionAgreement)
-class AcquisitionAgreementAdmin(admin.ModelAdmin):
+class AcquisitionAgreementAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "rights"
     list_display = ("contract_number", "title", "licensor", "status", "signed_date", "rights_start", "rights_end", "currency", "mg_advance")
     list_filter = ("status", "currency", "pa_recoupable")
     search_fields = ("contract_number", "title__title_pl", "title__original_title", "licensor__name")
@@ -304,7 +330,8 @@ class AcquisitionAgreementAdmin(admin.ModelAdmin):
 
 
 @admin.register(SalesAgreement)
-class SalesAgreementAdmin(admin.ModelAdmin):
+class SalesAgreementAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "rights"
     list_display = (
         "contract_number",
         "title",
@@ -339,7 +366,8 @@ def audit_selected_rights(modeladmin, request, queryset):
 
 
 @admin.register(RightsWindow)
-class RightsWindowAdmin(admin.ModelAdmin):
+class RightsWindowAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "rights"
     list_display = (
         "title",
         "source",
@@ -391,7 +419,8 @@ class RightsWindowAdmin(admin.ModelAdmin):
 
 
 @admin.register(RightsIssue)
-class RightsIssueAdmin(admin.ModelAdmin):
+class RightsIssueAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "rights"
     list_display = ("severity", "issue_type", "rights_window", "conflicting_window", "resolved", "created_at")
     list_filter = ("severity", "issue_type", "resolved")
     search_fields = ("rights_window__title__title_pl", "message")
@@ -400,7 +429,8 @@ class RightsIssueAdmin(admin.ModelAdmin):
 
 
 @admin.register(CinemaBooking)
-class CinemaBookingAdmin(admin.ModelAdmin):
+class CinemaBookingAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "finance"
     list_display = (
         "title",
         "cinema",
@@ -457,7 +487,8 @@ def approve_all_valid_rows_for_selected_imports(modeladmin, request, queryset):
 
 
 @admin.register(CinemaReportImport)
-class CinemaReportImportAdmin(admin.ModelAdmin):
+class CinemaReportImportAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "finance"
     list_display = ("original_filename", "source_file", "status", "parsed_at", "imported_at", "rows_link", "created_at")
     list_filter = ("status", "created_at", "parsed_at", "imported_at")
     search_fields = ("original_filename", "source_file", "parser_notes")
@@ -479,7 +510,8 @@ class CinemaReportImportAdmin(admin.ModelAdmin):
 
 
 @admin.register(CinemaReportImportRow)
-class CinemaReportImportRowAdmin(admin.ModelAdmin):
+class CinemaReportImportRowAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "finance"
     list_display = (
         "report_import",
         "status",
@@ -517,7 +549,8 @@ class CinemaReportImportRowAdmin(admin.ModelAdmin):
 
 
 @admin.register(SalesReport)
-class SalesReportAdmin(admin.ModelAdmin):
+class SalesReportAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "finance"
     list_display = (
         "title",
         "counterparty",
@@ -540,7 +573,8 @@ class SalesReportAdmin(admin.ModelAdmin):
 
 
 @admin.register(DocumentInboxItem)
-class DocumentInboxItemAdmin(admin.ModelAdmin):
+class DocumentInboxItemAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "finance"
     list_display = ("original_filename", "document_type", "status", "classification_confidence", "title", "counterparty", "created_at")
     list_filter = ("document_type", "status", "created_at")
     search_fields = ("original_filename", "file_hash", "title__title_pl", "counterparty__name", "notes")
@@ -552,7 +586,8 @@ class DocumentInboxItemAdmin(admin.ModelAdmin):
 
 
 @admin.register(Cost)
-class CostAdmin(admin.ModelAdmin):
+class CostAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "finance"
     form = CostAdminForm
     list_display = ("title", "category", "supplier", "cost_date", "currency", "net_amount", "gross_amount_display", "waterfall_scope_display", "recoupable", "paid")
     list_filter = ("category", "currency", "recoupable", "applies_to_all_exploitation_fields", "paid", "cost_date")
@@ -580,7 +615,8 @@ class CostAdmin(admin.ModelAdmin):
 
 
 @admin.register(TitleMaterial)
-class TitleMaterialAdmin(admin.ModelAdmin):
+class TitleMaterialAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "materials"
     list_display = (
         "title",
         "asset_type",
@@ -608,46 +644,6 @@ class TitleMaterialAdmin(admin.ModelAdmin):
         return ""
 
 
-@admin.register(WaterfallRecoupmentRule)
-class WaterfallRecoupmentRuleAdmin(admin.ModelAdmin):
-    list_display = (
-        "title",
-        "exploitation_field",
-        "currency",
-        "recoupment_pool",
-        "distributor_fee_percent",
-        "participant_share_percent",
-        "include_recoupable_costs",
-        "fee_after_recoupment",
-        "active",
-    )
-    list_filter = ("exploitation_field", "currency", "active", "include_recoupable_costs", "fee_after_recoupment")
-    search_fields = ("title__title_pl", "title__original_title", "notes")
-    autocomplete_fields = ("title",)
-    inlines = [WaterfallRecoupmentItemInline, WaterfallParticipantInline]
-
-
-@admin.register(WaterfallRecoupmentItem)
-class WaterfallRecoupmentItemAdmin(admin.ModelAdmin):
-    list_display = ("rule", "priority", "item_type", "name", "amount", "recouped_to_date", "opening_balance", "active")
-    list_filter = ("item_type", "active", "rule__currency", "rule__exploitation_field")
-    search_fields = ("name", "rule__title__title_pl", "rule__title__original_title", "notes")
-    autocomplete_fields = ("rule",)
-
-
-@admin.register(WaterfallParticipant)
-class WaterfallParticipantAdmin(admin.ModelAdmin):
-    list_display = ("rule", "recipient", "participation_type", "share_percent", "payout_cap", "paid_to_date", "remaining_cap_display", "sort_order", "active")
-    list_filter = ("participation_type", "active", "rule__currency", "rule__exploitation_field")
-    search_fields = ("recipient__name", "rule__title__title_pl", "rule__title__original_title", "notes")
-    autocomplete_fields = ("rule", "recipient")
-
-    @admin.display(description="remaining cap")
-    def remaining_cap_display(self, obj):
-        remaining = obj.remaining_cap
-        return "brak limitu" if remaining is None else remaining
-
-
 class WaterfallStepInline(admin.TabularInline):
     model = WaterfallStep
     form = WaterfallStepAdminForm
@@ -658,10 +654,12 @@ class WaterfallStepInline(admin.TabularInline):
         "include_title_mg", "include_recoupable_costs", "active",
     )
     autocomplete_fields = ("beneficiary",)
+    show_change_link = True
 
 
 @admin.register(WaterfallPlan)
-class WaterfallPlanAdmin(admin.ModelAdmin):
+class WaterfallPlanAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "waterfall"
     form = WaterfallPlanAdminForm
     list_display = ("title", "name", "version", "status", "currency", "scope_display", "effective_from", "effective_to")
     list_filter = ("status", "currency", "applies_to_all_exploitation_fields")
@@ -678,7 +676,8 @@ class WaterfallPlanAdmin(admin.ModelAdmin):
 
 
 @admin.register(WaterfallStep)
-class WaterfallStepAdmin(admin.ModelAdmin):
+class WaterfallStepAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "waterfall"
     form = WaterfallStepAdminForm
     list_display = ("plan", "phase", "sort_order", "name", "step_type", "allocation_mode", "beneficiary", "active")
     list_filter = ("step_type", "allocation_mode", "active", "plan__currency")
@@ -690,6 +689,9 @@ class WaterfallStepAdmin(admin.ModelAdmin):
         ("MG i koszty", {"fields": ("include_title_mg", "include_recoupable_costs", "cost_categories", "exploitation_fields")}),
         ("Podstawa umowna", {"fields": ("notes",)}),
     )
+
+    def has_module_permission(self, request):
+        return False
 
 
 class WaterfallRunLineInline(admin.TabularInline):
@@ -706,7 +708,8 @@ class WaterfallRunLineInline(admin.TabularInline):
 
 
 @admin.register(WaterfallRun)
-class WaterfallRunAdmin(admin.ModelAdmin):
+class WaterfallRunAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "settlements"
     list_display = ("plan", "period_start", "period_end", "status", "net_revenue", "allocated_amount", "closing_available", "calculated_at")
     list_filter = ("status", "plan__currency", "period_end")
     search_fields = ("plan__title__title_pl", "plan__name", "notes")
@@ -715,15 +718,15 @@ class WaterfallRunAdmin(admin.ModelAdmin):
     actions = ("recalculate_selected", "finalize_selected")
     inlines = (WaterfallRunLineInline,)
 
-    @admin.action(description="Przelicz zaznaczone robocze waterfalle")
+    @admin.action(description="Przelicz zaznaczone robocze okresy")
     def recalculate_selected(self, request, queryset):
         count = 0
         for run in queryset.filter(status=WaterfallRunStatus.DRAFT):
             calculate_waterfall_run(run)
             count += 1
-        messages.success(request, f"Przeliczono waterfalle: {count}.")
+        messages.success(request, f"Przeliczono okresy: {count}.")
 
-    @admin.action(description="Zatwierdz zaznaczone waterfalle")
+    @admin.action(description="Zatwierdź zaznaczone rozliczenia okresów")
     def finalize_selected(self, request, queryset):
         count = 0
         for run in queryset.filter(status=WaterfallRunStatus.DRAFT):
@@ -731,11 +734,12 @@ class WaterfallRunAdmin(admin.ModelAdmin):
                 calculate_waterfall_run(run)
             finalize_waterfall_run(run, request.user)
             count += 1
-        messages.success(request, f"Zatwierdzono waterfalle: {count}.")
+        messages.success(request, f"Zatwierdzono rozliczenia okresów: {count}.")
 
 
 @admin.register(WaterfallRunLine)
-class WaterfallRunLineAdmin(admin.ModelAdmin):
+class WaterfallRunLineAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "settlements"
     list_display = ("run", "sequence", "phase", "step", "beneficiary", "allocated_amount", "closing_recoupment")
     list_filter = ("run__status", "run__plan__currency", "phase")
     search_fields = ("run__plan__title__title_pl", "step__name", "beneficiary__name")
@@ -747,9 +751,13 @@ class WaterfallRunLineAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request, obj=None):
         return False
 
+    def has_module_permission(self, request):
+        return False
+
 
 @admin.register(RoyaltyStatement)
-class RoyaltyStatementAdmin(admin.ModelAdmin):
+class RoyaltyStatementAdmin(ReturnToTitleWorkspaceAdminMixin, admin.ModelAdmin):
+    workspace_section = "settlements"
     list_display = (
         "title",
         "recipient",

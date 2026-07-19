@@ -556,6 +556,30 @@ button:disabled,
   margin: 0 0 3px;
 }
 
+.settlement-concepts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+
+.settlement-concepts > div {
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+  border-right: 1px solid var(--border);
+}
+
+.settlement-concepts > div:last-child {
+  border-right: 0;
+}
+
+.settlement-concepts span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .readiness-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -1815,6 +1839,15 @@ td small {
 
   .workflow-steps {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .settlement-concepts {
+    grid-template-columns: 1fr;
+  }
+
+  .settlement-concepts > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
   }
 
   .workflow-steps li:nth-child(2) {

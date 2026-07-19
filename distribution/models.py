@@ -1093,8 +1093,8 @@ class WaterfallPlan(TimestampedModel):
     class Meta:
         ordering = ["title__title_pl", "name", "-version"]
         constraints = [models.UniqueConstraint(fields=["title", "name", "version"], name="unique_waterfall_plan_version")]
-        verbose_name = "waterfall 2.0 - plan"
-        verbose_name_plural = "waterfall 2.0 - plany"
+        verbose_name = "plan waterfall"
+        verbose_name_plural = "plany waterfall"
 
     def __str__(self) -> str:
         return f"{self.title} / {self.name} / v{self.version} / {self.currency}"
@@ -1139,8 +1139,8 @@ class WaterfallStep(TimestampedModel):
     class Meta:
         ordering = ["plan", "phase", "sort_order", "id"]
         indexes = [models.Index(fields=["plan", "active", "phase", "sort_order"])]
-        verbose_name = "waterfall 2.0 - krok"
-        verbose_name_plural = "waterfall 2.0 - kroki"
+        verbose_name = "krok waterfall"
+        verbose_name_plural = "kroki waterfall"
 
     def __str__(self) -> str:
         return f"{self.plan} / faza {self.phase} / {self.name}"
@@ -1183,8 +1183,8 @@ class WaterfallRun(TimestampedModel):
     class Meta:
         ordering = ["-period_end", "plan__title__title_pl", "plan__name"]
         indexes = [models.Index(fields=["plan", "status", "period_start", "period_end"])]
-        verbose_name = "waterfall 2.0 - uruchomienie"
-        verbose_name_plural = "waterfall 2.0 - uruchomienia"
+        verbose_name = "rozliczenie waterfall okresu"
+        verbose_name_plural = "rozliczenia waterfall okresów"
 
     def __str__(self) -> str:
         return f"{self.plan} / {self.period_start}-{self.period_end} / {self.get_status_display()}"
@@ -1199,7 +1199,7 @@ class WaterfallRun(TimestampedModel):
 
 
 class WaterfallRunLine(TimestampedModel):
-    run = models.ForeignKey(WaterfallRun, on_delete=models.CASCADE, related_name="lines", verbose_name="uruchomienie")
+    run = models.ForeignKey(WaterfallRun, on_delete=models.CASCADE, related_name="lines", verbose_name="rozliczenie okresu")
     step = models.ForeignKey(WaterfallStep, on_delete=models.PROTECT, related_name="run_lines", verbose_name="krok")
     sequence = models.PositiveIntegerField("kolejnosc")
     phase = models.PositiveIntegerField("faza")
@@ -1215,8 +1215,8 @@ class WaterfallRunLine(TimestampedModel):
     class Meta:
         ordering = ["run", "sequence"]
         constraints = [models.UniqueConstraint(fields=["run", "sequence"], name="unique_waterfall_run_sequence")]
-        verbose_name = "waterfall 2.0 - linia kalkulacji"
-        verbose_name_plural = "waterfall 2.0 - linie kalkulacji"
+        verbose_name = "pozycja kalkulacji waterfall"
+        verbose_name_plural = "pozycje kalkulacji waterfall"
 
     def __str__(self) -> str:
         return f"{self.run} / {self.sequence}. {self.step.name}"
@@ -1230,8 +1230,8 @@ class RoyaltyStatement(TimestampedModel):
     currency = models.CharField("waluta", max_length=3, choices=Currency.choices, default=Currency.PLN)
     distributor_fee_percent = models.DecimalField("prowizja dystrybutora %", max_digits=5, decimal_places=2, default=Decimal("25.00"))
     recipient_share_percent = models.DecimalField("udział odbiorcy %", max_digits=5, decimal_places=2, default=Decimal("50.00"))
-    waterfall_plan = models.ForeignKey(WaterfallPlan, null=True, blank=True, on_delete=models.SET_NULL, related_name="royalty_statements", verbose_name="plan waterfall 2.0")
-    waterfall_run = models.ForeignKey(WaterfallRun, null=True, blank=True, on_delete=models.SET_NULL, related_name="royalty_statements", verbose_name="uruchomienie waterfall 2.0")
+    waterfall_plan = models.ForeignKey(WaterfallPlan, null=True, blank=True, on_delete=models.SET_NULL, related_name="royalty_statements", verbose_name="plan waterfall")
+    waterfall_run = models.ForeignKey(WaterfallRun, null=True, blank=True, on_delete=models.SET_NULL, related_name="royalty_statements", verbose_name="rozliczenie waterfall okresu")
     status = models.CharField("status", max_length=30, choices=StatementStatus.choices, default=StatementStatus.DRAFT)
     statement_file = models.FileField("PDF statement", upload_to="royalty_statements/", blank=True)
     calculation_snapshot = models.JSONField("zamrozona kalkulacja", default=dict, blank=True)

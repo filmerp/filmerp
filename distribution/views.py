@@ -55,15 +55,13 @@ from .models import (
     Territory,
     Title,
     TitleMaterial,
-    WaterfallRecoupmentRule,
     WaterfallPlan,
     WaterfallPlanStatus,
     WaterfallRun,
     WaterfallRunStatus,
 )
 from .settlements import create_statement_documents
-from .waterfall import calculate_waterfall
-from .waterfall_v2 import calculate_waterfall_run, finalize_waterfall_run
+from .waterfall_engine import calculate_waterfall_run, finalize_waterfall_run
 
 
 @login_required
@@ -206,7 +204,6 @@ def title_detail(request, pk):
     royalty_statements = title.royalty_statements.select_related("recipient").order_by("-period_end")[:10]
     materials = title.materials.select_related("language_version", "supplier").order_by("asset_type", "due_date")
     issues = RightsIssue.objects.filter(rights_window__title=title, resolved=False).select_related("rights_window", "conflicting_window")
-    waterfall_rules = title.waterfall_rules.prefetch_related("recoupment_items", "participants", "participants__recipient").order_by("exploitation_field", "currency")
     agreements = title.acquisition_agreements.select_related("licensor").prefetch_related("territories").order_by("-signed_date", "-created_at")
     waterfall_plans = title.waterfall_plans.prefetch_related("steps__beneficiary").order_by("-version")
     active_plan = waterfall_plans.filter(status=WaterfallPlanStatus.ACTIVE).first() or waterfall_plans.first()
@@ -239,7 +236,6 @@ def title_detail(request, pk):
         "royalty_statements": royalty_statements,
         "materials": materials,
         "issues": issues,
-        "waterfall_rules": waterfall_rules,
         "agreements": agreements,
         "active_plan": active_plan,
         "active_steps": active_steps,
@@ -617,7 +613,7 @@ def settlement_workbench(request):
                     run = WaterfallRun.objects.create(plan=selected_plan, period_start=period_start, period_end=period_end)
                 calculate_waterfall_run(run)
                 redirect_kwargs["run_id"] = run.pk
-                messages.success(request, "Symulacja zostala przeliczona. Wynik nie jest jeszcze zatwierdzony.")
+                messages.success(request, "Okres został przeliczony. Wynik jest roboczy i nie został jeszcze zatwierdzony.")
             return redirect(_settlement_url(**redirect_kwargs))
 
         if action == "finalize_and_generate":
@@ -848,6 +844,18 @@ def _filtered_costs(filters):
     return costs
 
 
+def _filtered_waterfall_runs(filters):
+    runs = WaterfallRun.objects.select_related("plan", "plan__title", "finalized_by").filter(
+        period_start__lte=filters["date_to"],
+        period_end__gte=filters["date_from"],
+    )
+    if filters["title_id"]:
+        runs = runs.filter(plan__title_id=filters["title_id"])
+    if filters["counterparty_id"]:
+        runs = runs.filter(lines__beneficiary_id=filters["counterparty_id"]).distinct()
+    return runs
+
+
 @login_required
 def reports(request):
     filters = _report_filters(request)
@@ -889,7 +897,13 @@ def reports(request):
         net_revenue = currency_sales.aggregate(total=Sum(net_expr))["total"] or 0
         cost_total = currency_costs.aggregate(total=Sum("net_amount"))["total"] or 0
         report_totals.append({"currency": currency, "gross_revenue": gross_revenue, "deductions": deductions, "vat_withholding": vat_withholding, "net_revenue": net_revenue, "cost_total": cost_total, "margin": net_revenue - cost_total})
-    waterfall_rows, waterfall_totals = calculate_waterfall(filters)
+    waterfall_runs = _filtered_waterfall_runs(filters).order_by("-period_end", "plan__title__title_pl")
+    waterfall_totals = waterfall_runs.aggregate(
+        gross_revenue=Sum("gross_revenue"),
+        net_revenue=Sum("net_revenue"),
+        allocated_amount=Sum("allocated_amount"),
+        closing_available=Sum("closing_available"),
+    )
 
     context = {
         "filters": filters,
@@ -902,7 +916,7 @@ def reports(request):
         "revenue_by_field": revenue_by_field,
         "revenue_by_counterparty": revenue_by_counterparty,
         "costs_by_title": costs_by_title,
-        "waterfall_rows": waterfall_rows,
+        "waterfall_runs": waterfall_runs,
         "waterfall_totals": waterfall_totals,
         "overdue_agreements": SalesAgreement.objects.filter(invoice_paid=False, payment_due_date__lt=timezone.localdate()).select_related("title", "licensee")[:20],
         "open_issues": RightsIssue.objects.filter(resolved=False).select_related("rights_window", "rights_window__title")[:20],
@@ -956,45 +970,41 @@ def reports_export_csv(request):
 
 
 def _waterfall_export_csv(filters):
-    waterfall_rows, _ = calculate_waterfall(filters)
+    waterfall_runs = _filtered_waterfall_runs(filters).order_by("period_start", "plan__title__title_pl")
     response = HttpResponse(content_type="text/csv; charset=utf-8")
-    response["Content-Disposition"] = 'attachment; filename="waterfall_recoupment_export.csv"'
+    response["Content-Disposition"] = 'attachment; filename="waterfall_period_settlements.csv"'
     response.write("\ufeff")
     writer = csv.writer(response)
     writer.writerow([
         "title",
-        "exploitation_field",
+        "plan",
+        "plan_version",
+        "period_start",
+        "period_end",
+        "status",
         "currency",
+        "gross_revenue",
         "net_revenue",
-        "recoupable_costs",
-        "manual_recoupment_items",
-        "recoupment_pool",
-        "recouped_amount",
-        "unrecouped_balance",
-        "distributor_fee",
-        "split_base",
-        "participant_share",
-        "participant_allocations",
-        "distributor_remainder",
+        "allocated_amount",
+        "closing_available",
+        "calculated_at",
+        "finalized_at",
     ])
-    for row in waterfall_rows:
-        rule = row["rule"]
-        allocations = "; ".join(f"{item['recipient']}: {item['amount']}" for item in row["participant_allocations"])
+    for run in waterfall_runs:
         writer.writerow([
-            rule.title.title_pl,
-            rule.get_exploitation_field_display(),
-            rule.currency,
-            row["net_revenue"],
-            row["recoupable_costs"],
-            row["manual_recoupment_items"],
-            row["recoupment_pool"],
-            row["recouped_amount"],
-            row["unrecouped_balance"],
-            row["distributor_fee"],
-            row["split_base"],
-            row["participant_share"],
-            allocations,
-            row["distributor_remainder"],
+            run.plan.title.title_pl,
+            run.plan.name,
+            run.plan.version,
+            run.period_start,
+            run.period_end,
+            run.get_status_display(),
+            run.plan.currency,
+            run.gross_revenue,
+            run.net_revenue,
+            run.allocated_amount,
+            run.closing_available,
+            run.calculated_at or "",
+            run.finalized_at or "",
         ])
     return response
 
@@ -1066,7 +1076,7 @@ def _statement_center_export_xlsx(statements, filters):
 
 def _reports_export_xlsx(filters):
     sales_reports = _filtered_sales_reports(filters).order_by("period_start", "title__title_pl")
-    waterfall_rows, _ = calculate_waterfall(filters)
+    waterfall_runs = list(_filtered_waterfall_runs(filters).order_by("period_start", "plan__title__title_pl"))
     costs = _filtered_costs(filters).order_by("cost_date", "title__title_pl")
     overdue_agreements = SalesAgreement.objects.filter(invoice_paid=False, payment_due_date__lt=timezone.localdate()).select_related("title", "licensee")
     open_issues = RightsIssue.objects.filter(resolved=False).select_related("rights_window", "rights_window__title")
@@ -1079,7 +1089,7 @@ def _reports_export_xlsx(filters):
         ["Date to", filters["date_to"]],
         ["Sales report count", sales_reports.count()],
         ["Cost count", costs.count()],
-        ["Waterfall rule count", len(waterfall_rows)],
+        ["Waterfall period settlement count", len(waterfall_runs)],
     ]
     _append_table(summary, ["Metric", "Value"], summary_rows)
 
@@ -1109,32 +1119,31 @@ def _reports_export_xlsx(filters):
     waterfall_sheet = workbook.create_sheet("Waterfall")
     _append_table(
         waterfall_sheet,
-        ["Title", "Field", "Currency", "Net revenue", "Recoupable costs", "Manual recoupment items", "Recoupment pool", "Recouped", "Unrecouped", "Distributor fee", "Split base", "Participant share", "Participant allocations", "Distributor remainder"],
+        ["Title", "Plan", "Version", "Period start", "Period end", "Status", "Currency", "Gross revenue", "Net revenue", "Allocated", "Remaining", "Calculated at", "Finalized at"],
         [
             [
-                row["rule"].title.title_pl,
-                row["rule"].get_exploitation_field_display(),
-                row["rule"].currency,
-                row["net_revenue"],
-                row["recoupable_costs"],
-                row["manual_recoupment_items"],
-                row["recoupment_pool"],
-                row["recouped_amount"],
-                row["unrecouped_balance"],
-                row["distributor_fee"],
-                row["split_base"],
-                row["participant_share"],
-                "; ".join(f"{item['recipient']}: {item['amount']}" for item in row["participant_allocations"]),
-                row["distributor_remainder"],
+                run.plan.title.title_pl,
+                run.plan.name,
+                run.plan.version,
+                run.period_start,
+                run.period_end,
+                run.get_status_display(),
+                run.plan.currency,
+                run.gross_revenue,
+                run.net_revenue,
+                run.allocated_amount,
+                run.closing_available,
+                run.calculated_at.isoformat() if run.calculated_at else "",
+                run.finalized_at.isoformat() if run.finalized_at else "",
             ]
-            for row in waterfall_rows
+            for run in waterfall_runs
         ],
     )
 
     costs_sheet = workbook.create_sheet("Costs")
     _append_table(
         costs_sheet,
-        ["Title", "Supplier", "Category", "Legacy field", "Waterfall all fields", "Waterfall fields", "Date", "Currency", "Net", "VAT", "Gross", "Recoupable", "Paid"],
+        ["Title", "Supplier", "Category", "Base field", "Waterfall all fields", "Waterfall fields", "Date", "Currency", "Net", "VAT", "Gross", "Recoupable", "Paid"],
         [
             [
                 cost.title.title_pl,

@@ -18,10 +18,7 @@ from distribution.models import (
     Territory,
     Title,
     TitleMaterial,
-    WaterfallParticipant,
     WaterfallPlan,
-    WaterfallRecoupmentItem,
-    WaterfallRecoupmentRule,
     WaterfallRun,
     WaterfallRunLine,
     WaterfallStep,
@@ -31,8 +28,8 @@ from distribution.models import (
 ROLE_MODELS = {
     "legal": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, Counterparty, WaterfallPlan, WaterfallStep],
     "sales": [SalesAgreement, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, RightsWindow, Territory, LanguageVersion, Title, TitleMaterial, Counterparty],
-    "finance": [AcquisitionAgreement, SalesAgreement, SalesReport, CinemaBooking, Cost, RoyaltyStatement, WaterfallRecoupmentRule, WaterfallRecoupmentItem, WaterfallParticipant, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Title, TitleMaterial, Counterparty],
-    "readonly": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, TitleMaterial, Counterparty, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Cost, RoyaltyStatement, WaterfallRecoupmentRule, WaterfallRecoupmentItem, WaterfallParticipant, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine],
+    "finance": [AcquisitionAgreement, SalesAgreement, SalesReport, CinemaBooking, Cost, RoyaltyStatement, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Title, TitleMaterial, Counterparty],
+    "readonly": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, TitleMaterial, Counterparty, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Cost, RoyaltyStatement, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine],
 }
 
 ROLE_ACTIONS = {

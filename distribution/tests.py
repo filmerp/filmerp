@@ -14,6 +14,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
 from openpyxl import Workbook, load_workbook
+import pdfplumber
 
 from .models import (
     Cost,
@@ -93,7 +94,16 @@ class WaterfallV2Tests(TestCase):
         self.cinema = Counterparty.objects.create(name="Kino")
         self.plan = WaterfallPlan.objects.create(title=self.title, name="Plan PISF", currency=Currency.PLN)
 
-    def add_sales(self, start, end, gross="1000.00", field=ExploitationField.CINEMA, currency=Currency.PLN):
+    def add_sales(
+        self,
+        start,
+        end,
+        gross="1000.00",
+        field=ExploitationField.CINEMA,
+        currency=Currency.PLN,
+        deductions="0.00",
+        withholding="0.00",
+    ):
         return SalesReport.objects.create(
             title=self.title,
             counterparty=self.cinema,
@@ -102,6 +112,8 @@ class WaterfallV2Tests(TestCase):
             period_end=end,
             currency=currency,
             gross_revenue=Decimal(gross),
+            deductions=Decimal(deductions),
+            vat_withholding=Decimal(withholding),
         )
 
     def test_pisf_style_phases_and_parallel_hard_money(self):
@@ -157,7 +169,13 @@ class WaterfallV2Tests(TestCase):
         self.plan.applies_to_all_exploitation_fields = False
         self.plan.exploitation_fields = [ExploitationField.CINEMA]
         self.plan.save()
-        self.add_sales(date(2026, 1, 1), date(2026, 3, 31), gross="1000.00")
+        report = self.add_sales(
+            date(2026, 1, 1),
+            date(2026, 3, 31),
+            gross="1000.00",
+            deductions="100.00",
+            withholding="50.00",
+        )
         self.add_sales(date(2026, 1, 1), date(2026, 3, 31), gross="900.00", field=ExploitationField.LINEAR_TV)
         Cost.objects.create(
             title=self.title, category=CostCategory.PA, cost_date=date(2026, 2, 1),
@@ -173,12 +191,22 @@ class WaterfallV2Tests(TestCase):
         )
         statement.freeze_calculation(lock=True)
         self.assertEqual(statement.gross_revenue, Decimal("1000.00"))
-        self.assertEqual(statement.amount_due, Decimal("400.00"))
+        self.assertEqual(statement.deductions_total, Decimal("100.00"))
+        self.assertEqual(statement.withholding_tax_total, Decimal("50.00"))
+        self.assertEqual(statement.net_revenue, Decimal("850.00"))
+        self.assertEqual(statement.distributor_fee_amount, Decimal("85.00"))
+        self.assertEqual(statement.net_receipts, Decimal("665.00"))
+        self.assertEqual(statement.amount_due, Decimal("332.50"))
 
+        report.deductions = Decimal("0.00")
+        report.vat_withholding = Decimal("0.00")
+        report.save(update_fields=["deductions", "vat_withholding"])
         self.add_sales(date(2026, 2, 1), date(2026, 2, 28), gross="1000.00")
         statement.refresh_from_db()
         self.assertEqual(statement.gross_revenue, Decimal("1000.00"))
-        self.assertEqual(statement.amount_due, Decimal("400.00"))
+        self.assertEqual(statement.deductions_total, Decimal("100.00"))
+        self.assertEqual(statement.withholding_tax_total, Decimal("50.00"))
+        self.assertEqual(statement.amount_due, Decimal("332.50"))
 
     def test_currencies_are_kept_separate_on_title(self):
         self.add_sales(date(2026, 1, 1), date(2026, 1, 31), gross="100.00", currency=Currency.PLN)
@@ -609,6 +637,18 @@ class SettlementWorkflowTests(TestCase):
         self.assertTrue(statement.statement_file.name.endswith(".pdf"))
         with statement.statement_file.open("rb") as pdf_file:
             self.assertEqual(pdf_file.read(4), b"%PDF")
+            pdf_file.seek(0)
+            with pdfplumber.open(pdf_file) as document:
+                pdf_text = "\n".join(page.extract_text() or "" for page in document.pages)
+        for term in (
+            "Gross Receipts",
+            "Net Revenue",
+            "Commission Allocations",
+            "AMOUNT DUE TO PARTICIPANT",
+            "Szczegóły przychodów",
+            "Potrącenia",
+        ):
+            self.assertIn(term, pdf_text)
 
         original_snapshot = statement.calculation_snapshot.copy()
         SalesReport.objects.create(
@@ -630,6 +670,30 @@ class SettlementWorkflowTests(TestCase):
         statement.refresh_from_db()
         self.assertEqual(statement.calculation_snapshot, original_snapshot)
         self.assertEqual(statement.gross_revenue, Decimal("1000.00"))
+
+    def test_statement_center_and_export_use_bilingual_industry_terms(self):
+        statement = RoyaltyStatement.objects.create(
+            title=self.title,
+            recipient=self.producer,
+            period_start=date(2026, 6, 1),
+            period_end=date(2026, 6, 30),
+            currency=Currency.PLN,
+            distributor_fee_percent=Decimal("10.00"),
+            recipient_share_percent=Decimal("50.00"),
+        )
+        statement.freeze_calculation(lock=True)
+
+        response = self.client.get(reverse("distribution:statement_center"))
+        self.assertEqual(response.status_code, 200)
+        for term in ("Gross Receipts", "Net Revenue", "Distributor Fee", "Net Receipts", "Amount Due"):
+            self.assertContains(response, term)
+
+        export = self.client.get(reverse("distribution:statement_center"), {"export": "xlsx"})
+        workbook = load_workbook(BytesIO(export.content), read_only=True, data_only=True)
+        headers = [cell.value for cell in workbook["Statements"][1]]
+        self.assertIn("Gross Receipts / Przychody brutto", headers)
+        self.assertIn("Taxes & Withholding / Podatki i potrącenia u źródła", headers)
+        self.assertIn("Net Receipts or Closing Balance / Wpływy netto lub saldo końcowe", headers)
 
     def test_invoice_upload_creates_cost_for_selected_title(self):
         invoice = SimpleUploadedFile("fv-001.pdf", b"%PDF-1.4 test invoice", content_type="application/pdf")

@@ -1411,6 +1411,13 @@ class RoyaltyStatement(TimestampedModel):
     def __str__(self) -> str:
         return f"{self.title} / {self.recipient} / {self.period_start}–{self.period_end}"
 
+    @property
+    def calculation_basis_label(self) -> str:
+        if self.waterfall_run_id:
+            plan = self.waterfall_plan or self.waterfall_run.plan
+            return f"Waterfall: {plan.name} v{plan.version}, run #{self.waterfall_run_id}"
+        return "Standard calculation / Kalkulacja standardowa"
+
     def sales_queryset(self):
         reports = SalesReport.objects.filter(
             title=self.title,
@@ -1420,6 +1427,8 @@ class RoyaltyStatement(TimestampedModel):
         ).exclude(status=ReportStatus.REJECTED)
         if self.locked_at and self.calculation_snapshot.get("sales_report_ids") is not None:
             return reports.filter(pk__in=self.calculation_snapshot["sales_report_ids"])
+        if self.waterfall_run_id and self.waterfall_run.calculation_snapshot.get("sales_report_ids") is not None:
+            reports = reports.filter(pk__in=self.waterfall_run.calculation_snapshot["sales_report_ids"])
         plan = self.waterfall_plan or (self.waterfall_run.plan if self.waterfall_run_id else None)
         if plan and not plan.applies_to_all_exploitation_fields:
             reports = reports.filter(exploitation_field__in=plan.exploitation_fields)
@@ -1454,6 +1463,8 @@ class RoyaltyStatement(TimestampedModel):
         sales = list(self.sales_queryset())
         costs = list(self.recoupable_costs_queryset())
         gross_revenue = sum((report.gross_revenue for report in sales), Decimal("0.00"))
+        deductions = sum((report.deductions for report in sales), Decimal("0.00"))
+        withholding_tax = sum((report.vat_withholding for report in sales), Decimal("0.00"))
         net_revenue = sum((report.net_revenue for report in sales), Decimal("0.00"))
         recoupable_costs = sum((cost.net_amount for cost in costs), Decimal("0.00"))
         distributor_fee = net_revenue * (self.distributor_fee_percent or Decimal("0.00")) / Decimal("100.00")
@@ -1476,10 +1487,14 @@ class RoyaltyStatement(TimestampedModel):
 
         return {
             "gross_revenue": str(gross_revenue),
+            "deductions": str(deductions),
+            "withholding_tax": str(withholding_tax),
             "net_revenue": str(net_revenue),
             "recoupable_costs": str(recoupable_costs),
             "distributor_fee_amount": str(distributor_fee),
+            "distributor_fee_percent": str(self.distributor_fee_percent or Decimal("0.00")),
             "net_receipts": str(net_receipts),
+            "recipient_share_percent": str(self.recipient_share_percent or Decimal("0.00")),
             "amount_due": str(amount_due),
             "sales_report_ids": [report.pk for report in sales],
             "cost_ids": [cost.pk for cost in costs],
@@ -1502,6 +1517,20 @@ class RoyaltyStatement(TimestampedModel):
         if frozen is not None:
             return frozen
         return sum((r.gross_revenue for r in self.sales_queryset()), Decimal("0.00"))
+
+    @property
+    def deductions_total(self) -> Decimal:
+        frozen = self._snapshot_decimal("deductions") if self.locked_at else None
+        if frozen is not None:
+            return frozen
+        return sum((r.deductions for r in self.sales_queryset()), Decimal("0.00"))
+
+    @property
+    def withholding_tax_total(self) -> Decimal:
+        frozen = self._snapshot_decimal("withholding_tax") if self.locked_at else None
+        if frozen is not None:
+            return frozen
+        return sum((r.vat_withholding for r in self.sales_queryset()), Decimal("0.00"))
 
     @property
     def net_revenue(self) -> Decimal:
@@ -1527,6 +1556,16 @@ class RoyaltyStatement(TimestampedModel):
         if frozen is not None:
             return frozen
         return self.net_revenue * (self.distributor_fee_percent or Decimal("0.00")) / Decimal("100.00")
+
+    @property
+    def applied_distributor_fee_percent(self) -> Decimal:
+        frozen = self._snapshot_decimal("distributor_fee_percent") if self.locked_at else None
+        return frozen if frozen is not None else (self.distributor_fee_percent or Decimal("0.00"))
+
+    @property
+    def applied_recipient_share_percent(self) -> Decimal:
+        frozen = self._snapshot_decimal("recipient_share_percent") if self.locked_at else None
+        return frozen if frozen is not None else (self.recipient_share_percent or Decimal("0.00"))
 
     @property
     def net_receipts(self) -> Decimal:

@@ -1695,6 +1695,40 @@ td small {
   display: grid;
 }
 
+.statement-logic {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 18px;
+  margin: 0 0 16px;
+  padding: 8px 12px;
+  border-left: 4px solid var(--primary);
+}
+
+.statement-logic strong,
+.statement-logic small {
+  flex-basis: 100%;
+}
+
+.statement-logic span {
+  color: var(--body-fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.statement-logic small,
+.statement-term small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.statement-term,
+.statement-term small {
+  display: block;
+  white-space: nowrap;
+}
+
 .record-line span,
 .record-line small,
 td small {

@@ -723,7 +723,13 @@ def settlement_workbench(request):
 
 
 def _filtered_statements(request):
-    statements = RoyaltyStatement.objects.select_related("title", "recipient").order_by("-period_end", "title__title_pl")
+    statements = RoyaltyStatement.objects.select_related(
+        "title",
+        "recipient",
+        "waterfall_plan",
+        "waterfall_run",
+        "waterfall_run__plan",
+    ).order_by("-period_end", "title__title_pl")
     filters = {
         "status": request.GET.get("status") or "",
         "title_id": request.GET.get("title") or "",
@@ -1093,7 +1099,27 @@ def _statement_center_export_xlsx(statements, filters):
     details = workbook.create_sheet("Statements")
     _append_table(
         details,
-        ["Title", "Recipient", "Period start", "Period end", "Currency", "Brutto", "Netto", "Recoupable costs", "Distributor fee", "Podstawa podziału", "Amount due", "Status", "Sent at", "Paid at", "PDF"],
+        [
+            "Title / Tytuł",
+            "Recipient / Odbiorca",
+            "Period Start / Okres od",
+            "Period End / Okres do",
+            "Currency / Waluta",
+            "Calculation Basis / Podstawa kalkulacji",
+            "Gross Receipts / Przychody brutto",
+            "Deductions / Potrącenia",
+            "Taxes & Withholding / Podatki i potrącenia u źródła",
+            "Net Revenue / Przychody netto",
+            "Recoupable Costs / Koszty do odzyskania",
+            "Distributor Fee / Prowizja dystrybutora",
+            "Net Receipts or Closing Balance / Wpływy netto lub saldo końcowe",
+            "Participant Share (%) / Udział odbiorcy (%)",
+            "Amount Due / Do wypłaty",
+            "Status",
+            "Sent At / Wysłano",
+            "Paid At / Opłacono",
+            "PDF",
+        ],
         [
             [
                 statement.title.title_pl,
@@ -1101,11 +1127,15 @@ def _statement_center_export_xlsx(statements, filters):
                 statement.period_start,
                 statement.period_end,
                 statement.currency,
+                statement.calculation_basis_label,
                 statement.gross_revenue,
+                statement.deductions_total,
+                statement.withholding_tax_total,
                 statement.net_revenue,
                 statement.recoupable_costs,
                 statement.distributor_fee_amount,
                 statement.net_receipts,
+                statement.applied_recipient_share_percent if not statement.waterfall_run_id else "",
                 statement.amount_due,
                 statement.get_status_display(),
                 statement.sent_at or "",

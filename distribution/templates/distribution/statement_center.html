@@ -31,13 +31,21 @@
   {% endif %}
 
   <section class="grid compact">
-    <div class="card"><div class="label">Statements</div><div class="metric small">{{ statement_count }}</div></div>
+    <div class="card"><div class="label">Statements / Statementy</div><div class="metric small">{{ statement_count }}</div></div>
     {% for total in amount_totals %}
-    <div class="card"><div class="label">Do wypłaty {{ total.currency }}</div><div class="metric small">{{ total.amount_due }}</div><div class="muted">otwarte {{ total.open_amount }}</div></div>
+    <div class="card"><div class="label">Amount Due / Do wypłaty {{ total.currency }}</div><div class="metric small">{{ total.amount_due }}</div><div class="muted">Open / otwarte {{ total.open_amount }}</div></div>
     {% endfor %}
     {% for row in status_count_rows %}
     <div class="card"><div class="label">{{ row.label }}</div><div class="metric small">{{ row.count }}</div></div>
     {% endfor %}
+  </section>
+
+  <section class="statement-logic" aria-label="Statement calculation logic">
+    <strong>Statement Logic / Logika statementu</strong>
+    <span>Gross Receipts - Deductions - Taxes / Withholding = Net Revenue</span>
+    <span>Net Revenue - Recoupable Costs - Distributor Fee = Net Receipts</span>
+    <span>Net Receipts x Participant Share = Amount Due</span>
+    <small>Przy waterfallu kwota należna wynika z alokacji dla odbiorcy, a saldo końcowe pokazuje kwotę pozostałą po wszystkich krokach.</small>
   </section>
 
   <section class="toolbar">
@@ -97,10 +105,12 @@
               <th>Tytuł</th>
               <th>Odbiorca</th>
               <th>Okres</th>
-              <th class="num">Brutto</th>
-              <th class="num">Netto</th>
-              <th class="num">Koszty</th>
-              <th class="num">Do wypłaty</th>
+              <th class="num"><span class="statement-term">Gross Receipts<small>Przychody brutto</small></span></th>
+              <th class="num"><span class="statement-term">Net Revenue<small>Przychody netto</small></span></th>
+              <th class="num"><span class="statement-term">Recoupable Costs<small>Koszty do odzyskania</small></span></th>
+              <th class="num"><span class="statement-term">Distributor Fee<small>Prowizja dystrybutora</small></span></th>
+              <th class="num"><span class="statement-term">Net Receipts / Balance<small>Wpływy netto / saldo</small></span></th>
+              <th class="num"><span class="statement-term">Amount Due<small>Do wypłaty</small></span></th>
               <th>Status</th>
               <th>PDF</th>
               <th></th>
@@ -116,6 +126,8 @@
               <td class="num">{{ statement.gross_revenue }} {{ statement.currency }}</td>
               <td class="num">{{ statement.net_revenue }} {{ statement.currency }}</td>
               <td class="num">{{ statement.recoupable_costs }} {{ statement.currency }}</td>
+              <td class="num">{{ statement.distributor_fee_amount }} {{ statement.currency }}</td>
+              <td class="num">{{ statement.net_receipts }} {{ statement.currency }}</td>
               <td class="num">{{ statement.amount_due }} {{ statement.currency }}</td>
               <td><span class="status-pill {{ statement.status }}">{{ statement.get_status_display }}</span></td>
               <td>
@@ -128,7 +140,7 @@
               <td><a class="button export" href="/admin/distribution/royaltystatement/{{ statement.id }}/change/">Edytuj</a></td>
             </tr>
             {% empty %}
-            <tr><td colspan="11" class="muted">Brak statementów dla wybranych filtrów.</td></tr>
+            <tr><td colspan="13" class="muted">Brak statementów dla wybranych filtrów.</td></tr>
             {% endfor %}
           </tbody>
         </table>

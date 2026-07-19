@@ -699,9 +699,12 @@ class RoyaltyStatementAdmin(admin.ModelAdmin):
         "period_end",
         "currency",
         "gross_revenue_display",
+        "deductions_display",
+        "withholding_display",
         "net_revenue_display",
         "recoupable_costs_display",
         "distributor_fee_display",
+        "net_receipts_display",
         "amount_due_display",
         "status",
         "pdf_link",
@@ -722,23 +725,35 @@ class RoyaltyStatementAdmin(admin.ModelAdmin):
             count += 1
         messages.success(request, f"Wygenerowano PDF dla statementow: {count}.")
 
-    @admin.display(description="Brutto")
+    @admin.display(description="Gross Receipts / przychody brutto")
     def gross_revenue_display(self, obj):
         return obj.gross_revenue
 
-    @admin.display(description="Netto")
+    @admin.display(description="Deductions / potrącenia")
+    def deductions_display(self, obj):
+        return obj.deductions_total
+
+    @admin.display(description="Taxes / WHT")
+    def withholding_display(self, obj):
+        return obj.withholding_tax_total
+
+    @admin.display(description="Net Revenue / przychody netto")
     def net_revenue_display(self, obj):
         return obj.net_revenue
 
-    @admin.display(description="koszty recoupable")
+    @admin.display(description="Recoupable Costs / koszty do odzyskania")
     def recoupable_costs_display(self, obj):
         return obj.recoupable_costs
 
-    @admin.display(description="prowizja dystrybutora")
+    @admin.display(description="Distributor Fee / prowizja")
     def distributor_fee_display(self, obj):
         return obj.distributor_fee_amount
 
-    @admin.display(description="do wypłaty")
+    @admin.display(description="Net Receipts / saldo")
+    def net_receipts_display(self, obj):
+        return obj.net_receipts
+
+    @admin.display(description="Amount Due / do wypłaty")
     def amount_due_display(self, obj):
         return obj.amount_due
 

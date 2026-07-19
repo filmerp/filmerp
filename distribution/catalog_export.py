@@ -148,7 +148,7 @@ def build_catalog_export(title_ids, *, date_from=None, date_to=None):
     )
 
     statements_qs = RoyaltyStatement.objects.filter(title_id__in=selected_ids).select_related(
-        "title", "recipient", "waterfall_plan", "waterfall_run"
+        "title", "recipient", "waterfall_plan", "waterfall_run", "waterfall_run__plan"
     )
     statements_qs = _period_filter(statements_qs, "period_start", "period_end", date_from, date_to)
     statements = list(statements_qs.order_by("title__title_pl", "period_start", "recipient__name"))
@@ -303,8 +303,8 @@ def build_catalog_export(title_ids, *, date_from=None, date_to=None):
         ExportSheet(
             "Statementy",
             "15_statementy.csv",
-            ["ID", "Tytuł", "Odbiorca", "Okres od", "Okres do", "Waluta", "Plan", "Rozliczenie waterfall ID", "Brutto", "Netto", "Koszty odzyskane", "Prowizja dystrybutora", "Podstawa podziału", "Do wypłaty", "Status", "Wysłano", "Zapłacono", "PDF", "Uwagi"],
-            [[item.pk, item.title.title_pl, item.recipient.name, item.period_start, item.period_end, item.currency, item.waterfall_plan.name if item.waterfall_plan else "", item.waterfall_run_id or "", item.gross_revenue, item.net_revenue, item.recoupable_costs, item.distributor_fee_amount, item.net_receipts, item.amount_due, item.get_status_display(), item.sent_at or "", item.paid_at or "", _file_name(item.statement_file), item.notes] for item in statements],
+            ["ID", "Title / Tytuł", "Recipient / Odbiorca", "Period Start / Okres od", "Period End / Okres do", "Currency / Waluta", "Plan", "Waterfall Run ID", "Gross Receipts / Przychody brutto", "Deductions / Potrącenia", "Taxes & Withholding / Podatki i potrącenia u źródła", "Net Revenue / Przychody netto", "Recoupable Costs / Koszty do odzyskania", "Distributor Fee / Prowizja dystrybutora", "Net Receipts or Closing Balance / Wpływy netto lub saldo końcowe", "Participant Share (%) / Udział odbiorcy (%)", "Amount Due / Do wypłaty", "Status", "Sent At / Wysłano", "Paid At / Opłacono", "PDF", "Uwagi"],
+            [[item.pk, item.title.title_pl, item.recipient.name, item.period_start, item.period_end, item.currency, item.waterfall_plan.name if item.waterfall_plan else "", item.waterfall_run_id or "", item.gross_revenue, item.deductions_total, item.withholding_tax_total, item.net_revenue, item.recoupable_costs, item.distributor_fee_amount, item.net_receipts, item.applied_recipient_share_percent if not item.waterfall_run_id else "", item.amount_due, item.get_status_display(), item.sent_at or "", item.paid_at or "", _file_name(item.statement_file), item.notes] for item in statements],
         ),
     ]
     return sheets

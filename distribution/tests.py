@@ -358,6 +358,7 @@ class SettlementWorkflowTests(TestCase):
                 self.assertIn('id="sidebar-toggle"', shell_html)
                 self.assertIn("lucide-sidebar", shell_html)
                 self.assertContains(response, "distribution/filmerp-sidebar.js")
+                self.assertContains(response, "distribution/filmerp-favicon.svg")
 
     def test_dashboard_and_title_card_use_title_centric_workflow(self):
         response = self.client.get(reverse("distribution:dashboard"))
@@ -418,6 +419,7 @@ class SettlementWorkflowTests(TestCase):
         self.assertContains(response, 'class="sidebar-logout-form"')
         self.assertContains(response, "Wyloguj")
         self.assertContains(response, "distribution/filmerp-sidebar.js")
+        self.assertContains(response, "distribution/filmerp-favicon.svg")
         self.assertNotContains(response, ">DASHBOARD<")
         self.assertNotContains(response, 'id="user-tools"')
         self.assertContains(response, "distribution/filmerp-logo.svg")

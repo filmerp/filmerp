@@ -38,9 +38,9 @@ from .models import (
 )
 from .waterfall_engine import calculate_waterfall_run, finalize_waterfall_run
 
-admin.site.site_header = "FILMERP Panel Główny"
-admin.site.site_title = "FILMERP Panel Główny"
-admin.site.index_title = "FILMERP Panel Główny"
+admin.site.site_header = "Panel administracyjny"
+admin.site.site_title = "Panel administracyjny"
+admin.site.index_title = "Panel administracyjny"
 
 
 class RightsWindowInline(admin.TabularInline):

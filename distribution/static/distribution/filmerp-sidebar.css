@@ -145,7 +145,7 @@ body.sidebar-collapsed .sidebar-link:focus-visible::after {
 
 .sidebar-nav {
   min-height: 0;
-  padding: 14px 10px;
+  padding: 14px 0;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-color: #50575e transparent;
@@ -158,7 +158,7 @@ body.sidebar-collapsed .sidebar-link:focus-visible::after {
 
 .sidebar-section-label {
   min-height: 24px;
-  padding: 4px 10px;
+  padding: 4px 20px;
   color: #8c8f94;
   font-size: 11px;
   font-weight: 700;
@@ -173,9 +173,10 @@ body.sidebar-collapsed .sidebar-link:focus-visible::after {
   align-items: center;
   gap: 12px;
   min-height: 44px;
+  width: 100%;
   margin: 2px 0;
-  padding: 10px 12px;
-  border-radius: 4px;
+  padding: 10px 20px;
+  border-radius: 0;
   color: #dcdcde;
   font-size: 13px;
   font-weight: 600;
@@ -210,8 +211,27 @@ body.sidebar-collapsed .sidebar-link:focus-visible::after {
 
 .sidebar-footer {
   margin-top: auto;
-  padding: 10px;
+  padding: 10px 0;
   border-top: 1px solid #3c434a;
+}
+
+.sidebar-logout-form {
+  margin: 0;
+}
+
+.app-sidebar .sidebar-logout-button {
+  border: 0;
+  background: transparent;
+  color: #dcdcde;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.app-sidebar .sidebar-logout-button:hover,
+.app-sidebar .sidebar-logout-button:focus-visible {
+  background: #2c3338;
+  color: #fff;
 }
 
 body.sidebar-collapsed .sidebar-header {
@@ -235,7 +255,7 @@ body.sidebar-collapsed .sidebar-toggle-collapsed {
 
 body.sidebar-collapsed .sidebar-nav,
 body.sidebar-collapsed .sidebar-footer {
-  padding-inline: 10px;
+  padding-inline: 0;
 }
 
 body.sidebar-collapsed .sidebar-link {

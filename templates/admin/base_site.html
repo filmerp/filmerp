@@ -1,7 +1,7 @@
 {% extends "admin/base.html" %}
 {% load i18n static %}
 
-{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:"FILMERP Panel Główny" }}{% endblock %}
+{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:"Panel administracyjny" }}{% endblock %}
 
 {% block bodyclass %}{{ block.super }}{% if user.is_authenticated and not is_popup %} filmerp-shell filmerp-admin-shell{% endif %}{% endblock %}
 
@@ -214,18 +214,6 @@
 </script>
 {% endblock %}
 
-{% block userlinks %}
-  {% if user.is_active and user.is_staff %}
-    {% url 'django-admindocs-docroot' as docsroot %}
-    {% if docsroot %}
-      <a href="{{ docsroot }}">{% translate 'Documentation' %}</a> /
-    {% endif %}
-  {% endif %}
-  <form id="logout-form" method="post" action="{% url 'admin:logout' %}">
-    {% csrf_token %}
-    <button type="submit">{% translate 'Log out' %}</button>
-  </form>
-  {% include "admin/color_theme_toggle.html" %}
-{% endblock %}
+{% block usertools %}{% endblock %}
 
 {% block nav-global %}{% endblock %}

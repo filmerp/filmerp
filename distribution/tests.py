@@ -409,14 +409,17 @@ class SettlementWorkflowTests(TestCase):
     def test_admin_uses_application_sidebar_and_settings_links(self):
         response = self.client.get(reverse("admin:index"))
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Panel administracyjny")
+        self.assertNotContains(response, "FILMERP Panel Główny")
         self.assertContains(response, 'class="app-sidebar"')
         self.assertContains(response, "Panel administracyjny")
         self.assertContains(response, "Użytkownicy i role")
         self.assertContains(response, "Zmień hasło")
+        self.assertContains(response, 'class="sidebar-logout-form"')
+        self.assertContains(response, "Wyloguj")
         self.assertContains(response, "distribution/filmerp-sidebar.js")
         self.assertNotContains(response, ">DASHBOARD<")
-        userlinks = response.content.decode().split('id="user-tools"', 1)[1].split("</div>", 1)[0]
-        self.assertNotIn(reverse("admin:password_change"), userlinks)
+        self.assertNotContains(response, 'id="user-tools"')
         self.assertContains(response, "distribution/filmerp-logo.svg")
         self.assertNotContains(response, "filter=id")
 

@@ -71,6 +71,13 @@
         <span class="sidebar-label">Zmień hasło</span>
       </a>
     {% endif %}
+    <form class="sidebar-logout-form" method="post" action="{% url 'admin:logout' %}">
+      {% csrf_token %}
+      <button class="sidebar-link sidebar-logout-button" type="submit" data-tooltip="Wyloguj">
+        <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#log-out"></use></svg>
+        <span class="sidebar-label">Wyloguj</span>
+      </button>
+    </form>
   </div>
 </aside>
 

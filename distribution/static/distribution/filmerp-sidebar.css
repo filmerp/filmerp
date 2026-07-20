@@ -108,8 +108,7 @@ body.filmerp-shell.sidebar-collapsed {
   color: #fff;
 }
 
-.sidebar-toggle::after,
-body.sidebar-collapsed .sidebar-link::after {
+.sidebar-toggle::after {
   position: absolute;
   z-index: 1200;
   left: calc(100% + 10px);
@@ -131,9 +130,32 @@ body.sidebar-collapsed .sidebar-link::after {
 }
 
 .sidebar-toggle:hover::after,
-.sidebar-toggle:focus-visible::after,
-body.sidebar-collapsed .sidebar-link:hover::after,
-body.sidebar-collapsed .sidebar-link:focus-visible::after {
+.sidebar-toggle:focus-visible::after {
+  opacity: 1;
+  transform: translate(0, -50%);
+}
+
+.sidebar-floating-tooltip {
+  position: fixed;
+  z-index: 1300;
+  max-width: 240px;
+  padding: 6px 9px;
+  border: 1px solid #50575e;
+  border-radius: 3px;
+  background: #1d2327;
+  color: #fff;
+  font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, "Roboto", "Helvetica Neue", Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(4px, -50%);
+  transition: opacity .12s ease, transform .12s ease;
+  white-space: nowrap;
+}
+
+.sidebar-floating-tooltip.is-visible {
   opacity: 1;
   transform: translate(0, -50%);
 }

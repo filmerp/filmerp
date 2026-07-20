@@ -23,6 +23,33 @@
       collapsed = false;
     }
 
+    const floatingTooltip = document.createElement("div");
+    floatingTooltip.id = "sidebar-floating-tooltip";
+    floatingTooltip.className = "sidebar-floating-tooltip";
+    floatingTooltip.setAttribute("role", "tooltip");
+    document.body.append(floatingTooltip);
+    let tooltipTarget = null;
+
+    function hideFloatingTooltip() {
+      tooltipTarget = null;
+      floatingTooltip.classList.remove("is-visible");
+    }
+
+    function showFloatingTooltip(target) {
+      const label = target.dataset.tooltip;
+      if (!desktop.matches || !collapsed || !label) {
+        hideFloatingTooltip();
+        return;
+      }
+
+      const rect = target.getBoundingClientRect();
+      tooltipTarget = target;
+      floatingTooltip.textContent = label;
+      floatingTooltip.style.left = Math.round(rect.right + 10) + "px";
+      floatingTooltip.style.top = Math.round(rect.top + rect.height / 2) + "px";
+      floatingTooltip.classList.add("is-visible");
+    }
+
     function mobileIsOpen() {
       return body.classList.contains("sidebar-mobile-open");
     }
@@ -54,6 +81,7 @@
     }
 
     function applyLayout() {
+      hideFloatingTooltip();
       if (desktop.matches) {
         body.classList.remove("sidebar-mobile-open");
         body.classList.toggle("sidebar-collapsed", collapsed);
@@ -91,6 +119,25 @@
     });
 
     sidebar.querySelectorAll(".sidebar-link").forEach(function (link) {
+      if (link.dataset.tooltip) {
+        link.setAttribute("aria-label", link.dataset.tooltip);
+      }
+      link.addEventListener("mouseenter", function () {
+        showFloatingTooltip(link);
+      });
+      link.addEventListener("mouseleave", function () {
+        if (tooltipTarget === link) {
+          hideFloatingTooltip();
+        }
+      });
+      link.addEventListener("focus", function () {
+        showFloatingTooltip(link);
+      });
+      link.addEventListener("blur", function () {
+        if (tooltipTarget === link) {
+          hideFloatingTooltip();
+        }
+      });
       link.addEventListener("click", function () {
         if (!desktop.matches) {
           closeMobileMenu(false);
@@ -103,6 +150,12 @@
         closeMobileMenu(true);
       }
     });
+
+    const sidebarNav = sidebar.querySelector(".sidebar-nav");
+    if (sidebarNav) {
+      sidebarNav.addEventListener("scroll", hideFloatingTooltip, { passive: true });
+    }
+    window.addEventListener("resize", hideFloatingTooltip, { passive: true });
 
     if (desktop.addEventListener) {
       desktop.addEventListener("change", applyLayout);

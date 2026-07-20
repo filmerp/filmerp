@@ -1,6 +1,22 @@
 {% load static %}
 {% static 'distribution/lucide-sidebar.svg' as sidebar_icons %}
 {% with current=request.resolver_match.url_name %}
+<script id="filmerp-sidebar-state-bootstrap">
+  (function () {
+    var body = document.body;
+    var desktop = window.matchMedia("(min-width: 961px)").matches;
+    var collapsed = false;
+
+    try {
+      collapsed = desktop && window.localStorage.getItem("filmerp-sidebar-collapsed") === "1";
+    } catch (error) {
+      collapsed = false;
+    }
+
+    body.classList.toggle("sidebar-collapsed", collapsed);
+    body.classList.remove("sidebar-mobile-open");
+  }());
+</script>
 <aside class="app-sidebar" id="app-sidebar" aria-label="Menu FILMERP"
        data-keepalive-url="{% url 'distribution:session_keepalive' %}"
        data-idle-timeout-ms="600000"
@@ -12,7 +28,7 @@
         {% include "distribution/_filmerp_logo.html" with logo_class="brand-logo" %}
       </span>
     </a>
-    <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-controls="app-sidebar" aria-expanded="true" aria-label="Zwiń menu" data-tooltip="Zwiń menu">
+    <button class="sidebar-toggle" id="sidebar-toggle" type="button" aria-controls="app-sidebar" aria-expanded="true" aria-label="Zwiń menu">
       <svg class="sidebar-icon sidebar-toggle-expanded" aria-hidden="true"><use href="{{ sidebar_icons }}#panel-left-close"></use></svg>
       <svg class="sidebar-icon sidebar-toggle-collapsed" aria-hidden="true"><use href="{{ sidebar_icons }}#panel-left-open"></use></svg>
       <svg class="sidebar-icon sidebar-toggle-mobile" aria-hidden="true"><use href="{{ sidebar_icons }}#x"></use></svg>

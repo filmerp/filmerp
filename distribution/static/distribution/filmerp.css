@@ -187,33 +187,6 @@ a {
   color: #fff;
 }
 
-.sidebar-toggle::after {
-  position: absolute;
-  z-index: 1200;
-  left: calc(100% + 10px);
-  top: 50%;
-  padding: 6px 9px;
-  border: 1px solid #50575e;
-  border-radius: 3px;
-  background: #1d2327;
-  color: #fff;
-  content: attr(data-tooltip);
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.2;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate(4px, -50%);
-  transition: opacity .12s ease, transform .12s ease;
-  white-space: nowrap;
-}
-
-.sidebar-toggle:hover::after,
-.sidebar-toggle:focus-visible::after {
-  opacity: 1;
-  transform: translate(0, -50%);
-}
-
 .sidebar-floating-tooltip {
   position: fixed;
   z-index: 1300;
@@ -2451,10 +2424,19 @@ td small {
     padding: 0;
     border: 0;
     border-radius: 0;
-    background: rgba(29, 35, 39, .52);
+    background: rgba(29, 35, 39, .52) !important;
     opacity: 0;
     pointer-events: none;
     transition: opacity .18s ease;
+  }
+
+  .sidebar-overlay:hover,
+  .sidebar-overlay:focus,
+  .sidebar-overlay:focus-visible,
+  .sidebar-overlay:active {
+    background: rgba(29, 35, 39, .52) !important;
+    box-shadow: none !important;
+    outline: 0;
   }
 
   body.sidebar-mobile-open .sidebar-overlay {

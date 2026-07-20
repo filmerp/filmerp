@@ -382,10 +382,18 @@ class SettlementWorkflowTests(TestCase):
             with self.subTest(page_url=page_url):
                 response = self.client.get(page_url)
                 self.assertEqual(response.status_code, 200)
-                shell_html = response.content.decode().split('<aside class="app-sidebar"', 1)[1].split("</aside>", 1)[0]
+                page_html = response.content.decode()
+                self.assertLess(
+                    page_html.index('id="filmerp-sidebar-state-bootstrap"'),
+                    page_html.index('<aside class="app-sidebar"'),
+                )
+                shell_html = page_html.split('<aside class="app-sidebar"', 1)[1].split("</aside>", 1)[0]
                 positions = [shell_html.index(f'href="{link}"') for link in expected_links]
                 self.assertEqual(positions, sorted(positions))
                 self.assertIn('id="sidebar-toggle"', shell_html)
+                toggle_html = shell_html.split('<button class="sidebar-toggle"', 1)[1].split(">", 1)[0]
+                self.assertNotIn("data-tooltip", toggle_html)
+                self.assertIn('data-tooltip="Panel główny"', shell_html)
                 self.assertIn("lucide-sidebar", shell_html)
                 self.assertContains(response, "distribution/filmerp-sidebar.js")
                 self.assertContains(response, "distribution/filmerp-favicon.svg")

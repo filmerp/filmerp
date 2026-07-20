@@ -60,7 +60,7 @@
 
       desktopToggle.setAttribute("aria-expanded", String(desktop.matches ? !collapsed : mobileOpen));
       desktopToggle.setAttribute("aria-label", desktop.matches ? (collapsed ? "Rozwiń menu" : "Zwiń menu") : "Zamknij menu");
-      desktopToggle.dataset.tooltip = collapsed ? "Rozwiń menu" : "Zwiń menu";
+      desktopToggle.removeAttribute("data-tooltip");
       mobileToggle.setAttribute("aria-expanded", String(mobileOpen));
       mobileToggle.setAttribute("aria-label", mobileOpen ? "Zamknij menu" : "Otwórz menu");
       sidebar.setAttribute("aria-hidden", String(sidebarHidden));

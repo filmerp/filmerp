@@ -7,10 +7,8 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import timezone
 
-from allauth.mfa.models import Authenticator
-
 from distribution.models import LoginEventType, SecurityProfile
-from distribution.security import record_login_event, reset_request_context, set_request_context, user_requires_mfa
+from distribution.security import record_login_event, reset_request_context, set_request_context
 
 
 class SecurityContextMiddleware:
@@ -45,7 +43,6 @@ class SessionSecurityMiddleware:
             or path.startswith("/konto/logout/")
             or path.startswith("/konto/2fa/")
             or path.startswith("/konto/password/")
-            or path.startswith("/security/mfa-required/")
             or path.startswith(settings.STATIC_URL if settings.STATIC_URL.startswith("/") else f"/{settings.STATIC_URL}")
             or path.startswith(settings.MEDIA_URL if settings.MEDIA_URL.startswith("/") else f"/{settings.MEDIA_URL}")
         )
@@ -75,13 +72,4 @@ class SessionSecurityMiddleware:
             if profile.force_password_change and not self._is_security_path(request.path):
                 return redirect("account_change_password")
 
-            if user_requires_mfa(request.user):
-                has_totp = Authenticator.objects.filter(
-                    user=request.user,
-                    type=Authenticator.Type.TOTP,
-                ).exists()
-                if not has_totp and not self._is_security_path(request.path):
-                    return redirect("security:mfa_required")
-
         return self.get_response(request)
-

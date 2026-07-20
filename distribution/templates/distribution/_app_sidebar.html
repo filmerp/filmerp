@@ -63,20 +63,10 @@
       <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#database"></use></svg>
       <span class="sidebar-label">Panel administracyjny</span>
     </a>
-    {% if perms.distribution.manage_users or perms.distribution.view_security_log or perms.distribution.view_business_audit %}
-      <details class="sidebar-menu-group" {% if request.resolver_match.namespace == 'security' %}open{% endif %}>
-        <summary class="sidebar-link {% if request.resolver_match.namespace == 'security' %}active{% endif %}" data-tooltip="Użytkownicy i bezpieczeństwo">
-          <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#shield-check"></use></svg>
-          <span class="sidebar-label">Użytkownicy i bezpieczeństwo</span>
-        </summary>
-        <div class="sidebar-subnav">
-          {% if perms.distribution.manage_users %}<a class="sidebar-sublink {% if current == 'account_list' or current == 'account_create' or current == 'account_detail' or current == 'account_edit' %}active{% endif %}" href="{% url 'security:account_list' %}">Konta</a>{% endif %}
-          {% if perms.distribution.manage_users %}<a class="sidebar-sublink {% if current == 'role_list' or current == 'role_detail' %}active{% endif %}" href="{% url 'security:role_list' %}">Role i uprawnienia</a>{% endif %}
-          {% if perms.distribution.view_security_log %}<a class="sidebar-sublink {% if current == 'login_history' %}active{% endif %}" href="{% url 'security:login_history' %}">Historia logowań</a>{% endif %}
-          {% if perms.distribution.view_business_audit %}<a class="sidebar-sublink {% if current == 'audit_history' %}active{% endif %}" href="{% url 'security:audit_history' %}">Historia zmian</a>{% endif %}
-        </div>
-      </details>
-    {% endif %}
+    <a class="sidebar-link {% if request.resolver_match.namespace == 'security' or 'mfa_' in current %}active{% endif %}" href="{% url 'security:index' %}" data-tooltip="Użytkownicy i bezpieczeństwo" {% if request.resolver_match.namespace == 'security' or 'mfa_' in current %}aria-current="page"{% endif %}>
+      <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#shield-check"></use></svg>
+      <span class="sidebar-label">Użytkownicy i bezpieczeństwo</span>
+    </a>
     {% if request.user.has_usable_password %}
       <a class="sidebar-link {% if current == 'account_change_password' %}active{% endif %}" href="{% url 'account_change_password' %}" data-tooltip="Zmień hasło" {% if current == 'account_change_password' %}aria-current="page"{% endif %}>
         <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#lock-keyhole"></use></svg>

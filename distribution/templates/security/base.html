@@ -24,14 +24,7 @@
     </div>
     {% block heading_actions %}{% endblock %}
   </header>
-  {% if perms.distribution.manage_users or perms.distribution.view_security_log or perms.distribution.view_business_audit %}
-    <nav class="security-tabs" aria-label="Użytkownicy i bezpieczeństwo">
-      {% if perms.distribution.manage_users %}<a href="{% url 'security:account_list' %}" class="{% if request.resolver_match.url_name == 'account_list' or request.resolver_match.url_name == 'account_create' or request.resolver_match.url_name == 'account_detail' or request.resolver_match.url_name == 'account_edit' %}active{% endif %}">Konta</a>{% endif %}
-      {% if perms.distribution.manage_users %}<a href="{% url 'security:role_list' %}" class="{% if request.resolver_match.url_name == 'role_list' or request.resolver_match.url_name == 'role_detail' %}active{% endif %}">Role i uprawnienia</a>{% endif %}
-      {% if perms.distribution.view_security_log %}<a href="{% url 'security:login_history' %}" class="{% if request.resolver_match.url_name == 'login_history' %}active{% endif %}">Historia logowań</a>{% endif %}
-      {% if perms.distribution.view_business_audit %}<a href="{% url 'security:audit_history' %}" class="{% if request.resolver_match.url_name == 'audit_history' %}active{% endif %}">Historia zmian</a>{% endif %}
-    </nav>
-  {% endif %}
+  {% include "security/_tabs.html" %}
   {% block content %}{% endblock %}
 </main>
 </body>

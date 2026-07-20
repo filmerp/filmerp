@@ -1,0 +1,23 @@
+{% extends "mfa/base_manage.html" %}
+{% block head_title %}Logowanie dwuetapowe{% endblock %}
+{% block content %}
+<section class="security-section mfa-settings-section">
+  <div class="security-section-title">
+    <h2>Logowanie dwuetapowe</h2>
+    <span class="status-pill {% if authenticators.totp %}ok{% endif %}">{% if authenticators.totp %}Włączone{% else %}Wyłączone{% endif %}</span>
+  </div>
+  {% if authenticators.totp %}
+    <p>Twoje konto jest chronione kodem z aplikacji uwierzytelniającej.</p>
+    <div class="security-action-row">
+      <a class="button secondary" href="{% url 'mfa_view_recovery_codes' %}">Kody zapasowe</a>
+      <a class="button warning" href="{% url 'mfa_generate_recovery_codes' %}">Wygeneruj nowe kody</a>
+      <a class="button danger" href="{% url 'mfa_deactivate_totp' %}">Wyłącz logowanie dwuetapowe</a>
+    </div>
+  {% else %}
+    <p>Po włączeniu podczas logowania podasz dodatkowy kod z aplikacji uwierzytelniającej.</p>
+    <div class="security-action-row">
+      <a class="button" href="{% url 'mfa_activate_totp' %}">Włącz logowanie dwuetapowe</a>
+    </div>
+  {% endif %}
+</section>
+{% endblock %}

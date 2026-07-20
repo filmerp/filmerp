@@ -1602,7 +1602,6 @@ class SecurityProfile(TimestampedModel):
         related_name="security_profile",
         verbose_name="uzytkownik",
     )
-    mfa_required = models.BooleanField("wymagaj MFA", default=False)
     force_password_change = models.BooleanField("wymagaj zmiany hasla", default=False)
     invited_at = models.DateTimeField("zaproszono", null=True, blank=True)
     invited_by = models.ForeignKey(

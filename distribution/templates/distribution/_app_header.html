@@ -14,8 +14,8 @@
     {% elif current == 'reports' %}Raporty
     {% elif current == 'settlement_workbench' %}Rozliczenia
     {% elif current == 'statement_center' %}Statement Center
-    {% elif request.resolver_match.namespace == 'security' %}Użytkownicy i bezpieczeństwo
-    {% elif current == 'account_change_password' or current == 'mfa_index' or current == 'mfa_activate_totp' %}Bezpieczeństwo konta
+    {% elif request.resolver_match.namespace == 'security' or 'mfa_' in current %}Użytkownicy i bezpieczeństwo
+    {% elif current == 'account_change_password' %}Bezpieczeństwo konta
     {% else %}FILMERP{% endif %}
   </div>
   {% if request.user.is_authenticated %}<div class="app-header-user">{{ request.user.get_full_name|default:request.user.username }}</div>{% endif %}

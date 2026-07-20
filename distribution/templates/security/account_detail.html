@@ -14,8 +14,8 @@
 <section class="security-section">
   <div class="security-section-title"><h2>Zabezpieczenia</h2></div>
   <dl class="security-definition-list">
-    <div><dt>MFA wymagane</dt><dd>{% if account.security_profile.mfa_required %}Tak{% else %}Nie{% endif %}</dd></div>
-    <div><dt>Aktywne metody MFA</dt><dd>{% for item in mfa_authenticators %}{{ item.get_type_display }}{% if not forloop.last %}, {% endif %}{% empty %}Brak{% endfor %}</dd></div>
+    <div><dt>Logowanie dwuetapowe</dt><dd>{% if mfa_authenticators %}Włączone{% else %}Wyłączone{% endif %}</dd></div>
+    <div><dt>Aktywne metody</dt><dd>{% for item in mfa_authenticators %}{{ item.get_type_display }}{% if not forloop.last %}, {% endif %}{% empty %}Brak{% endfor %}</dd></div>
     <div><dt>Ostatni adres IP</dt><dd>{{ account.security_profile.last_login_ip|default:"Brak" }}</dd></div>
     <div><dt>Data utworzenia</dt><dd>{{ account.date_joined|date:"d.m.Y H:i" }}</dd></div>
     <div><dt>Ostatnie zaproszenie</dt><dd>{{ account.security_profile.invitation_sent_at|date:"d.m.Y H:i"|default:"Brak" }}</dd></div>

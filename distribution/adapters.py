@@ -8,7 +8,7 @@ from django.urls import reverse
 from allauth.account.adapter import DefaultAccountAdapter
 from allauth.mfa.adapter import DefaultMFAAdapter
 
-from .security import get_client_ip, user_requires_mfa
+from .security import get_client_ip
 
 
 class FilmerpAccountAdapter(DefaultAccountAdapter):
@@ -52,9 +52,4 @@ class FilmerpMFAAdapter(DefaultMFAAdapter):
             return self._fernet().decrypt(encrypted_text.removeprefix("fernet:").encode("ascii")).decode("utf-8")
         except InvalidToken as exc:
             raise ValueError("Nie mozna odszyfrowac klucza MFA. Sprawdz MFA_ENCRYPTION_KEY.") from exc
-
-    def can_delete_authenticator(self, authenticator) -> bool:
-        if authenticator.type == authenticator.Type.TOTP and user_requires_mfa(authenticator.user):
-            return False
-        return super().can_delete_authenticator(authenticator)
 

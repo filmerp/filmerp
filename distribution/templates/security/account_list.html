@@ -25,7 +25,7 @@
           <td>{{ row.user.email|default:"-" }}</td>
           <td>{% if row.user.is_superuser %}<span class="security-tag">administrator</span>{% else %}{% for role in row.roles %}<span class="security-tag">{{ role.name }}</span>{% empty %}-{% endfor %}{% endif %}</td>
           <td>{{ row.user.last_login|date:"d.m.Y H:i"|default:"Nigdy" }}</td>
-          <td><span class="status-pill {% if row.mfa_enabled %}ok{% elif row.mfa_required %}warn{% endif %}">{% if row.mfa_enabled %}Aktywne{% elif row.mfa_required %}Wymagane{% else %}Opcjonalne{% endif %}</span></td>
+          <td><span class="status-pill {% if row.mfa_enabled %}ok{% endif %}">{% if row.mfa_enabled %}Włączone{% else %}Wyłączone{% endif %}</span></td>
           <td>{{ row.session_count }}</td>
           <td><span class="status-pill {% if not row.user.is_active %}off{% elif row.is_invited %}warn{% else %}ok{% endif %}">{% if not row.user.is_active %}Nieaktywne{% elif row.is_invited %}Zaproszone{% else %}Aktywne{% endif %}</span></td>
           <td class="actions"><a class="icon-action" href="{% url 'security:account_detail' row.user.pk %}" aria-label="Szczegóły" title="Szczegóły">&#8594;</a></td>

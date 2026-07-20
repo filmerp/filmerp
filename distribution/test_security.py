@@ -11,6 +11,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from allauth.mfa.models import Authenticator
 from allauth.usersessions.models import UserSession
 
 from .models import AuditAction, AuditEvent, LoginEvent, LoginEventType
@@ -26,8 +27,6 @@ class SecurityModuleTests(TestCase):
     def setUp(self):
         sync_role_groups()
         self.admin = User.objects.create_superuser("security-admin", "security@example.com", "test-pass-123")
-        self.admin.security_profile.mfa_required = False
-        self.admin.security_profile.save(update_fields=["mfa_required", "updated_at"])
         self.client.force_login(self.admin)
 
     def test_account_creation_sends_invitation_and_records_audit(self):
@@ -41,25 +40,26 @@ class SecurityModuleTests(TestCase):
                 "email": "anna@example.com",
                 "is_active": "on",
                 "roles": [finance.pk],
-                "mfa_required": "on",
                 "send_invitation": "on",
             },
         )
         account = User.objects.get(username="finance-user")
         self.assertRedirects(response, reverse("security:account_detail", args=[account.pk]))
         self.assertFalse(account.has_usable_password())
-        self.assertTrue(account.security_profile.mfa_required)
+        self.assertFalse(Authenticator.objects.filter(user=account).exists())
         self.assertEqual(list(account.groups.values_list("name", flat=True)), ["finance"])
         self.assertEqual(len(mail.outbox), 1)
         self.assertIn("/konto/password/reset/key/", mail.outbox[0].body)
         self.assertTrue(AuditEvent.objects.filter(action=AuditAction.CREATE, object_pk=str(account.pk)).exists())
 
-    def test_finance_account_must_enroll_mfa(self):
+    def test_finance_account_can_use_application_without_mfa(self):
         account = User.objects.create_user("finance-no-mfa", password="test-pass-123")
         account.groups.add(Group.objects.get(name="finance"))
         self.client.force_login(account)
         response = self.client.get(reverse("distribution:dashboard"))
-        self.assertRedirects(response, reverse("security:mfa_required"), fetch_redirect_response=False)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(Authenticator.objects.filter(user=account).exists())
+        self.assertEqual(self.client.get(reverse("mfa_index")).status_code, 200)
 
     def test_login_success_failure_and_lockout_are_recorded(self):
         account = User.objects.create_user("login-user", password="test-pass-123")
@@ -119,6 +119,8 @@ class SecurityModuleTests(TestCase):
         self.client.force_login(account)
         self.assertEqual(self.client.get(reverse("security:account_list")).status_code, 403)
         self.assertEqual(self.client.get(reverse("security:login_history")).status_code, 403)
+        self.assertRedirects(self.client.get(reverse("security:index")), reverse("mfa_index"))
+        self.assertEqual(self.client.get(reverse("mfa_index")).status_code, 200)
 
     def test_signed_event_detects_changes_and_cannot_be_saved_twice(self):
         event = record_login_event(LoginEventType.LOGIN_SUCCESS, user=self.admin)

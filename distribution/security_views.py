@@ -37,6 +37,17 @@ from .security_forms import DeactivateUserForm, SYSTEM_ROLE_NAMES, UserAccountFo
 User = get_user_model()
 
 
+@login_required
+def security_index(request):
+    if request.user.has_perm("distribution.manage_users"):
+        return redirect("security:account_list")
+    if request.user.has_perm("distribution.view_security_log"):
+        return redirect("security:login_history")
+    if request.user.has_perm("distribution.view_business_audit"):
+        return redirect("security:audit_history")
+    return redirect("mfa_index")
+
+
 def _safe_cell(value):
     value = "" if value is None else str(value)
     if value.startswith(("=", "+", "-", "@")):
@@ -132,7 +143,6 @@ def account_list(request):
             "user": user,
             "roles": list(user.groups.filter(name__in=SYSTEM_ROLE_NAMES).order_by("name")),
             "mfa_enabled": user.pk in mfa_ids,
-            "mfa_required": user.security_profile.mfa_required,
             "is_invited": not user.has_usable_password(),
             "session_count": session_counts[user.pk],
         }
@@ -198,7 +208,7 @@ def account_edit(request, pk):
                 request=request,
                 module="users",
                 instance=user,
-                changes={"roles": {"old": before_roles, "new": after_roles}, "mfa_required": form.cleaned_data["mfa_required"], "force_password_change": form.cleaned_data["force_password_change"]},
+                changes={"roles": {"old": before_roles, "new": after_roles}, "force_password_change": form.cleaned_data["force_password_change"]},
             )
             messages.success(request, "Zmiany konta zostaly zapisane.")
             return redirect("security:account_detail", pk=user.pk)
@@ -497,11 +507,3 @@ def audit_history(request):
     page = Paginator(rows, 50).get_page(request.GET.get("page"))
     modules = sorted({row["module"] for row in rows})
     return render(request, "security/audit_history.html", {"page": page, "users": User.objects.order_by("username"), "actions": AuditAction.choices, "modules": modules})
-
-
-@login_required
-def mfa_required(request):
-    enabled = Authenticator.objects.filter(user=request.user, type=Authenticator.Type.TOTP).exists()
-    if enabled:
-        return redirect("distribution:dashboard")
-    return render(request, "security/mfa_required.html")

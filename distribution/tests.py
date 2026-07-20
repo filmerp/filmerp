@@ -497,6 +497,7 @@ class SettlementWorkflowTests(TestCase):
         self.assertContains(response, 'class="app-sidebar"')
         self.assertContains(response, "Panel administracyjny")
         self.assertContains(response, "Użytkownicy i bezpieczeństwo")
+        self.assertNotContains(response, 'class="sidebar-subnav"')
         self.assertContains(response, "Zmień hasło")
         self.assertContains(response, 'class="sidebar-logout-form"')
         self.assertContains(response, "Wyloguj")
@@ -511,6 +512,7 @@ class SettlementWorkflowTests(TestCase):
         self.assertEqual(users_response.status_code, 200)
         self.assertContains(users_response, "Użytkownicy i bezpieczeństwo")
         self.assertContains(users_response, "Konta użytkowników")
+        self.assertContains(users_response, "Logowanie dwuetapowe")
 
     def test_login_always_opens_dashboard_even_with_admin_next(self):
         self.client.logout()

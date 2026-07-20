@@ -16,7 +16,6 @@ class UserAccountForm(forms.ModelForm):
         required=False,
         widget=forms.CheckboxSelectMultiple,
     )
-    mfa_required = forms.BooleanField(label="Wymagaj MFA", required=False)
     force_password_change = forms.BooleanField(label="Wymagaj zmiany hasła przy następnym użyciu konta", required=False)
 
     class Meta:
@@ -37,7 +36,6 @@ class UserAccountForm(forms.ModelForm):
         if self.instance and self.instance.pk:
             self.fields["roles"].initial = self.instance.groups.filter(name__in=SYSTEM_ROLE_NAMES)
             profile, _ = SecurityProfile.objects.get_or_create(user=self.instance)
-            self.fields["mfa_required"].initial = profile.mfa_required
             self.fields["force_password_change"].initial = profile.force_password_change
 
     def clean_email(self):
@@ -63,9 +61,8 @@ class UserAccountForm(forms.ModelForm):
             user.save()
             user.groups.set(selected_roles)
             profile, _ = SecurityProfile.objects.get_or_create(user=user)
-            profile.mfa_required = self.cleaned_data["mfa_required"] or any(group.name == "administrator" for group in selected_roles)
             profile.force_password_change = self.cleaned_data["force_password_change"]
-            profile.save(update_fields=["mfa_required", "force_password_change", "updated_at"])
+            profile.save(update_fields=["force_password_change", "updated_at"])
         return user
 
 
@@ -82,9 +79,8 @@ class UserCreateForm(UserAccountForm):
             user.is_staff = user.is_superuser or any(group.name == "administrator" for group in selected_roles)
             user.save(update_fields=["is_staff"])
             profile, _ = SecurityProfile.objects.get_or_create(user=user)
-            profile.mfa_required = self.cleaned_data["mfa_required"] or any(group.name == "administrator" for group in selected_roles)
             profile.force_password_change = self.cleaned_data["force_password_change"]
-            profile.save(update_fields=["mfa_required", "force_password_change", "updated_at"])
+            profile.save(update_fields=["force_password_change", "updated_at"])
         return user
 
 

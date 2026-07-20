@@ -112,15 +112,6 @@ def describe_user_agent(value: str) -> dict[str, str]:
     }
 
 
-def user_requires_mfa(user) -> bool:
-    if not user or not user.is_authenticated:
-        return False
-    profile = getattr(user, "security_profile", None)
-    if profile and profile.mfa_required:
-        return True
-    return user.groups.filter(name="finance").exists()
-
-
 def record_login_event(
     event_type: str,
     *,

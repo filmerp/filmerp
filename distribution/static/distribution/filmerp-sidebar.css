@@ -294,6 +294,65 @@ body.sidebar-collapsed .sidebar-link {
 body.sidebar-collapsed .sidebar-logout-button {
   justify-content: center;
 }
++
+.sidebar-menu-group {
+  margin: 0;
+}
+
+.sidebar-menu-group > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.sidebar-menu-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.sidebar-menu-group > summary::before {
+  position: absolute;
+  right: 14px;
+  content: "+";
+  color: #8c8f94;
+  font-size: 14px;
+}
+
+.sidebar-menu-group[open] > summary::before {
+  content: "-";
+}
+
+.sidebar-subnav {
+  padding: 0 0 5px 46px;
+}
+
+.sidebar-sublink {
+  position: relative;
+  display: block;
+  min-height: 31px;
+  padding: 7px 10px;
+  color: #c3c4c7 !important;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.sidebar-sublink::before {
+  position: absolute;
+  left: -9px;
+  content: "-";
+  color: #646970;
+}
+
+.sidebar-sublink:hover,
+.sidebar-sublink:focus-visible,
+.sidebar-sublink.active {
+  color: #fff !important;
+}
+
+body.sidebar-collapsed .sidebar-subnav,
+body.sidebar-collapsed .sidebar-menu-group > summary::before {
+  display: none;
+}
+
 
 .app-header {
   position: sticky;

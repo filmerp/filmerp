@@ -1,0 +1,11 @@
+{% extends "security/base.html" %}
+{% block title %}Role i uprawnienia{% endblock %}
+{% block heading %}Role i uprawnienia{% endblock %}
+{% block lead %}Centralna macierz dostępu zgodna z zasadą najmniejszych uprawnień.{% endblock %}
+{% block content %}
+<section class="security-section">
+  <div class="security-table-wrap"><table class="security-table"><thead><tr><th>Rola</th><th>Użytkownicy</th><th>Uprawnienia</th><th>Przeznaczenie</th><th class="actions">Akcje</th></tr></thead><tbody>
+  {% for role in roles %}<tr><td><strong>{{ role.name }}</strong></td><td>{{ role.user_set.count }}</td><td>{{ role.permissions.count }}</td><td>{% if role.name == 'administrator' %}Pełna administracja systemem{% elif role.name == 'legal' %}Umowy, prawa i avails{% elif role.name == 'sales' %}Sprzedaż, kina i raporty{% elif role.name == 'finance' %}Koszty, waterfall i statementy{% else %}Wyłącznie odczyt danych{% endif %}</td><td class="actions"><a class="button small" href="{% url 'security:role_detail' role.pk %}">Uprawnienia</a></td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% endblock %}

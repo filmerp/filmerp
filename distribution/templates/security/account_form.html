@@ -1,0 +1,26 @@
+{% extends "security/base.html" %}
+{% block title %}{{ form_title }}{% endblock %}
+{% block heading %}{{ form_title }}{% endblock %}
+{% block lead %}Nadaj tylko role potrzebne do wykonywania obowiązków.{% endblock %}
+{% block content %}
+<form method="post" class="security-form">
+  {% csrf_token %}
+  {% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}
+  <fieldset><legend>Dane konta</legend>
+    <div class="form-grid">
+      {% for field in form %}
+        {% if field.name != 'roles' and field.name != 'mfa_required' and field.name != 'force_password_change' and field.name != 'send_invitation' %}
+          <label class="{% if field.field.widget.input_type == 'checkbox' %}check-line{% endif %}">{{ field.label }}{{ field }}{% if field.errors %}<span class="field-error">{{ field.errors|striptags }}</span>{% endif %}</label>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </fieldset>
+  <fieldset><legend>Dostęp i zabezpieczenia</legend>
+    <div class="role-checkboxes">{{ form.roles }}{% if form.roles.errors %}<span class="field-error">{{ form.roles.errors|striptags }}</span>{% endif %}</div>
+    <label class="check-line">{{ form.mfa_required }} {{ form.mfa_required.label }}</label>
+    <label class="check-line">{{ form.force_password_change }} {{ form.force_password_change.label }}</label>
+    {% if form.send_invitation %}<label class="check-line">{{ form.send_invitation }} {{ form.send_invitation.label }}</label>{% endif %}
+  </fieldset>
+  <div class="form-actions"><button type="submit">Zapisz</button><a class="button secondary" href="{% if account %}{% url 'security:account_detail' account.pk %}{% else %}{% url 'security:account_list' %}{% endif %}">Anuluj</a></div>
+</form>
+{% endblock %}

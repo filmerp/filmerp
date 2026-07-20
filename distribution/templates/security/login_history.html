@@ -1,0 +1,17 @@
+{% extends "security/base.html" %}
+{% block title %}Historia logowań{% endblock %}
+{% block heading %}Historia logowań{% endblock %}
+{% block lead %}Udane i nieudane próby, MFA, blokady oraz zakończenia sesji.{% endblock %}
+{% block heading_actions %}{% if perms.distribution.export_audit_log %}<div class="export-actions"><a class="button secondary" href="?{{ request.GET.urlencode }}&format=csv">CSV</a><a class="button secondary" href="?{{ request.GET.urlencode }}&format=xlsx">XLSX</a></div>{% endif %}{% endblock %}
+{% block content %}
+<form class="security-filter" method="get">
+  <label>Użytkownik<select name="user"><option value="">Wszyscy</option>{% for user in users %}<option value="{{ user.pk }}" {% if request.GET.user == user.pk|stringformat:'s' %}selected{% endif %}>{{ user.username }}</option>{% endfor %}</select></label>
+  <label>Zdarzenie<select name="event"><option value="">Wszystkie</option>{% for value, label in event_types %}<option value="{{ value }}" {% if request.GET.event == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <label>Wynik<select name="result"><option value="">Wszystkie</option><option value="success" {% if request.GET.result == 'success' %}selected{% endif %}>Poprawne</option><option value="failure" {% if request.GET.result == 'failure' %}selected{% endif %}>Nieudane</option><option value="blocked" {% if request.GET.result == 'blocked' %}selected{% endif %}>Zablokowane</option></select></label>
+  <label>IP<input type="search" name="ip" value="{{ request.GET.ip }}"></label><label>Od<input type="date" name="date_from" value="{{ request.GET.date_from }}"></label><label>Do<input type="date" name="date_to" value="{{ request.GET.date_to }}"></label>
+  <button type="submit">Szukaj</button><a class="button secondary" href="{% url 'security:login_history' %}">Wyczyść</a>
+</form>
+<section class="security-section"><div class="security-section-title"><h2>Zdarzenia</h2><span>{{ page.paginator.count }} rekordów</span></div><div class="security-table-wrap"><table class="security-table"><thead><tr><th>Czas</th><th>Użytkownik</th><th>Zdarzenie</th><th>Wynik</th><th>IP</th><th>Urządzenie</th><th>Powód</th></tr></thead><tbody>
+{% for event in page %}<tr><td>{{ event.occurred_at|date:"d.m.Y H:i:s" }}</td><td>{{ event.user.username|default:event.identifier|default:"Nieznany" }}</td><td>{{ event.get_event_type_display }}</td><td><span class="status-pill {% if event.result == 'success' %}ok{% elif event.result == 'blocked' %}off{% else %}warn{% endif %}">{{ event.result_label }}</span></td><td>{{ event.ip_address|default:"-" }}</td><td>{{ event.device|default:"-" }}<small>{{ event.browser }}{% if event.operating_system %} · {{ event.operating_system }}{% endif %}</small></td><td>{{ event.reason|default:"-" }}</td></tr>{% empty %}<tr><td colspan="7" class="empty-cell">Brak zdarzeń.</td></tr>{% endfor %}
+</tbody></table></div>{% include "security/_pagination.html" with page=page %}</section>
+{% endblock %}

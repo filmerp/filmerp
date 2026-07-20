@@ -139,6 +139,9 @@
         }
       });
       link.addEventListener("click", function () {
+        if (link.tagName === "SUMMARY") {
+          return;
+        }
         if (!desktop.matches) {
           closeMobileMenu(false);
         }
@@ -271,6 +274,10 @@
         return;
       }
       logoutStarted = true;
+      const reasonInput = logoutForm.querySelector("input[name='logout_reason']");
+      if (reasonInput) {
+        reasonInput.value = "idle";
+      }
       try {
         window.localStorage.removeItem(activityKey);
         window.localStorage.removeItem(keepaliveKey);

@@ -1,3 +1,4 @@
+from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.contrib.contenttypes.models import ContentType
 
@@ -15,6 +16,7 @@ from distribution.models import (
     RoyaltyStatement,
     SalesAgreement,
     SalesReport,
+    SecurityProfile,
     Territory,
     Title,
     TitleMaterial,
@@ -40,18 +42,54 @@ ROLE_ACTIONS = {
     "readonly": ["view"],
 }
 
+ROLE_CUSTOM_PERMISSIONS = {
+    "legal": ["view_business_audit"],
+    "sales": ["approve_cinema_reports"],
+    "finance": [
+        "approve_cinema_reports",
+        "finalize_waterfalls",
+        "generate_statements",
+        "send_statements",
+        "mark_statements_paid",
+        "export_financial_data",
+        "view_business_audit",
+    ],
+    "readonly": [],
+}
 
-def sync_role_groups():
+
+def sync_role_groups(*, reset=False):
     synced = []
     for role, models in ROLE_MODELS.items():
         group, _ = Group.objects.get_or_create(name=role)
-        group.permissions.clear()
         actions = ROLE_ACTIONS[role]
         permissions = []
         for model in models:
             content_type = ContentType.objects.get_for_model(model)
             codenames = [f"{action}_{model._meta.model_name}" for action in actions]
             permissions.extend(Permission.objects.filter(content_type=content_type, codename__in=codenames))
-        group.permissions.set(permissions)
-        synced.append((role, len(permissions)))
+        security_content_type = ContentType.objects.get_for_model(SecurityProfile)
+        permissions.extend(
+            Permission.objects.filter(
+                content_type=security_content_type,
+                codename__in=ROLE_CUSTOM_PERMISSIONS[role],
+            )
+        )
+        if reset:
+            group.permissions.set(set(permissions))
+        else:
+            group.permissions.add(*set(permissions))
+        synced.append((role, group.permissions.count()))
+
+    administrator, _ = Group.objects.get_or_create(name="administrator")
+    administrator_permissions = Permission.objects.filter(
+        content_type__app_label__in=["distribution", "auth", "auditlog", "usersessions", "mfa"]
+    )
+    if reset:
+        administrator.permissions.set(administrator_permissions)
+    else:
+        administrator.permissions.add(*administrator_permissions)
+    for user in get_user_model().objects.filter(is_superuser=True):
+        user.groups.add(administrator)
+    synced.append(("administrator", administrator.permissions.count()))
     return synced

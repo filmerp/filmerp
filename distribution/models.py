@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
+import uuid
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Iterable
 
 from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
@@ -1588,3 +1593,219 @@ class RoyaltyStatement(TimestampedModel):
             )
         amount = self.net_receipts * (self.recipient_share_percent or Decimal("0.00")) / Decimal("100.00")
         return max(amount, Decimal("0.00"))
+
+
+class SecurityProfile(TimestampedModel):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="security_profile",
+        verbose_name="uzytkownik",
+    )
+    mfa_required = models.BooleanField("wymagaj MFA", default=False)
+    force_password_change = models.BooleanField("wymagaj zmiany hasla", default=False)
+    invited_at = models.DateTimeField("zaproszono", null=True, blank=True)
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="security_invitations_sent",
+        verbose_name="zaproszony przez",
+    )
+    invitation_sent_at = models.DateTimeField("wyslano zaproszenie", null=True, blank=True)
+    deactivated_at = models.DateTimeField("dezaktywowano", null=True, blank=True)
+    deactivated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="security_accounts_deactivated",
+        verbose_name="dezaktywowany przez",
+    )
+    deactivation_reason = models.CharField("powod dezaktywacji", max_length=255, blank=True)
+    last_activity_at = models.DateTimeField("ostatnia aktywnosc", null=True, blank=True)
+    last_login_ip = models.GenericIPAddressField("ostatni adres IP", null=True, blank=True)
+    last_login_user_agent = models.TextField("ostatnie urzadzenie", blank=True)
+    notes = models.TextField("uwagi bezpieczenstwa", blank=True)
+
+    class Meta:
+        verbose_name = "profil bezpieczenstwa"
+        verbose_name_plural = "profile bezpieczenstwa"
+        permissions = [
+            ("manage_users", "Moze zarzadzac uzytkownikami i rolami"),
+            ("view_security_log", "Moze przegladac historie logowan"),
+            ("view_business_audit", "Moze przegladac historie zmian"),
+            ("export_audit_log", "Moze eksportowac dzienniki audytowe"),
+            ("revoke_sessions", "Moze konczyc sesje uzytkownikow"),
+            ("approve_cinema_reports", "Moze zatwierdzac raporty kinowe"),
+            ("finalize_waterfalls", "Moze finalizowac rozliczenia waterfall"),
+            ("generate_statements", "Moze generowac statementy"),
+            ("send_statements", "Moze oznaczac statementy jako wyslane"),
+            ("mark_statements_paid", "Moze oznaczac statementy jako oplacone"),
+            ("export_financial_data", "Moze eksportowac dane finansowe"),
+        ]
+
+    def __str__(self) -> str:
+        return f"Bezpieczenstwo: {self.user}"
+
+
+class LoginEventType(models.TextChoices):
+    LOGIN_SUCCESS = "login_success", "Logowanie udane"
+    LOGIN_FAILURE = "login_failure", "Logowanie nieudane"
+    LOCKED = "locked", "Konto czasowo zablokowane"
+    UNLOCKED = "unlocked", "Konto odblokowane"
+    LOGOUT_MANUAL = "logout_manual", "Wylogowanie ręczne"
+    LOGOUT_IDLE = "logout_idle", "Wylogowanie po bezczynności"
+    LOGOUT_FORCED = "logout_forced", "Wylogowanie wymuszone"
+    SESSION_EXPIRED = "session_expired", "Sesja wygasła"
+    SESSION_CHANGED = "session_changed", "Zmiana urządzenia sesji"
+    PASSWORD_CHANGED = "password_changed", "Zmiana hasła"
+    PASSWORD_RESET = "password_reset", "Reset hasła"
+    MFA_SUCCESS = "mfa_success", "MFA poprawne"
+    MFA_FAILURE = "mfa_failure", "MFA niepoprawne"
+    MFA_ENABLED = "mfa_enabled", "MFA włączone"
+    MFA_DISABLED = "mfa_disabled", "MFA wyłączone"
+    MFA_RECOVERY_USED = "mfa_recovery_used", "Użyto kodu zapasowego"
+
+
+class AuditAction(models.TextChoices):
+    CREATE = "create", "Utworzenie"
+    UPDATE = "update", "Zmiana"
+    DELETE = "delete", "Usunięcie"
+    APPROVE = "approve", "Zatwierdzenie"
+    REJECT = "reject", "Odrzucenie"
+    IMPORT = "import", "Import"
+    EXPORT = "export", "Eksport"
+    FINALIZE = "finalize", "Finalizacja"
+    SEND = "send", "Wysyłka"
+    STATUS = "status", "Zmiana statusu"
+    ROLE = "role", "Zmiana roli"
+    PERMISSION = "permission", "Zmiana uprawnień"
+    FORCE_LOGOUT = "force_logout", "Zakończenie sesji"
+    SECURITY = "security", "Zmiana zabezpieczeń"
+    ACCESS = "access", "Dostęp do danych"
+    SYSTEM = "system", "Operacja systemowa"
+
+
+class AuditRetentionClass(models.TextChoices):
+    ORDINARY = "ordinary", "Zwykly"
+    LEGAL_FINANCIAL = "legal_financial", "Prawny lub finansowy"
+    SECURITY = "security", "Bezpieczenstwo"
+
+
+class ImmutableSignedEvent(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    occurred_at = models.DateTimeField("czas zdarzenia", default=timezone.now, db_index=True, editable=False)
+    integrity_hash = models.CharField("podpis integralnosci", max_length=64, editable=False, blank=True)
+
+    class Meta:
+        abstract = True
+
+    def _signature_payload(self) -> dict:
+        payload = {}
+        for field in self._meta.concrete_fields:
+            if field.name == "integrity_hash":
+                continue
+            payload[field.attname] = getattr(self, field.attname)
+        return payload
+
+    def calculate_integrity_hash(self) -> str:
+        payload = json.dumps(self._signature_payload(), sort_keys=True, ensure_ascii=True, default=str)
+        key = str(getattr(settings, "AUDIT_SIGNING_KEY", settings.SECRET_KEY)).encode("utf-8")
+        return hmac.new(key, payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    def verify_integrity(self) -> bool:
+        return hmac.compare_digest(self.integrity_hash, self.calculate_integrity_hash())
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            raise ValidationError("Zdarzenia audytowe sa niezmienne.")
+        self.integrity_hash = self.calculate_integrity_hash()
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError("Zdarzenia audytowe sa niezmienne.")
+
+
+class LoginEvent(ImmutableSignedEvent):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="login_events",
+        verbose_name="uzytkownik",
+    )
+    event_type = models.CharField("zdarzenie", max_length=40, choices=LoginEventType.choices, db_index=True)
+    result = models.CharField("wynik", max_length=20, default="success", db_index=True)
+    reason = models.CharField("powod", max_length=255, blank=True)
+    identifier = models.CharField("identyfikator", max_length=255, blank=True)
+    ip_address = models.GenericIPAddressField("adres IP", null=True, blank=True, db_index=True)
+    user_agent = models.TextField("user agent", blank=True)
+    browser = models.CharField("przegladarka", max_length=120, blank=True)
+    operating_system = models.CharField("system", max_length=120, blank=True)
+    device = models.CharField("urzadzenie", max_length=120, blank=True)
+    session_fingerprint = models.CharField("odcisk sesji", max_length=64, blank=True, db_index=True)
+    request_id = models.UUIDField("identyfikator zadania", null=True, blank=True, db_index=True)
+    metadata = models.JSONField("dane dodatkowe", default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-occurred_at"]
+        indexes = [models.Index(fields=["user", "-occurred_at"])]
+        verbose_name = "zdarzenie logowania"
+        verbose_name_plural = "zdarzenia logowania"
+
+    def __str__(self) -> str:
+        return f"{self.get_event_type_display()} / {self.user or self.identifier or '-'}"
+
+    @property
+    def result_label(self) -> str:
+        return {
+            "success": "Poprawne",
+            "failure": "Nieudane",
+            "blocked": "Zablokowane",
+        }.get(self.result, self.result)
+
+
+class AuditEvent(ImmutableSignedEvent):
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="filmerp_audit_events",
+        verbose_name="wykonawca",
+    )
+    action = models.CharField("akcja", max_length=30, choices=AuditAction.choices, db_index=True)
+    source = models.CharField("zrodlo", max_length=30, default="dashboard", db_index=True)
+    module = models.CharField("modul", max_length=80, db_index=True)
+    content_type = models.ForeignKey(ContentType, null=True, blank=True, on_delete=models.SET_NULL)
+    object_pk = models.CharField("ID obiektu", max_length=255, blank=True, db_index=True)
+    object_repr = models.CharField("obiekt", max_length=255, blank=True)
+    summary = models.CharField("opis", max_length=500)
+    changes = models.JSONField("zmiany", default=dict, blank=True)
+    metadata = models.JSONField("dane dodatkowe", default=dict, blank=True)
+    request_id = models.UUIDField("identyfikator zadania", null=True, blank=True, db_index=True)
+    ip_address = models.GenericIPAddressField("adres IP", null=True, blank=True)
+    user_agent = models.TextField("user agent", blank=True)
+    retention_class = models.CharField(
+        "klasa retencji",
+        max_length=30,
+        choices=AuditRetentionClass.choices,
+        default=AuditRetentionClass.ORDINARY,
+        db_index=True,
+    )
+    legacy_reference = models.CharField("referencja archiwalna", max_length=100, unique=True, null=True, blank=True)
+
+    class Meta:
+        ordering = ["-occurred_at"]
+        indexes = [
+            models.Index(fields=["actor", "-occurred_at"]),
+            models.Index(fields=["module", "action", "-occurred_at"]),
+        ]
+        verbose_name = "zdarzenie audytowe"
+        verbose_name_plural = "zdarzenia audytowe"
+
+    def __str__(self) -> str:
+        return f"{self.get_action_display()} / {self.summary}"

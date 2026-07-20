@@ -1,0 +1,15 @@
+{% extends "security/base.html" %}
+{% block title %}Rola {{ role.name }}{% endblock %}
+{% block heading %}Rola: {{ role.name }}{% endblock %}
+{% block lead %}Zmiana uprawnień dotyczy wszystkich użytkowników przypisanych do tej roli.{% endblock %}
+{% block content %}
+<form method="post" class="permission-matrix">{% csrf_token %}
+  <div class="permission-toolbar"><span>{{ role.user_set.count }} użytkowników korzysta z tej roli</span><button type="submit">Zapisz uprawnienia</button></div>
+  {% for group_name, entries in permission_groups.items %}
+    <details class="permission-group"><summary><strong>{{ group_name }}</strong><span>{{ entries|length }} uprawnień</span></summary><div class="permission-grid">
+      {% for entry in entries %}<label><input type="checkbox" name="permissions" value="{{ entry.permission.pk }}" {% if entry.selected %}checked{% endif %}><span>{{ entry.permission.name }}</span><small>{{ entry.permission.codename }}</small></label>{% endfor %}
+    </div></details>
+  {% endfor %}
+  <div class="form-actions"><button type="submit">Zapisz uprawnienia</button><a class="button secondary" href="{% url 'security:role_list' %}">Anuluj</a></div>
+</form>
+{% endblock %}

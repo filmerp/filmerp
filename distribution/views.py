@@ -6,7 +6,6 @@ from urllib.parse import urlencode
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.decorators import permission_required
-from django.contrib.auth.views import LoginView
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
 from django.http import HttpResponse, JsonResponse
@@ -19,6 +18,7 @@ from django.views.decorators.http import require_POST
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
+from allauth.account.views import LoginView as AllauthLoginView
 
 from .avails import check_availability
 from .cinema_imports import approve_import_rows, parse_cinema_report_import
@@ -38,6 +38,7 @@ from .contract_wizard import create_contract_waterfall
 from .pdf import build_royalty_statement_pdf
 from .models import (
     AcquisitionAgreement,
+    AuditAction,
     CinemaBooking,
     CinemaReportImport,
     Cost,
@@ -66,15 +67,24 @@ from .models import (
     WaterfallRunStatus,
 )
 from .settlements import create_statement_documents
+from .security import record_audit_event
 from .waterfall_engine import calculate_waterfall_run, finalize_waterfall_run
 
 
-class DashboardLoginView(LoginView):
-    template_name = "admin/login.html"
-    redirect_authenticated_user = True
+class DashboardLoginView(AllauthLoginView):
+    template_name = "account/login.html"
 
     def get_success_url(self):
         return reverse("distribution:dashboard")
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        data = kwargs.get("data")
+        if data is not None and "login" not in data and data.get("username"):
+            data = data.copy()
+            data["login"] = data.get("username")
+            kwargs["data"] = data
+        return kwargs
 
 
 def web_app_manifest(request):
@@ -323,6 +333,14 @@ def contract_waterfall_wizard(request):
         form = ContractWaterfallWizardForm(request.POST)
         if form.is_valid():
             agreement, plan = create_contract_waterfall(form.cleaned_data)
+            record_audit_event(
+                AuditAction.CREATE,
+                f"Utworzono umowe i plan waterfall dla {agreement.title}.",
+                request=request,
+                module="agreements",
+                instance=agreement,
+                metadata={"waterfall_plan_id": plan.pk, "waterfall_version": plan.version},
+            )
             messages.success(request, f"Utworzono umowę i aktywny waterfall v{plan.version} z {plan.steps.count()} krokami.")
             return redirect(f"{reverse('distribution:settlement_workbench')}?title={agreement.title_id}&currency={plan.currency}&plan={plan.pk}")
     else:
@@ -420,6 +438,14 @@ def document_center(request):
             if form.is_valid():
                 try:
                     document, created = ingest_document(request.FILES["source_file"], request.user)
+                    record_audit_event(
+                        AuditAction.IMPORT,
+                        f"Wczytano dokument {document.original_filename}.",
+                        request=request,
+                        module="documents",
+                        instance=document,
+                        metadata={"created": created},
+                    )
                     if created:
                         messages.success(request, "Dokument wczytano i przekazano do weryfikacji.")
                     else:
@@ -447,6 +473,13 @@ def document_center(request):
                     chosen_type = form.cleaned_data["document_type"]
                     try:
                         analyze_document(document, forced_type=chosen_type)
+                        record_audit_event(
+                            AuditAction.UPDATE,
+                            f"Zmieniono klasyfikacje dokumentu na {chosen_type}.",
+                            request=request,
+                            module="documents",
+                            instance=document,
+                        )
                         messages.success(request, "Zmieniono rodzaj dokumentu i ponowiono analizę.")
                     except ValueError as exc:
                         messages.error(request, str(exc))
@@ -464,11 +497,19 @@ def document_center(request):
                     updated = document.cinema_import.rows.filter(pk__in=row_ids).exclude(status="imported").update(title=title)
                     document.title = title
                     document.save(update_fields=["title", "updated_at"])
+                    record_audit_event(
+                        AuditAction.UPDATE,
+                        f"Przypisano tytul do {updated} wierszy raportu.",
+                        request=request,
+                        module="cinema_reports",
+                        instance=document,
+                        metadata={"title_id": title.pk, "rows": updated},
+                    )
                     messages.success(request, f"Przypisano tytuł do {updated} wierszy.")
             return redirect(_document_center_url(document.pk))
 
         if action == "approve_report_rows":
-            if not request.user.has_perm("distribution.add_cinemabooking") or not request.user.has_perm("distribution.add_salesreport"):
+            if not request.user.has_perm("distribution.approve_cinema_reports"):
                 raise PermissionDenied
             if not document.cinema_import_id:
                 messages.error(request, "Ten dokument nie ma rozpoznanych wierszy raportu.")
@@ -485,6 +526,14 @@ def document_center(request):
                         document.processed_at = timezone.now()
                     document.reviewed_by = request.user
                     document.save(update_fields=["status", "processed_at", "reviewed_by", "updated_at"])
+                    record_audit_event(
+                        AuditAction.APPROVE,
+                        f"Zatwierdzono wiersze raportu kinowego: {imported}.",
+                        request=request,
+                        module="cinema_reports",
+                        instance=document.cinema_import,
+                        metadata={"imported": imported, "skipped": skipped},
+                    )
                     if skipped:
                         messages.warning(request, f"Utworzono {imported} bookingów. Pominięto {skipped} wierszy wymagających poprawy.")
                     else:
@@ -507,6 +556,14 @@ def document_center(request):
                     document.reviewed_by = request.user
                     document.processed_at = timezone.now()
                     document.save(update_fields=["cost", "title", "counterparty", "status", "reviewed_by", "processed_at", "updated_at"])
+                    record_audit_event(
+                        AuditAction.CREATE,
+                        f"Utworzono koszt z faktury: {cost.net_amount} {cost.currency}.",
+                        request=request,
+                        module="costs",
+                        instance=cost,
+                        metadata={"document_id": document.pk},
+                    )
                     messages.success(request, f"Faktura została zaksięgowana jako koszt {cost.net_amount} {cost.currency}.")
                 else:
                     errors = " ".join(error for field_errors in form.errors.values() for error in field_errors)
@@ -521,6 +578,13 @@ def document_center(request):
                 document.status = DocumentStatus.REJECTED
                 document.reviewed_by = request.user
                 document.save(update_fields=["status", "reviewed_by", "updated_at"])
+                record_audit_event(
+                    AuditAction.REJECT,
+                    "Odrzucono dokument.",
+                    request=request,
+                    module="documents",
+                    instance=document,
+                )
                 messages.success(request, "Dokument oznaczono jako odrzucony.")
             return redirect(_document_center_url(document.pk))
 
@@ -629,6 +693,14 @@ def settlement_workbench(request):
                 report_import.save()
                 try:
                     parsed = parse_cinema_report_import(report_import)
+                    record_audit_event(
+                        AuditAction.IMPORT,
+                        f"Wczytano raport kinowy {report_import.original_filename}.",
+                        request=request,
+                        module="cinema_reports",
+                        instance=report_import,
+                        metadata={"parsed_rows": parsed},
+                    )
                     messages.success(request, f"Rozpoznano {parsed} wierszy. Sprawdz je przed akceptacja.")
                 except ValueError as exc:
                     messages.error(request, str(exc))
@@ -638,8 +710,18 @@ def settlement_workbench(request):
             return redirect(_settlement_url(**redirect_kwargs))
 
         if action == "approve_cinema_import":
+            if not request.user.has_perm("distribution.approve_cinema_reports"):
+                raise PermissionDenied
             report_import = get_object_or_404(CinemaReportImport, pk=request.POST.get("import_id"))
             imported, skipped = approve_import_rows(report_import.rows.all())
+            record_audit_event(
+                AuditAction.APPROVE,
+                f"Zatwierdzono raport kinowy: {imported} pozycji.",
+                request=request,
+                module="cinema_reports",
+                instance=report_import,
+                metadata={"imported": imported, "skipped": skipped},
+            )
             if skipped:
                 messages.warning(request, f"Utworzono {imported} bookingow. {skipped} wierszy nadal wymaga uzupelnienia.")
             else:
@@ -654,6 +736,13 @@ def settlement_workbench(request):
                 form = CostInvoiceUploadForm(request.POST, request.FILES, title=selected_title, currency=currency)
                 if form.is_valid():
                     cost = form.save()
+                    record_audit_event(
+                        AuditAction.IMPORT,
+                        f"Wczytano fakture kosztowa {cost.net_amount} {cost.currency}.",
+                        request=request,
+                        module="costs",
+                        instance=cost,
+                    )
                     messages.success(request, f"Faktura zostala przypisana jako koszt {cost.net_amount} {cost.currency}.")
                 else:
                     errors = " ".join(error for field_errors in form.errors.values() for error in field_errors)
@@ -675,11 +764,20 @@ def settlement_workbench(request):
                 if run is None:
                     run = WaterfallRun.objects.create(plan=selected_plan, period_start=period_start, period_end=period_end)
                 calculate_waterfall_run(run)
+                record_audit_event(
+                    AuditAction.UPDATE,
+                    f"Przeliczono roboczy waterfall za {period_start} - {period_end}.",
+                    request=request,
+                    module="waterfall",
+                    instance=run,
+                )
                 redirect_kwargs["run_id"] = run.pk
                 messages.success(request, "Okres został przeliczony. Wynik jest roboczy i nie został jeszcze zatwierdzony.")
             return redirect(_settlement_url(**redirect_kwargs))
 
         if action == "finalize_and_generate":
+            if not request.user.has_perm("distribution.finalize_waterfalls") or not request.user.has_perm("distribution.generate_statements"):
+                raise PermissionDenied
             run = get_object_or_404(WaterfallRun.objects.select_related("plan"), pk=request.POST.get("run_id"))
             recipient_ids = request.POST.getlist("recipient_ids")
             allowed_ids = set(run.plan.steps.filter(active=True, beneficiary__isnull=False).values_list("beneficiary_id", flat=True))
@@ -696,6 +794,14 @@ def settlement_workbench(request):
                     elif run.status != WaterfallRunStatus.FINALIZED:
                         raise ValidationError("Anulowanego rozliczenia nie mozna wygenerowac.")
                     statements = create_statement_documents(run, recipient_ids)
+                    record_audit_event(
+                        AuditAction.FINALIZE,
+                        f"Sfinalizowano waterfall i utworzono {len(statements)} statementow.",
+                        request=request,
+                        module="waterfall",
+                        instance=run,
+                        metadata={"statement_ids": [statement.pk for statement in statements]},
+                    )
                     messages.success(request, f"Rozliczenie zatwierdzone. Utworzono statementy PDF: {len(statements)}.")
                 except ValidationError as exc:
                     messages.error(request, " ".join(exc.messages))
@@ -810,12 +916,23 @@ def statement_center(request):
             return redirect("distribution:statement_center")
 
         if action == "generate_pdf":
+            if not request.user.has_perm("distribution.generate_statements"):
+                raise PermissionDenied
             generated = 0
+            generated_ids = []
             for statement in statements:
                 statement.freeze_calculation(lock=True)
                 pdf_file = build_royalty_statement_pdf(statement)
                 statement.statement_file.save(pdf_file.name, pdf_file, save=True)
                 generated += 1
+                generated_ids.append(statement.pk)
+            record_audit_event(
+                AuditAction.EXPORT,
+                f"Wygenerowano {generated} plikow PDF statementow.",
+                request=request,
+                module="statements",
+                metadata={"statement_ids": generated_ids, "format": "pdf"},
+            )
             messages.success(request, f"Wygenerowano PDF: {generated}.")
         elif action == "change_status":
             target_status = request.POST.get("target_status")
@@ -823,6 +940,13 @@ def statement_center(request):
             if target_status not in status_labels:
                 messages.warning(request, "Wybierz prawidłowy status.")
                 return redirect(request.get_full_path())
+
+            if target_status == StatementStatus.SENT and not request.user.has_perm("distribution.send_statements"):
+                raise PermissionDenied
+            if target_status == StatementStatus.PAID and not request.user.has_perm("distribution.mark_statements_paid"):
+                raise PermissionDenied
+            if target_status not in {StatementStatus.SENT, StatementStatus.PAID} and not request.user.has_perm("distribution.change_royaltystatement"):
+                raise PermissionDenied
 
             lock_statuses = {StatementStatus.SENT, StatementStatus.APPROVED, StatementStatus.PAID}
             updated = 0
@@ -839,6 +963,13 @@ def statement_center(request):
                     update_fields.append("paid_at")
                 statement.save(update_fields=update_fields)
                 updated += 1
+            record_audit_event(
+                AuditAction.STATUS,
+                f"Zmieniono status {updated} statementow na {status_labels[target_status]}.",
+                request=request,
+                module="statements",
+                metadata={"statement_ids": statement_ids, "target_status": target_status},
+            )
             messages.success(request, f"Zmieniono status na „{status_labels[target_status]}”: {updated}.")
         else:
             messages.warning(request, "Nieznana akcja.")
@@ -846,6 +977,15 @@ def statement_center(request):
 
     statements, filters = _filtered_statements(request)
     if request.GET.get("export") == "xlsx":
+        if not request.user.has_perm("distribution.export_financial_data"):
+            raise PermissionDenied
+        record_audit_event(
+            AuditAction.EXPORT,
+            "Wyeksportowano liste statementow XLSX.",
+            request=request,
+            module="statements",
+            metadata={"filters": filters},
+        )
         return _statement_center_export_xlsx(statements, filters)
 
     statement_list = list(statements[:300])
@@ -1002,6 +1142,8 @@ def reports(request):
 @login_required
 @require_POST
 def title_catalog_export(request):
+    if not request.user.has_perm("distribution.export_financial_data"):
+        raise PermissionDenied
     form = TitleCatalogExportForm(request.POST)
     if not form.is_valid():
         errors = " ".join(error for field_errors in form.errors.values() for error in field_errors)
@@ -1017,6 +1159,13 @@ def title_catalog_export(request):
         title_ids,
         date_from=form.cleaned_data["date_from"],
         date_to=form.cleaned_data["date_to"],
+    )
+    record_audit_event(
+        AuditAction.EXPORT,
+        "Wyeksportowano dane 360 tytulow.",
+        request=request,
+        module="finance",
+        metadata={"title_ids": title_ids, "format": form.cleaned_data["export_format"]},
     )
     stamp = timezone.localdate().isoformat()
     if form.cleaned_data["export_format"] == "csv_zip":
@@ -1034,8 +1183,17 @@ def title_catalog_export(request):
 
 @login_required
 def reports_export_csv(request):
+    if not request.user.has_perm("distribution.export_financial_data"):
+        raise PermissionDenied
     filters = _report_filters(request)
     export_format = request.GET.get("format", "csv")
+    record_audit_event(
+        AuditAction.EXPORT,
+        "Wyeksportowano raport finansowy.",
+        request=request,
+        module="finance",
+        metadata={"filters": filters, "format": export_format, "section": request.GET.get("section", "sales")},
+    )
     if export_format == "xlsx":
         return _reports_export_xlsx(filters)
     if request.GET.get("section") == "waterfall":

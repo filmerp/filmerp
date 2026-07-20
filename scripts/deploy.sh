@@ -32,10 +32,13 @@ fi
 echo "FILMERP: odswiezam role uzytkownikow..."
 "${compose[@]}" exec -T web python manage.py setup_roles
 
+echo "FILMERP: uzupelniam historie dotychczasowych operacji administracyjnych..."
+"${compose[@]}" exec -T web python manage.py import_legacy_admin_log
+
 echo "FILMERP: sprawdzam aplikacje..."
 "${compose[@]}" exec -T web python manage.py check
 
 echo "FILMERP: status uslug:"
 "${compose[@]}" ps
 
-echo "Gotowe: https://app.filmerp.pl/admin/"
+echo "Gotowe: https://app.filmerp.pl/"

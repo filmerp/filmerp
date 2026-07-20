@@ -1,0 +1,7 @@
+{% if page.paginator.num_pages > 1 %}
+<nav class="security-pagination" aria-label="Stronicowanie">
+  {% if page.has_previous %}<a href="?page={{ page.previous_page_number }}&{{ request.GET.urlencode }}">Poprzednia</a>{% endif %}
+  <span>Strona {{ page.number }} z {{ page.paginator.num_pages }}</span>
+  {% if page.has_next %}<a href="?page={{ page.next_page_number }}&{{ request.GET.urlencode }}">Następna</a>{% endif %}
+</nav>
+{% endif %}

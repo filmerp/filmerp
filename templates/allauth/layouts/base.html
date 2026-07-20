@@ -1,0 +1,41 @@
+{% load static %}
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block head_title %}Konto{% endblock %} | FILMERP</title>
+  {% include "distribution/_app_icons.html" %}
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+  <link rel="stylesheet" href="{% static 'distribution/account-security.css' %}">
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="{% if user.is_authenticated %}account-manage-shell{% else %}account-entrance-shell{% endif %}">
+  {% if user.is_authenticated %}
+    {% include "distribution/_app_header.html" %}
+    <main class="account-security-main">
+      <header class="account-security-heading"><h1>Bezpieczeństwo konta</h1><p>Hasło, uwierzytelnianie dwuetapowe i aktywne sesje.</p></header>
+      <nav class="account-security-tabs">
+        <a href="{% url 'account_change_password' %}" class="{% if request.resolver_match.url_name == 'account_change_password' %}active{% endif %}">Hasło</a>
+        <a href="{% url 'mfa_index' %}" class="{% if 'mfa_' in request.resolver_match.url_name %}active{% endif %}">MFA</a>
+        <a href="{% url 'usersessions_list' %}" class="{% if request.resolver_match.url_name == 'usersessions_list' %}active{% endif %}">Sesje</a>
+      </nav>
+  {% else %}
+    <main class="account-entrance-main">
+      <section class="account-login-panel">
+        <div class="account-login-brand">{% include "distribution/_filmerp_logo.html" with logo_class="account-login-logo" %}</div>
+  {% endif %}
+
+  {% if messages %}<div class="account-messages">{% for message in messages %}<div class="{{ message.tags }}">{{ message }}</div>{% endfor %}</div>{% endif %}
+  {% block body %}{% block content %}{% endblock %}{% endblock %}
+
+  {% if user.is_authenticated %}
+    </main>
+  {% else %}
+      </section>
+    </main>
+  {% endif %}
+  {% block extra_body %}{% endblock %}
+</body>
+</html>
+

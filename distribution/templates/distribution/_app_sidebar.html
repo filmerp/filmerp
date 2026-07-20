@@ -63,20 +63,29 @@
       <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#database"></use></svg>
       <span class="sidebar-label">Panel administracyjny</span>
     </a>
-    {% if perms.auth.view_user %}
-      <a class="sidebar-link {% if 'auth_user' in current or 'auth_group' in current %}active{% endif %}" href="{% url 'admin:auth_user_changelist' %}" data-tooltip="Użytkownicy i role" {% if 'auth_user' in current or 'auth_group' in current %}aria-current="page"{% endif %}>
-        <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#users"></use></svg>
-        <span class="sidebar-label">Użytkownicy i role</span>
-      </a>
+    {% if perms.distribution.manage_users or perms.distribution.view_security_log or perms.distribution.view_business_audit %}
+      <details class="sidebar-menu-group" {% if request.resolver_match.namespace == 'security' %}open{% endif %}>
+        <summary class="sidebar-link {% if request.resolver_match.namespace == 'security' %}active{% endif %}" data-tooltip="Użytkownicy i bezpieczeństwo">
+          <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#shield-check"></use></svg>
+          <span class="sidebar-label">Użytkownicy i bezpieczeństwo</span>
+        </summary>
+        <div class="sidebar-subnav">
+          {% if perms.distribution.manage_users %}<a class="sidebar-sublink {% if current == 'account_list' or current == 'account_create' or current == 'account_detail' or current == 'account_edit' %}active{% endif %}" href="{% url 'security:account_list' %}">Konta</a>{% endif %}
+          {% if perms.distribution.manage_users %}<a class="sidebar-sublink {% if current == 'role_list' or current == 'role_detail' %}active{% endif %}" href="{% url 'security:role_list' %}">Role i uprawnienia</a>{% endif %}
+          {% if perms.distribution.view_security_log %}<a class="sidebar-sublink {% if current == 'login_history' %}active{% endif %}" href="{% url 'security:login_history' %}">Historia logowań</a>{% endif %}
+          {% if perms.distribution.view_business_audit %}<a class="sidebar-sublink {% if current == 'audit_history' %}active{% endif %}" href="{% url 'security:audit_history' %}">Historia zmian</a>{% endif %}
+        </div>
+      </details>
     {% endif %}
     {% if request.user.has_usable_password %}
-      <a class="sidebar-link {% if current == 'password_change' or current == 'password_change_done' %}active{% endif %}" href="{% url 'admin:password_change' %}" data-tooltip="Zmień hasło" {% if current == 'password_change' or current == 'password_change_done' %}aria-current="page"{% endif %}>
+      <a class="sidebar-link {% if current == 'account_change_password' %}active{% endif %}" href="{% url 'account_change_password' %}" data-tooltip="Zmień hasło" {% if current == 'account_change_password' %}aria-current="page"{% endif %}>
         <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#lock-keyhole"></use></svg>
         <span class="sidebar-label">Zmień hasło</span>
       </a>
     {% endif %}
-    <form class="sidebar-logout-form" method="post" action="{% url 'admin:logout' %}">
+    <form class="sidebar-logout-form" method="post" action="{% url 'account_logout' %}">
       {% csrf_token %}
+      <input type="hidden" name="logout_reason" value="manual">
       <button class="sidebar-link sidebar-logout-button" type="submit" data-tooltip="Wyloguj">
         <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#log-out"></use></svg>
         <span class="sidebar-label">Wyloguj</span>

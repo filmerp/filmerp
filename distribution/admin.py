@@ -2,6 +2,8 @@ from urllib.parse import parse_qsl, urlencode as encode_query, urlsplit, urlunsp
 
 from django import forms
 from django.contrib import admin, messages
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.core.exceptions import ValidationError
 from django.db.models import Sum
 from django.http import HttpResponse
@@ -15,6 +17,7 @@ from .cinema_imports import approve_import_rows, parse_cinema_report_import
 from .forms import COST_ALLOCATION_FIELD_NAMES, CostScopeFormMixin
 from .models import (
     AcquisitionAgreement,
+    AuditAction,
     CinemaBooking,
     CinemaReportImport,
     CinemaReportImportRow,
@@ -39,10 +42,19 @@ from .models import (
     WaterfallStep,
 )
 from .waterfall_engine import calculate_waterfall_run, finalize_waterfall_run
+from .security import record_audit_event
+
+from allauth.account.models import EmailAddress
+from allauth.mfa.models import Authenticator
+from allauth.usersessions.models import UserSession
 
 admin.site.site_header = "Panel administracyjny"
 admin.site.site_title = "Panel administracyjny"
 admin.site.index_title = "Panel administracyjny"
+
+for internal_model in (get_user_model(), Group, EmailAddress, Authenticator, UserSession):
+    if admin.site.is_registered(internal_model):
+        admin.site.unregister(internal_model)
 
 
 class FilmerpModelAdmin(admin.ModelAdmin):
@@ -469,11 +481,16 @@ def parse_selected_cinema_report_imports(modeladmin, request, queryset):
         except ValueError as exc:
             messages.warning(request, f"Pominieto {report_import}: {exc}")
     messages.success(request, f"Rozpoznano wiersze do weryfikacji: {parsed}.")
+    record_audit_event(AuditAction.IMPORT, f"Rozpoznano {parsed} wierszy raportow kinowych.", request=request, module="cinema_reports", metadata={"import_ids": list(queryset.values_list("pk", flat=True))})
 
 
 @admin.action(description="Zaakceptuj zweryfikowane wiersze i utworz bookingi")
 def approve_selected_cinema_import_rows(modeladmin, request, queryset):
+    if not request.user.has_perm("distribution.approve_cinema_reports"):
+        from django.core.exceptions import PermissionDenied
+        raise PermissionDenied
     imported, skipped = approve_import_rows(queryset)
+    record_audit_event(AuditAction.APPROVE, f"Zatwierdzono {imported} wierszy raportow kinowych.", request=request, module="cinema_reports", metadata={"imported": imported, "skipped": skipped})
     if skipped:
         messages.warning(request, f"Zaimportowano {imported}, pominieto {skipped}. Wiersze pominiete wymagaja tytulu, kina i dat.")
     else:
@@ -482,8 +499,12 @@ def approve_selected_cinema_import_rows(modeladmin, request, queryset):
 
 @admin.action(description="Zaakceptuj wszystkie poprawne wiersze z importu i utworz bookingi")
 def approve_all_valid_rows_for_selected_imports(modeladmin, request, queryset):
+    if not request.user.has_perm("distribution.approve_cinema_reports"):
+        from django.core.exceptions import PermissionDenied
+        raise PermissionDenied
     rows = CinemaReportImportRow.objects.filter(report_import__in=queryset)
     imported, skipped = approve_import_rows(rows)
+    record_audit_event(AuditAction.APPROVE, f"Zatwierdzono {imported} wierszy raportow kinowych.", request=request, module="cinema_reports", metadata={"import_ids": list(queryset.values_list("pk", flat=True)), "imported": imported, "skipped": skipped})
     if skipped:
         messages.warning(request, f"Zaimportowano {imported}, pominieto {skipped}. Pominiete wiersze wymagaja poprawy danych albo byly juz zaimportowane.")
     else:
@@ -734,6 +755,9 @@ class WaterfallRunAdmin(FilmerpModelAdmin):
 
     @admin.action(description="Zatwierdź zaznaczone rozliczenia okresów")
     def finalize_selected(self, request, queryset):
+        if not request.user.has_perm("distribution.finalize_waterfalls"):
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied
         count = 0
         for run in queryset.filter(status=WaterfallRunStatus.DRAFT):
             if not run.calculated_at:
@@ -741,6 +765,7 @@ class WaterfallRunAdmin(FilmerpModelAdmin):
             finalize_waterfall_run(run, request.user)
             count += 1
         messages.success(request, f"Zatwierdzono rozliczenia okresów: {count}.")
+        record_audit_event(AuditAction.FINALIZE, f"Sfinalizowano {count} rozliczen waterfall.", request=request, module="waterfall", metadata={"run_ids": list(queryset.values_list("pk", flat=True))})
 
 
 @admin.register(WaterfallRunLine)
@@ -787,6 +812,9 @@ class RoyaltyStatementAdmin(FilmerpModelAdmin):
 
     @admin.action(description="Wygeneruj PDF royalty statement")
     def generate_pdf_for_selected(self, request, queryset):
+        if not request.user.has_perm("distribution.generate_statements"):
+            from django.core.exceptions import PermissionDenied
+            raise PermissionDenied
         count = 0
         for statement in queryset:
             statement.freeze_calculation(lock=True)
@@ -794,6 +822,7 @@ class RoyaltyStatementAdmin(FilmerpModelAdmin):
             statement.statement_file.save(pdf_file.name, pdf_file, save=True)
             count += 1
         messages.success(request, f"Wygenerowano PDF dla statementow: {count}.")
+        record_audit_event(AuditAction.EXPORT, f"Wygenerowano {count} plikow PDF statementow.", request=request, module="statements", metadata={"statement_ids": list(queryset.values_list("pk", flat=True)), "format": "pdf"})
 
     @admin.display(description="Gross Receipts / przychody brutto")
     def gross_revenue_display(self, obj):

@@ -1,0 +1,7 @@
+{% extends "security/base.html" %}
+{% block title %}Wymagane MFA{% endblock %}
+{% block heading %}Zabezpiecz konto{% endblock %}
+{% block lead %}Ta rola wymaga logowania dwuetapowego.{% endblock %}
+{% block content %}
+<section class="mfa-onboarding"><h2>Skonfiguruj aplikację uwierzytelniającą</h2><ol><li>Otwórz Microsoft Authenticator, Google Authenticator lub 1Password.</li><li>Zeskanuj kod QR wyświetlony w następnym kroku.</li><li>Zapisz kody zapasowe poza komputerem.</li></ol><a class="button" href="{% url 'mfa_activate_totp' %}">Rozpocznij konfigurację MFA</a></section>
+{% endblock %}

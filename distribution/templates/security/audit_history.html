@@ -1,0 +1,17 @@
+{% extends "security/base.html" %}
+{% block title %}Historia zmian{% endblock %}
+{% block heading %}Historia zmian{% endblock %}
+{% block lead %}Kto, kiedy i co zmienił, łącznie z importami, eksportami i operacjami finansowymi.{% endblock %}
+{% block heading_actions %}{% if perms.distribution.export_audit_log %}<div class="export-actions"><a class="button secondary" href="?{{ request.GET.urlencode }}&format=csv">CSV</a><a class="button secondary" href="?{{ request.GET.urlencode }}&format=xlsx">XLSX</a></div>{% endif %}{% endblock %}
+{% block content %}
+<form class="security-filter" method="get">
+  <label>Użytkownik<select name="user"><option value="">Wszyscy</option>{% for user in users %}<option value="{{ user.pk }}" {% if request.GET.user == user.pk|stringformat:'s' %}selected{% endif %}>{{ user.username }}</option>{% endfor %}</select></label>
+  <label>Akcja<select name="action"><option value="">Wszystkie</option>{% for value, label in actions %}<option value="{{ value }}" {% if request.GET.action == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <label>Modul<select name="module"><option value="">Wszystkie</option>{% for module in modules %}<option value="{{ module }}" {% if request.GET.module == module %}selected{% endif %}>{{ module }}</option>{% endfor %}</select></label>
+  <label>Szukaj<input type="search" name="q" value="{{ request.GET.q }}" placeholder="obiekt lub opis"></label><label>Od<input type="date" name="date_from" value="{{ request.GET.date_from }}"></label><label>Do<input type="date" name="date_to" value="{{ request.GET.date_to }}"></label>
+  <button type="submit">Szukaj</button><a class="button secondary" href="{% url 'security:audit_history' %}">Wyczyść</a>
+</form>
+<section class="security-section"><div class="security-section-title"><h2>Zdarzenia</h2><span>{{ page.paginator.count }} rekordów</span></div><div class="security-table-wrap"><table class="security-table"><thead><tr><th>Czas</th><th>Użytkownik</th><th>Akcja</th><th>Moduł</th><th>Obiekt</th><th>Szczegóły</th><th>Źródło</th><th>Integralność</th></tr></thead><tbody>
+{% for row in page %}<tr><td>{{ row.timestamp|date:"d.m.Y H:i:s" }}</td><td>{{ row.actor|default:"System" }}</td><td><span class="security-tag">{{ row.action }}</span></td><td>{{ row.module }}</td><td>{{ row.object|default:"-" }}</td><td><details class="change-detail"><summary>{{ row.summary }}</summary><pre>{{ row.changes }}</pre><small>Request ID: {{ row.request_id|default:"-" }} · IP: {{ row.ip|default:"-" }}</small></details></td><td>{{ row.source }}</td><td>{% if row.integrity_ok is None %}<span title="Wpis biblioteki audytowej">system</span>{% elif row.integrity_ok %}<span class="status-pill ok">OK</span>{% else %}<span class="status-pill off">Naruszona</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="8" class="empty-cell">Brak zdarzen.</td></tr>{% endfor %}
+</tbody></table></div>{% include "security/_pagination.html" with page=page %}</section>
+{% endblock %}

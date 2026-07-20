@@ -496,7 +496,7 @@ class SettlementWorkflowTests(TestCase):
         self.assertNotContains(response, "FILMERP Panel Główny")
         self.assertContains(response, 'class="app-sidebar"')
         self.assertContains(response, "Panel administracyjny")
-        self.assertContains(response, "Użytkownicy i role")
+        self.assertContains(response, "Użytkownicy i bezpieczeństwo")
         self.assertContains(response, "Zmień hasło")
         self.assertContains(response, 'class="sidebar-logout-form"')
         self.assertContains(response, "Wyloguj")
@@ -507,10 +507,10 @@ class SettlementWorkflowTests(TestCase):
         self.assertContains(response, "distribution/filmerp-logo.svg")
         self.assertNotContains(response, "filter=id")
 
-        users_response = self.client.get(reverse("admin:auth_user_changelist"))
+        users_response = self.client.get(reverse("security:account_list"))
         self.assertEqual(users_response.status_code, 200)
-        self.assertContains(users_response, '<span class="filmerp-admin-page-title">Użytkownicy i role</span>', html=True)
-        self.assertContains(users_response, "<h1>Użytkownicy i role</h1>", html=True)
+        self.assertContains(users_response, "Użytkownicy i bezpieczeństwo")
+        self.assertContains(users_response, "Konta użytkowników")
 
     def test_login_always_opens_dashboard_even_with_admin_next(self):
         self.client.logout()

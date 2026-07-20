@@ -1,0 +1,39 @@
+{% extends "security/base.html" %}
+{% block title %}Konta użytkowników{% endblock %}
+{% block heading %}Konta użytkowników{% endblock %}
+{% block lead %}Aktywność, role, MFA i sesje w jednym miejscu.{% endblock %}
+{% block heading_actions %}<a class="button" href="{% url 'security:account_create' %}">Dodaj użytkownika</a>{% endblock %}
+{% block content %}
+<form class="security-filter" method="get">
+  <label>Szukaj<input type="search" name="q" value="{{ query }}" placeholder="nazwa, e-mail, imię"></label>
+  <label>Rola<select name="role"><option value="">Wszystkie</option>{% for role in roles %}<option value="{{ role.name }}" {% if selected_role == role.name %}selected{% endif %}>{{ role.name }}</option>{% endfor %}</select></label>
+  <label>Status<select name="status"><option value="">Wszystkie</option><option value="active" {% if selected_status == 'active' %}selected{% endif %}>Aktywne</option><option value="invited" {% if selected_status == 'invited' %}selected{% endif %}>Zaproszone</option><option value="inactive" {% if selected_status == 'inactive' %}selected{% endif %}>Nieaktywne</option></select></label>
+  <label>MFA<select name="mfa"><option value="">Wszystkie</option><option value="enabled" {% if selected_mfa == 'enabled' %}selected{% endif %}>Włączone</option><option value="disabled" {% if selected_mfa == 'disabled' %}selected{% endif %}>Wyłączone</option></select></label>
+  <button type="submit">Szukaj</button>
+  <a class="button secondary" href="{% url 'security:account_list' %}">Wyczyść</a>
+</form>
+
+<section class="security-section">
+  <div class="security-section-title"><h2>Lista kont</h2><span>{{ page.paginator.count }} rekordów</span></div>
+  <div class="security-table-wrap">
+    <table class="security-table">
+      <thead><tr><th>Użytkownik</th><th>E-mail</th><th>Role</th><th>Ostatnie logowanie</th><th>MFA</th><th>Sesje</th><th>Status</th><th class="actions">Akcje</th></tr></thead>
+      <tbody>
+      {% for row in page %}
+        <tr>
+          <td><a href="{% url 'security:account_detail' row.user.pk %}"><strong>{{ row.user.get_full_name|default:row.user.username }}</strong></a><small>{{ row.user.username }}</small></td>
+          <td>{{ row.user.email|default:"-" }}</td>
+          <td>{% if row.user.is_superuser %}<span class="security-tag">administrator</span>{% else %}{% for role in row.roles %}<span class="security-tag">{{ role.name }}</span>{% empty %}-{% endfor %}{% endif %}</td>
+          <td>{{ row.user.last_login|date:"d.m.Y H:i"|default:"Nigdy" }}</td>
+          <td><span class="status-pill {% if row.mfa_enabled %}ok{% elif row.mfa_required %}warn{% endif %}">{% if row.mfa_enabled %}Aktywne{% elif row.mfa_required %}Wymagane{% else %}Opcjonalne{% endif %}</span></td>
+          <td>{{ row.session_count }}</td>
+          <td><span class="status-pill {% if not row.user.is_active %}off{% elif row.is_invited %}warn{% else %}ok{% endif %}">{% if not row.user.is_active %}Nieaktywne{% elif row.is_invited %}Zaproszone{% else %}Aktywne{% endif %}</span></td>
+          <td class="actions"><a class="icon-action" href="{% url 'security:account_detail' row.user.pk %}" aria-label="Szczegóły" title="Szczegóły">&#8594;</a></td>
+        </tr>
+      {% empty %}<tr><td colspan="8" class="empty-cell">Brak kont spełniających kryteria.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% include "security/_pagination.html" with page=page %}
+</section>
+{% endblock %}

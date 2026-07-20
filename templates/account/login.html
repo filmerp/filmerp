@@ -1,0 +1,16 @@
+{% extends "account/base_entrance.html" %}
+{% block head_title %}Logowanie{% endblock %}
+{% block content %}
+<h1>Zaloguj się</h1>
+<p class="account-login-lead">Wprowadź dane swojego konta FILMERP.</p>
+<form method="post" action="{% url 'account_login' %}" class="account-login-form">
+  {% csrf_token %}
+  {% if form.non_field_errors %}<div class="account-form-error">Nazwa użytkownika lub hasło są nieprawidłowe.</div>{% endif %}
+  <label>Nazwa użytkownika{{ form.login }}{% if form.login.errors %}<span>{{ form.login.errors|striptags }}</span>{% endif %}</label>
+  <label>Hasło{{ form.password }}{% if form.password.errors %}<span>{{ form.password.errors|striptags }}</span>{% endif %}</label>
+  {{ redirect_field }}
+  <button type="submit">Zaloguj się</button>
+</form>
+<a class="account-reset-link" href="{% url 'account_reset_password' %}">Nie pamiętam hasła</a>
+{% endblock %}
+

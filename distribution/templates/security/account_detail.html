@@ -1,0 +1,56 @@
+{% extends "security/base.html" %}
+{% block title %}{{ account.username }}{% endblock %}
+{% block heading %}{{ account.get_full_name|default:account.username }}{% endblock %}
+{% block lead %}{{ account.email|default:"Brak adresu e-mail" }}{% endblock %}
+{% block heading_actions %}<a class="button" href="{% url 'security:account_edit' account.pk %}">Edytuj konto</a>{% endblock %}
+{% block content %}
+<section class="account-summary">
+  <div><span>Status</span><strong>{% if account.is_active %}Aktywne{% else %}Nieaktywne{% endif %}</strong></div>
+  <div><span>Role</span><strong>{% for role in account.groups.all %}{{ role.name }}{% if not forloop.last %}, {% endif %}{% empty %}Brak{% endfor %}</strong></div>
+  <div><span>Ostatnie logowanie</span><strong>{{ account.last_login|date:"d.m.Y H:i"|default:"Nigdy" }}</strong></div>
+  <div><span>Ostatnia aktywność</span><strong>{{ account.security_profile.last_activity_at|date:"d.m.Y H:i"|default:"Brak" }}</strong></div>
+</section>
+
+<section class="security-section">
+  <div class="security-section-title"><h2>Zabezpieczenia</h2></div>
+  <dl class="security-definition-list">
+    <div><dt>MFA wymagane</dt><dd>{% if account.security_profile.mfa_required %}Tak{% else %}Nie{% endif %}</dd></div>
+    <div><dt>Aktywne metody MFA</dt><dd>{% for item in mfa_authenticators %}{{ item.get_type_display }}{% if not forloop.last %}, {% endif %}{% empty %}Brak{% endfor %}</dd></div>
+    <div><dt>Ostatni adres IP</dt><dd>{{ account.security_profile.last_login_ip|default:"Brak" }}</dd></div>
+    <div><dt>Data utworzenia</dt><dd>{{ account.date_joined|date:"d.m.Y H:i" }}</dd></div>
+    <div><dt>Ostatnie zaproszenie</dt><dd>{{ account.security_profile.invitation_sent_at|date:"d.m.Y H:i"|default:"Brak" }}</dd></div>
+  </dl>
+  <div class="security-action-row">
+    <form method="post" action="{% url 'security:account_action' account.pk %}">{% csrf_token %}<input type="hidden" name="action" value="reset_password"><button class="secondary" type="submit">Wyślij reset hasła</button></form>
+    <form method="post" action="{% url 'security:account_action' account.pk %}">{% csrf_token %}<input type="hidden" name="action" value="unlock"><button class="secondary" type="submit">Odblokuj logowanie</button></form>
+    <form method="post" action="{% url 'security:account_action' account.pk %}">{% csrf_token %}<input type="hidden" name="action" value="reset_mfa"><button class="warning" type="submit" onclick="return confirm('Zresetować MFA i zakończyć sesje tego konta?')">Resetuj MFA</button></form>
+    <form method="post" action="{% url 'security:account_action' account.pk %}">{% csrf_token %}<input type="hidden" name="action" value="revoke_sessions"><button class="warning" type="submit" onclick="return confirm('Zakończyć wszystkie aktywne sesje?')">Zakończ sesje</button></form>
+  </div>
+</section>
+
+<section class="security-section">
+  <div class="security-section-title"><h2>Aktywne sesje</h2><span>{{ sessions|length }}</span></div>
+  <div class="security-table-wrap"><table class="security-table"><thead><tr><th>Urzadzenie</th><th>Przegladarka</th><th>System</th><th>IP</th><th>Utworzona</th><th>Ostatnia aktywnosc</th></tr></thead><tbody>
+  {% for row in sessions %}<tr><td>{{ row.device|default:"Nieznane" }}</td><td>{{ row.browser|default:"-" }}</td><td>{{ row.operating_system|default:"-" }}</td><td>{{ row.session.ip }}</td><td>{{ row.session.created_at|date:"d.m.Y H:i" }}</td><td>{{ row.session.last_seen_at|date:"d.m.Y H:i" }}</td></tr>{% empty %}<tr><td colspan="6" class="empty-cell">Brak aktywnych sesji.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+
+<div class="security-two-columns">
+  <section class="security-section"><div class="security-section-title"><h2>Ostatnie logowania</h2><a href="{% url 'security:login_history' %}?user={{ account.pk }}">Pelna historia</a></div>
+    <ol class="event-list">{% for event in login_events %}<li><span class="event-dot {{ event.result }}"></span><div><strong>{{ event.get_event_type_display }}</strong><small>{{ event.occurred_at|date:"d.m.Y H:i" }} · {{ event.ip_address|default:"brak IP" }}</small></div></li>{% empty %}<li>Brak zdarzen.</li>{% endfor %}</ol>
+  </section>
+  <section class="security-section"><div class="security-section-title"><h2>Ostatnie operacje</h2><a href="{% url 'security:audit_history' %}?user={{ account.pk }}">Pelna historia</a></div>
+    <ol class="event-list">{% for event in audit_events %}<li><span class="event-dot success"></span><div><strong>{{ event.summary }}</strong><small>{{ event.occurred_at|date:"d.m.Y H:i" }} · {{ event.module }}</small></div></li>{% empty %}<li>Brak zdarzen.</li>{% endfor %}</ol>
+  </section>
+</div>
+
+<section class="security-danger-zone">
+  <h2>{% if account.is_active %}Dezaktywacja konta{% else %}Konto nieaktywne{% endif %}</h2>
+  {% if account.is_active %}
+    <form method="post" action="{% url 'security:account_action' account.pk %}">{% csrf_token %}<input type="hidden" name="action" value="deactivate">{{ deactivate_form.reason.label_tag }}{{ deactivate_form.reason }}<button class="danger" type="submit" onclick="return confirm('Dezaktywować konto i zakończyć jego sesje?')">Dezaktywuj konto</button></form>
+  {% else %}
+    <p>{{ account.security_profile.deactivation_reason|default:"Nie podano powodu." }}</p>
+    <form method="post" action="{% url 'security:account_action' account.pk %}">{% csrf_token %}<input type="hidden" name="action" value="reactivate"><button type="submit">Reaktywuj konto</button></form>
+  {% endif %}
+</section>
+{% endblock %}

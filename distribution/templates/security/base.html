@@ -1,0 +1,38 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Użytkownicy i bezpieczeństwo{% endblock %} | FILMERP</title>
+  {% include "distribution/_app_icons.html" %}
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+  <link rel="stylesheet" href="{% static 'distribution/security.css' %}">
+</head>
+<body>
+{% include "distribution/_app_header.html" %}
+<main class="security-main">
+  {% if messages %}
+    <div class="security-messages" aria-live="polite">
+      {% for message in messages %}<div class="security-message {{ message.tags }}">{{ message }}</div>{% endfor %}
+    </div>
+  {% endif %}
+  <header class="security-heading">
+    <div>
+      <h1>{% block heading %}Użytkownicy i bezpieczeństwo{% endblock %}</h1>
+      <p>{% block lead %}Konta, dostęp i pełna historia operacji w FILMERP.{% endblock %}</p>
+    </div>
+    {% block heading_actions %}{% endblock %}
+  </header>
+  {% if perms.distribution.manage_users or perms.distribution.view_security_log or perms.distribution.view_business_audit %}
+    <nav class="security-tabs" aria-label="Użytkownicy i bezpieczeństwo">
+      {% if perms.distribution.manage_users %}<a href="{% url 'security:account_list' %}" class="{% if request.resolver_match.url_name == 'account_list' or request.resolver_match.url_name == 'account_create' or request.resolver_match.url_name == 'account_detail' or request.resolver_match.url_name == 'account_edit' %}active{% endif %}">Konta</a>{% endif %}
+      {% if perms.distribution.manage_users %}<a href="{% url 'security:role_list' %}" class="{% if request.resolver_match.url_name == 'role_list' or request.resolver_match.url_name == 'role_detail' %}active{% endif %}">Role i uprawnienia</a>{% endif %}
+      {% if perms.distribution.view_security_log %}<a href="{% url 'security:login_history' %}" class="{% if request.resolver_match.url_name == 'login_history' %}active{% endif %}">Historia logowań</a>{% endif %}
+      {% if perms.distribution.view_business_audit %}<a href="{% url 'security:audit_history' %}" class="{% if request.resolver_match.url_name == 'audit_history' %}active{% endif %}">Historia zmian</a>{% endif %}
+    </nav>
+  {% endif %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

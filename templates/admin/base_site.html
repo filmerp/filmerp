@@ -78,6 +78,9 @@
     min-height: var(--topbar-height);
     padding-block: 0;
     padding-inline: 28px;
+    border-bottom: 1px solid #c3c4c7;
+    background: #fff;
+    color: #1d2327;
     position: sticky;
     z-index: 900;
     top: 0;
@@ -107,9 +110,9 @@
   body.filmerp-admin-shell .form-row {
     padding-block: 8px;
   }
-  #header a:link,
-  #header a:visited {
-    color: #fff;
+  body.filmerp-admin-shell #header a:link,
+  body.filmerp-admin-shell #header a:visited {
+    color: #1d2327;
   }
   div.breadcrumbs {
     background: #2c3338;
@@ -146,20 +149,21 @@
     display: block;
     max-width: min(620px, 52vw);
     overflow: hidden;
-    color: #f0f0f1;
+    color: #1d2327;
     font-size: 15px;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .theme-toggle {
-    background: #1d2327 !important;
-    color: #f0f0f1 !important;
-    border-color: #50575e !important;
+  body.filmerp-admin-shell .theme-toggle {
+    background: #fff !important;
+    color: #1d2327 !important;
+    border-color: #c3c4c7 !important;
   }
-  .theme-toggle:hover,
-  .theme-toggle:focus {
-    background: #2c3338 !important;
+  body.filmerp-admin-shell .theme-toggle:hover,
+  body.filmerp-admin-shell .theme-toggle:focus {
+    background: #f0f6fc !important;
+    color: #0058f8 !important;
   }
   .theme-toggle svg {
     fill: currentColor !important;

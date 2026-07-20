@@ -539,6 +539,15 @@ class SettlementWorkflowTests(TestCase):
         })
         self.assertRedirects(response, reverse("distribution:dashboard"))
 
+    def test_account_login_has_minimal_content(self):
+        self.client.logout()
+        response = self.client.get(reverse("account_login"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Wprowadź dane swojego konta FILMERP.")
+        self.assertNotContains(response, "<h1>Zaloguj się</h1>", html=True)
+        self.assertContains(response, "Nazwa użytkownika")
+        self.assertContains(response, "Nie pamiętam hasła")
+
     def test_admin_filters_are_collapsed_and_legacy_waterfall_is_hidden(self):
         response = self.client.get(reverse("admin:distribution_salesreport_changelist"))
         self.assertEqual(response.status_code, 200)

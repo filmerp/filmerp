@@ -1,8 +1,6 @@
 {% extends "account/base_entrance.html" %}
 {% block head_title %}Logowanie{% endblock %}
 {% block content %}
-<h1>Zaloguj się</h1>
-<p class="account-login-lead">Wprowadź dane swojego konta FILMERP.</p>
 <form method="post" action="{% url 'account_login' %}" class="account-login-form">
   {% csrf_token %}
   {% if form.non_field_errors %}<div class="account-form-error">Nazwa użytkownika lub hasło są nieprawidłowe.</div>{% endif %}
@@ -13,4 +11,3 @@
 </form>
 <a class="account-reset-link" href="{% url 'account_reset_password' %}">Nie pamiętam hasła</a>
 {% endblock %}
-

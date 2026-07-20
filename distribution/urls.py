@@ -1,10 +1,26 @@
 from django.urls import path
 
-from .views import avails, contract_waterfall_wizard, dashboard, document_center, reports, reports_export_csv, session_keepalive, settlement_workbench, statement_center, title_catalog_export, title_detail, title_list, title_setup
+from .views import (
+    avails,
+    contract_waterfall_wizard,
+    dashboard,
+    document_center,
+    reports,
+    reports_export_csv,
+    session_keepalive,
+    settlement_workbench,
+    statement_center,
+    title_catalog_export,
+    title_detail,
+    title_list,
+    title_setup,
+    web_app_manifest,
+)
 
 app_name = "distribution"
 
 urlpatterns = [
+    path("manifest.webmanifest", web_app_manifest, name="web_app_manifest"),
     path("", dashboard, name="dashboard"),
     path("session/keepalive/", session_keepalive, name="session_keepalive"),
     path("titles/", title_list, name="title_list"),

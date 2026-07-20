@@ -1,7 +1,7 @@
 {% extends "admin/base.html" %}
 {% load i18n static %}
 
-{% block title %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:"Panel administracyjny" }}{% endblock %}
+{% block title %}{% if request.resolver_match.url_name == 'auth_user_changelist' or request.resolver_match.url_name == 'auth_group_changelist' %}Użytkownicy i role | {{ site_title|default:"Panel administracyjny" }}{% else %}{% if subtitle %}{{ subtitle }} | {% endif %}{{ title }} | {{ site_title|default:"Panel administracyjny" }}{% endif %}{% endblock %}
 
 {% block bodyclass %}{{ block.super }}{% if user.is_authenticated and not is_popup %} filmerp-shell filmerp-admin-shell{% endif %}{% endblock %}
 
@@ -15,13 +15,21 @@
 {% block branding %}
 <div id="site-name">
   {% if user.is_authenticated %}
-    <span class="filmerp-admin-page-title">{{ title|default:"Administracja" }}</span>
+    <span class="filmerp-admin-page-title">{% if 'auth_user' in request.resolver_match.url_name or 'auth_group' in request.resolver_match.url_name %}Użytkownicy i role{% else %}{{ title|default:"Administracja" }}{% endif %}</span>
   {% else %}
     <a href="{% url 'admin:index' %}" class="filmerp-admin-logo-link">
       {% include "distribution/_filmerp_logo.html" with logo_class="filmerp-admin-logo" %}
     </a>
   {% endif %}
 </div>
+{% endblock %}
+
+{% block content_title %}
+  {% if request.resolver_match.url_name == 'auth_user_changelist' or request.resolver_match.url_name == 'auth_group_changelist' %}
+    <h1>Użytkownicy i role</h1>
+  {% else %}
+    {{ block.super }}
+  {% endif %}
 {% endblock %}
 
 {% block extrastyle %}
@@ -70,6 +78,9 @@
     min-height: var(--topbar-height);
     padding-block: 0;
     padding-inline: 28px;
+    position: sticky;
+    z-index: 900;
+    top: 0;
   }
   body.filmerp-admin-shell #container {
     min-width: 0;
@@ -87,6 +98,11 @@
   }
   body.filmerp-admin-shell div.breadcrumbs {
     padding: 8px 28px;
+  }
+  body.filmerp-admin-shell #container > nav {
+    position: sticky;
+    z-index: 890;
+    top: var(--topbar-height);
   }
   body.filmerp-admin-shell .form-row {
     padding-block: 8px;
@@ -202,7 +218,7 @@
 
 {% block extrahead %}
 {{ block.super }}
-<link rel="icon" href="{% static 'distribution/filmerp-favicon.svg' %}" type="image/svg+xml">
+{% include "distribution/_app_icons.html" %}
 <link rel="stylesheet" href="{% static 'distribution/admin-ux.css' %}">
 <script src="{% static 'distribution/filmerp-sidebar.js' %}" defer></script>
 <script src="{% static 'distribution/admin-ux.js' %}?v=20260720-2" defer></script>

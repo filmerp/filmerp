@@ -389,6 +389,7 @@ class SettlementWorkflowTests(TestCase):
                 self.assertIn("lucide-sidebar", shell_html)
                 self.assertContains(response, "distribution/filmerp-sidebar.js")
                 self.assertContains(response, "distribution/filmerp-favicon.svg")
+                self.assertContains(response, reverse("distribution:web_app_manifest"))
                 self.assertContains(response, 'data-idle-timeout-ms="600000"')
                 self.assertContains(response, reverse("distribution:session_keepalive"))
 
@@ -405,6 +406,16 @@ class SettlementWorkflowTests(TestCase):
         response = self.client.post(reverse("distribution:session_keepalive"))
         self.assertEqual(response.status_code, 302)
         self.assertIn(settings.LOGIN_URL, response.url)
+
+    def test_web_app_manifest_uses_filmerp_icons(self):
+        response = self.client.get(reverse("distribution:web_app_manifest"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/manifest+json")
+        manifest = response.json()
+        self.assertEqual(manifest["name"], "FILMERP")
+        self.assertEqual(manifest["display"], "standalone")
+        self.assertEqual({icon["sizes"] for icon in manifest["icons"]}, {"any", "192x192", "512x512"})
+        self.assertTrue(any(icon["purpose"] == "maskable" for icon in manifest["icons"]))
 
     def test_dashboard_and_title_card_use_title_centric_workflow(self):
         response = self.client.get(reverse("distribution:dashboard"))
@@ -495,6 +506,11 @@ class SettlementWorkflowTests(TestCase):
         self.assertNotContains(response, 'id="user-tools"')
         self.assertContains(response, "distribution/filmerp-logo.svg")
         self.assertNotContains(response, "filter=id")
+
+        users_response = self.client.get(reverse("admin:auth_user_changelist"))
+        self.assertEqual(users_response.status_code, 200)
+        self.assertContains(users_response, '<span class="filmerp-admin-page-title">Użytkownicy i role</span>', html=True)
+        self.assertContains(users_response, "<h1>Użytkownicy i role</h1>", html=True)
 
     def test_login_always_opens_dashboard_even_with_admin_next(self):
         self.client.logout()

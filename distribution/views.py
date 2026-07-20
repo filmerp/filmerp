@@ -9,8 +9,9 @@ from django.contrib.auth.decorators import permission_required
 from django.contrib.auth.views import LoginView
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.templatetags.static import static as static_url
 from django.urls import reverse
 from django.utils.dateparse import parse_date
 from django.utils import timezone
@@ -74,6 +75,47 @@ class DashboardLoginView(LoginView):
 
     def get_success_url(self):
         return reverse("distribution:dashboard")
+
+
+def web_app_manifest(request):
+    return JsonResponse({
+        "id": reverse("distribution:dashboard"),
+        "name": "FILMERP",
+        "short_name": "FILMERP",
+        "description": "Zarządzanie dystrybucją filmową, prawami i rozliczeniami.",
+        "start_url": reverse("distribution:dashboard"),
+        "scope": reverse("distribution:dashboard"),
+        "display": "standalone",
+        "background_color": "#f0f0f1",
+        "theme_color": "#1d2327",
+        "icons": [
+            {
+                "src": static_url("distribution/filmerp-favicon.svg"),
+                "sizes": "any",
+                "type": "image/svg+xml",
+                "purpose": "any",
+            },
+            {
+                "src": static_url("distribution/filmerp-app-icon-192.png"),
+                "sizes": "192x192",
+                "type": "image/png",
+                "purpose": "any",
+            },
+            {
+                "src": static_url("distribution/filmerp-app-icon-512.png"),
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any",
+            },
+            {
+                "src": static_url("distribution/filmerp-app-icon-maskable-512.png"),
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "maskable",
+            },
+        ],
+        "prefer_related_applications": False,
+    }, content_type="application/manifest+json")
 
 
 @login_required

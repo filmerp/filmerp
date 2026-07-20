@@ -1,0 +1,113 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static log %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/css/dashboard.css' %}">
+  <link rel="stylesheet" href="{% static 'distribution/admin-dashboard.css' %}">
+{% endblock %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <script src="{% static 'distribution/admin-dashboard.js' %}" defer></script>
+{% endblock %}
+
+{% block coltype %}colM{% endblock %}
+{% block bodyclass %}{{ block.super }} dashboard{% endblock %}
+{% block nav-breadcrumbs %}{% endblock %}
+{% block nav-sidebar %}{% endblock %}
+{% block content_title %}{% endblock %}
+
+{% block content %}
+<div id="content-main" class="admin-hub" data-admin-hub>
+  <h1 class="visually-hidden">Panel administracyjny</h1>
+
+  <nav class="admin-hub-tabs" aria-label="Obszary administracji" role="tablist">
+    {% for app in app_list %}
+      {% if app.app_label == "distribution" %}
+        <button type="button" class="admin-hub-tab" id="admin-tab-{{ app.app_label }}" data-admin-tab="{{ app.app_label }}" aria-controls="admin-panel-{{ app.app_label }}" aria-selected="false" role="tab">Dystrybucja filmowa</button>
+      {% endif %}
+    {% endfor %}
+    {% for app in app_list %}
+      {% if app.app_label == "auditlog" %}
+        <button type="button" class="admin-hub-tab" id="admin-tab-{{ app.app_label }}" data-admin-tab="{{ app.app_label }}" aria-controls="admin-panel-{{ app.app_label }}" aria-selected="false" role="tab">Audit log</button>
+      {% endif %}
+    {% endfor %}
+    {% for app in app_list %}
+      {% if app.app_label == "axes" %}
+        <button type="button" class="admin-hub-tab" id="admin-tab-{{ app.app_label }}" data-admin-tab="{{ app.app_label }}" aria-controls="admin-panel-{{ app.app_label }}" aria-selected="false" role="tab">Axes</button>
+      {% endif %}
+    {% endfor %}
+    {% for app in app_list %}
+      {% if app.app_label != "distribution" and app.app_label != "auditlog" and app.app_label != "axes" %}
+        <button type="button" class="admin-hub-tab" id="admin-tab-{{ app.app_label }}" data-admin-tab="{{ app.app_label }}" aria-controls="admin-panel-{{ app.app_label }}" aria-selected="false" role="tab">{{ app.name }}</button>
+      {% endif %}
+    {% endfor %}
+  </nav>
+
+  <div class="admin-hub-panels">
+    {% for app in app_list %}
+      {% if app.app_label == "distribution" %}{% include "admin/_app_hub_panel.html" with app=app %}{% endif %}
+    {% endfor %}
+    {% for app in app_list %}
+      {% if app.app_label == "auditlog" %}{% include "admin/_app_hub_panel.html" with app=app %}{% endif %}
+    {% endfor %}
+    {% for app in app_list %}
+      {% if app.app_label == "axes" %}{% include "admin/_app_hub_panel.html" with app=app %}{% endif %}
+    {% endfor %}
+    {% for app in app_list %}
+      {% if app.app_label != "distribution" and app.app_label != "auditlog" and app.app_label != "axes" %}{% include "admin/_app_hub_panel.html" with app=app %}{% endif %}
+    {% empty %}
+      <section class="admin-hub-panel admin-hub-empty">
+        <p>{% translate "You don’t have permission to view or edit anything." %}</p>
+      </section>
+    {% endfor %}
+  </div>
+
+  <section class="admin-hub-panel admin-hub-recent" aria-labelledby="recent-actions-title">
+    <header class="admin-hub-panel-heading">
+      <div>
+        <h2 id="recent-actions-title">Ostatnie działania</h2>
+        <p>Ostatnie zmiany wykonane przez Ciebie w panelu administracyjnym.</p>
+      </div>
+    </header>
+    {% get_admin_log 10 as admin_log for_user user %}
+    <div class="admin-hub-table-wrap">
+      <table class="admin-hub-table admin-hub-history">
+        <thead>
+          <tr>
+            <th scope="col">Działanie</th>
+            <th scope="col">Pozycja</th>
+            <th scope="col">Moduł</th>
+            <th scope="col">Czas</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for entry in admin_log %}
+            <tr>
+              <td>
+                <span class="admin-event admin-event-{% if entry.is_addition %}add{% elif entry.is_change %}change{% else %}delete{% endif %}">
+                  {% if entry.is_addition %}Dodano{% elif entry.is_change %}Zmieniono{% elif entry.is_deletion %}Usunięto{% else %}Działanie{% endif %}
+                </span>
+              </td>
+              <td>
+                {% if entry.is_deletion or not entry.get_admin_url %}
+                  {{ entry.object_repr }}
+                {% else %}
+                  <a href="{{ entry.get_admin_url }}">{{ entry.object_repr }}</a>
+                {% endif %}
+              </td>
+              <td>{% if entry.content_type %}{{ entry.content_type.name|capfirst }}{% else %}-{% endif %}</td>
+              <td class="admin-hub-time">{{ entry.action_time|date:"d.m.Y H:i" }}</td>
+            </tr>
+          {% empty %}
+            <tr><td class="admin-hub-empty-cell" colspan="4">Brak ostatnich działań.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block sidebar %}{% endblock %}

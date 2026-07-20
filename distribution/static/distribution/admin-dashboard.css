@@ -1,0 +1,280 @@
+body.dashboard #content {
+  width: auto;
+}
+
+body.dashboard #content-main {
+  float: none;
+  width: 100%;
+}
+
+.admin-hub {
+  display: grid;
+  gap: 18px;
+  width: 100%;
+  min-width: 0;
+}
+
+.admin-hub-tabs {
+  display: flex;
+  gap: 0;
+  overflow-x: auto;
+  border-bottom: 1px solid #c3c4c7;
+  scrollbar-width: thin;
+}
+
+.admin-hub-tab {
+  flex: 0 0 auto;
+  min-height: 42px;
+  padding: 9px 15px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: #1d2327;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.admin-hub-tab:hover,
+.admin-hub-tab:focus-visible,
+.admin-hub-tab.is-active {
+  border-bottom-color: #0058f8;
+  background: transparent;
+  color: #0058f8;
+}
+
+.admin-hub-tab:focus-visible {
+  outline: 2px solid #0058f8;
+  outline-offset: -2px;
+}
+
+.admin-hub-panels {
+  min-width: 0;
+}
+
+.admin-hub-panel {
+  min-width: 0;
+  border: 1px solid #c3c4c7;
+  background: #fff;
+}
+
+.admin-hub-panel[hidden] {
+  display: none;
+}
+
+.admin-hub-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 54px;
+  padding: 12px 16px;
+  border-bottom: 1px solid #dcdcde;
+}
+
+.admin-hub-panel-heading h2 {
+  margin: 0 0 3px;
+  color: #1d2327;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.admin-hub-panel-heading p,
+.admin-hub-panel-heading > span {
+  margin: 0;
+  color: #646970;
+  font-size: 12px;
+}
+
+.admin-hub-panel-heading > span {
+  white-space: nowrap;
+}
+
+.admin-hub-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.admin-hub-table {
+  width: 100%;
+  border: 0;
+  border-collapse: collapse;
+  background: #fff;
+  font-size: 12px;
+}
+
+.admin-hub-table th,
+.admin-hub-table td {
+  padding: 10px 14px;
+  border: 0;
+  border-bottom: 1px solid #dcdcde;
+  background: #fff;
+  color: #2c3338;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.admin-hub-table tr:last-child th,
+.admin-hub-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.admin-hub-table thead th {
+  background: #f6f7f7;
+  color: #3c434a;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.admin-hub-table tbody th {
+  width: 70%;
+  font-weight: 600;
+}
+
+.admin-hub-table a {
+  color: #0058f8;
+}
+
+.admin-hub-actions-heading {
+  text-align: right !important;
+}
+
+.admin-hub-actions {
+  width: 1%;
+  text-align: right !important;
+  white-space: nowrap;
+}
+
+.admin-hub-action-list {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.admin-hub-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  box-sizing: border-box;
+  padding: 5px 10px;
+  border: 1px solid #0058f8;
+  border-radius: 3px;
+  background: #fff;
+  color: #0058f8 !important;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.admin-hub-action:hover,
+.admin-hub-action:focus-visible {
+  border-color: #0046c7;
+  background: #f0f6fc;
+  color: #0046c7 !important;
+}
+
+.admin-hub-action-primary {
+  border-color: #0058f8;
+  background: #0058f8;
+  color: #fff !important;
+}
+
+.admin-hub-action-primary:hover,
+.admin-hub-action-primary:focus-visible {
+  border-color: #0046c7;
+  background: #0046c7;
+  color: #fff !important;
+}
+
+.admin-hub-action-primary span {
+  margin-right: 4px;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.admin-hub-recent {
+  margin-top: 2px;
+}
+
+.admin-hub-history tbody td:nth-child(2) {
+  width: 48%;
+  font-weight: 600;
+}
+
+.admin-event {
+  display: inline-flex;
+  min-height: 22px;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: 3px;
+  background: #f0f0f1;
+  color: #3c434a;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.admin-event-add {
+  background: #edfaef;
+  color: #007017;
+}
+
+.admin-event-change {
+  background: #f0f6fc;
+  color: #0058f8;
+}
+
+.admin-event-delete {
+  background: #fbeaea;
+  color: #a12628;
+}
+
+.admin-hub-time {
+  white-space: nowrap;
+}
+
+.admin-hub-empty {
+  padding: 22px;
+  color: #646970;
+}
+
+.admin-hub-empty-cell {
+  padding: 28px 14px !important;
+  color: #646970 !important;
+  text-align: center !important;
+}
+
+@media (max-width: 760px) {
+  .admin-hub {
+    gap: 14px;
+  }
+
+  .admin-hub-panel-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .admin-hub-history {
+    min-width: 620px;
+  }
+
+  .admin-hub-model-table th,
+  .admin-hub-model-table td {
+    padding-inline: 10px;
+  }
+
+  .admin-hub-model-table tbody th {
+    width: auto;
+  }
+
+  .admin-hub-model-table .admin-hub-action-list {
+    flex-wrap: wrap;
+  }
+}

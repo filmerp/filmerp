@@ -1,0 +1,36 @@
+<section class="admin-hub-panel" id="admin-panel-{{ app.app_label }}" data-admin-panel="{{ app.app_label }}" aria-labelledby="admin-tab-{{ app.app_label }}" role="tabpanel">
+  <header class="admin-hub-panel-heading">
+    <div>
+      <h2>{{ app.name }}</h2>
+      <p>Wybierz moduł, aby przejść do jego danych i operacji.</p>
+    </div>
+    <span>Liczba modułów: {{ app.models|length }}</span>
+  </header>
+  <div class="admin-hub-table-wrap">
+    <table class="admin-hub-table admin-hub-model-table">
+      <thead>
+        <tr>
+          <th scope="col">Moduł</th>
+          <th scope="col" class="admin-hub-actions-heading">Działania</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for model in app.models %}
+          <tr>
+            <th scope="row">
+              {% if model.admin_url %}<a href="{{ model.admin_url }}">{{ model.name }}</a>{% else %}{{ model.name }}{% endif %}
+            </th>
+            <td class="admin-hub-actions">
+              <div class="admin-hub-action-list">
+                {% if model.admin_url %}<a class="admin-hub-action" href="{{ model.admin_url }}">Otwórz</a>{% endif %}
+                {% if model.add_url %}<a class="admin-hub-action admin-hub-action-primary" href="{{ model.add_url }}"><span aria-hidden="true">+</span> Dodaj</a>{% endif %}
+              </div>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td class="admin-hub-empty-cell" colspan="2">Brak dostępnych modułów.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>

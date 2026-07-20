@@ -77,6 +77,13 @@ class DashboardLoginView(LoginView):
 
 
 @login_required
+@require_POST
+def session_keepalive(request):
+    request.session.modified = True
+    return HttpResponse(status=204)
+
+
+@login_required
 def dashboard(request):
     today = timezone.localdate()
     expiring_until = today + timedelta(days=90)

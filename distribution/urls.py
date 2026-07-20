@@ -1,11 +1,12 @@
 from django.urls import path
 
-from .views import avails, contract_waterfall_wizard, dashboard, document_center, reports, reports_export_csv, settlement_workbench, statement_center, title_catalog_export, title_detail, title_list, title_setup
+from .views import avails, contract_waterfall_wizard, dashboard, document_center, reports, reports_export_csv, session_keepalive, settlement_workbench, statement_center, title_catalog_export, title_detail, title_list, title_setup
 
 app_name = "distribution"
 
 urlpatterns = [
     path("", dashboard, name="dashboard"),
+    path("session/keepalive/", session_keepalive, name="session_keepalive"),
     path("titles/", title_list, name="title_list"),
     path("titles/new/", title_setup, name="title_create"),
     path("titles/<int:pk>/", title_detail, name="title_detail"),

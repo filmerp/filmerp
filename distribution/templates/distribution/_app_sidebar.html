@@ -1,7 +1,11 @@
 {% load static %}
 {% static 'distribution/lucide-sidebar.svg' as sidebar_icons %}
 {% with current=request.resolver_match.url_name %}
-<aside class="app-sidebar" id="app-sidebar" aria-label="Menu FILMERP">
+<aside class="app-sidebar" id="app-sidebar" aria-label="Menu FILMERP"
+       data-keepalive-url="{% url 'distribution:session_keepalive' %}"
+       data-idle-timeout-ms="600000"
+       data-idle-warning-ms="60000"
+       data-session-user="{{ request.user.pk }}">
   <div class="sidebar-header">
     <a class="sidebar-brand" href="{% url 'distribution:dashboard' %}" aria-label="FILMERP - Panel główny">
       <span class="sidebar-logo-viewport">

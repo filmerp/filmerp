@@ -425,3 +425,59 @@ body.sidebar-collapsed .sidebar-logout-button {
     padding-inline: 14px;
   }
 }
+
+.session-timeout-warning {
+  position: fixed;
+  z-index: 1400;
+  right: 24px;
+  bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  max-width: 430px;
+  padding: 14px 16px;
+  border: 1px solid var(--border, #c3c4c7);
+  border-left: 4px solid var(--primary, #0058f8);
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(29, 35, 39, .18);
+  color: var(--body-fg, #1d2327);
+}
+
+.session-timeout-warning[hidden] {
+  display: none;
+}
+
+.session-timeout-warning div {
+  display: grid;
+  gap: 3px;
+}
+
+.session-timeout-warning span {
+  color: var(--body-quiet-color, #50575e);
+  font-size: 13px;
+}
+
+.session-timeout-warning button {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 1px solid var(--primary, #0058f8);
+  border-radius: 4px;
+  background: var(--primary, #0058f8);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+@media (max-width: 720px) {
+  .session-timeout-warning {
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+    max-width: none;
+  }
+}

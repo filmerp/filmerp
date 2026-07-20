@@ -8,6 +8,7 @@ from zipfile import ZipFile
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
+from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
@@ -388,6 +389,22 @@ class SettlementWorkflowTests(TestCase):
                 self.assertIn("lucide-sidebar", shell_html)
                 self.assertContains(response, "distribution/filmerp-sidebar.js")
                 self.assertContains(response, "distribution/filmerp-favicon.svg")
+                self.assertContains(response, 'data-idle-timeout-ms="600000"')
+                self.assertContains(response, reverse("distribution:session_keepalive"))
+
+    def test_session_expires_after_ten_minutes_and_keepalive_requires_login(self):
+        self.assertEqual(settings.SESSION_COOKIE_AGE, 600)
+        self.assertTrue(settings.SESSION_SAVE_EVERY_REQUEST)
+
+        response = self.client.get(reverse("distribution:session_keepalive"))
+        self.assertEqual(response.status_code, 405)
+        response = self.client.post(reverse("distribution:session_keepalive"))
+        self.assertEqual(response.status_code, 204)
+
+        self.client.logout()
+        response = self.client.post(reverse("distribution:session_keepalive"))
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(settings.LOGIN_URL, response.url)
 
     def test_dashboard_and_title_card_use_title_centric_workflow(self):
         response = self.client.get(reverse("distribution:dashboard"))

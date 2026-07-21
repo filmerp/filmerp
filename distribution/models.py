@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import uuid
+from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Iterable
 
@@ -34,6 +35,7 @@ class Currency(models.TextChoices):
 
 class ReportingCycle(models.TextChoices):
     NONE = "none", "brak"
+    WEEKLY = "weekly", "tygodniowy"
     MONTHLY = "monthly", "miesięczny"
     QUARTERLY = "quarterly", "kwartalny"
     SEMIANNUAL = "semiannual", "półroczny"
@@ -245,6 +247,42 @@ class StatementStatus(models.TextChoices):
     DISPUTED = "disputed", "sporny"
 
 
+class BookingCampaignStatus(models.TextChoices):
+    PLANNING = "planning", "Planowanie"
+    BOOKING = "booking", "Booking"
+    IN_RELEASE = "in_release", "W eksploatacji"
+    COMPLETED = "completed", "Zakończona"
+    CANCELLED = "cancelled", "Anulowana"
+
+
+class BookingDealStage(models.TextChoices):
+    TARGET = "target", "Do kontaktu"
+    CONTACTED = "contacted", "Kontakt wykonany"
+    NEGOTIATION = "negotiation", "Negocjacje"
+    OFFER = "offer", "Oferta"
+    CONFIRMED = "confirmed", "Potwierdzony"
+    PLAYING = "playing", "Gra"
+    HOLDOVER = "holdover", "Holdover"
+    ENDED = "ended", "Zakończony"
+    LOST = "lost", "Odrzucony"
+
+
+class BookingSettlementBasis(models.TextChoices):
+    GROSS_VAT = "gross_vat", "Box office brutto (sprzedaż biletów z VAT)"
+    NET_VAT = "net_vat", "Box office netto (po odjęciu VAT)"
+    FIXED = "fixed", "Stawka stała"
+    CUSTOM = "custom", "Warunki indywidualne"
+
+
+class BookingActivityType(models.TextChoices):
+    CALL = "call", "Telefon"
+    EMAIL = "email", "E-mail"
+    MEETING = "meeting", "Spotkanie"
+    NOTE = "note", "Notatka"
+    TASK = "task", "Zadanie"
+    STATUS = "status", "Zmiana statusu"
+
+
 class WaterfallPlanStatus(models.TextChoices):
     DRAFT = "draft", "roboczy"
     ACTIVE = "active", "aktywny"
@@ -334,6 +372,78 @@ class Counterparty(TimestampedModel):
 
     def __str__(self) -> str:
         return self.name
+
+
+class CinemaProfile(TimestampedModel):
+    counterparty = models.OneToOneField(
+        Counterparty,
+        on_delete=models.CASCADE,
+        related_name="cinema_profile",
+        verbose_name="kino / sieć",
+    )
+    chain = models.ForeignKey(
+        Counterparty,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="cinema_venues",
+        verbose_name="sieć kin",
+        limit_choices_to={"counterparty_type": CounterpartyType.CINEMA_CHAIN},
+    )
+    city = models.CharField("miasto", max_length=120, blank=True)
+    address = models.CharField("adres", max_length=255, blank=True)
+    website = models.URLField("strona WWW", blank=True)
+    screens_count = models.PositiveIntegerField("liczba sal", default=0)
+    seats_count = models.PositiveIntegerField("liczba miejsc", default=0)
+    active = models.BooleanField("aktywne", default=True)
+    booking_notes = models.TextField("uwagi bookingowe", blank=True)
+
+    class Meta:
+        ordering = ["counterparty__name"]
+        verbose_name = "profil kina / sieci"
+        verbose_name_plural = "profile kin / sieci"
+
+    def __str__(self) -> str:
+        return str(self.counterparty)
+
+    def clean(self):
+        valid_types = {CounterpartyType.CINEMA, CounterpartyType.CINEMA_CHAIN}
+        if self.counterparty_id and self.counterparty.counterparty_type not in valid_types:
+            raise ValidationError({"counterparty": "Profil można przypisać wyłącznie do kina albo sieci kin."})
+        if self.chain_id and self.chain.counterparty_type != CounterpartyType.CINEMA_CHAIN:
+            raise ValidationError({"chain": "Jako sieć nadrzędną wybierz kontrahenta typu sieć kin."})
+        if self.chain_id and self.chain_id == self.counterparty_id:
+            raise ValidationError({"chain": "Kino nie może być własną siecią nadrzędną."})
+
+
+class CinemaContact(TimestampedModel):
+    cinema = models.ForeignKey(
+        Counterparty,
+        on_delete=models.CASCADE,
+        related_name="cinema_contacts",
+        verbose_name="kino / sieć",
+        limit_choices_to={"counterparty_type__in": [CounterpartyType.CINEMA, CounterpartyType.CINEMA_CHAIN]},
+    )
+    name = models.CharField("imię i nazwisko", max_length=255)
+    role = models.CharField("stanowisko / rola", max_length=160, blank=True)
+    email = models.EmailField("e-mail", blank=True)
+    phone = models.CharField("telefon", max_length=80, blank=True)
+    is_primary = models.BooleanField("kontakt główny", default=False)
+    active = models.BooleanField("aktywny", default=True)
+    notes = models.TextField("uwagi", blank=True)
+
+    class Meta:
+        ordering = ["cinema__name", "-is_primary", "name"]
+        verbose_name = "kontakt bookingowy"
+        verbose_name_plural = "kontakty bookingowe"
+
+    def __str__(self) -> str:
+        return f"{self.name} / {self.cinema}"
+
+    def clean(self):
+        valid_types = {CounterpartyType.CINEMA, CounterpartyType.CINEMA_CHAIN}
+        if self.cinema_id and self.cinema.counterparty_type not in valid_types:
+            raise ValidationError({"cinema": "Kontakt można przypisać wyłącznie do kina albo sieci kin."})
 
 
 class Title(TimestampedModel):
@@ -673,6 +783,14 @@ class RightsIssue(TimestampedModel):
 class CinemaBooking(TimestampedModel):
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="cinema_bookings", verbose_name="tytuł")
     cinema = models.ForeignKey(Counterparty, on_delete=models.PROTECT, related_name="cinema_bookings", verbose_name="kino/sieć")
+    crm_deal = models.ForeignKey(
+        "BookingDeal",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="bookings",
+        verbose_name="negocjacja Booking CRM",
+    )
     city = models.CharField("miasto", max_length=120, blank=True)
     date_from = models.DateField("data od")
     date_to = models.DateField("data do")
@@ -730,6 +848,196 @@ class CinemaBooking(TimestampedModel):
             },
         )
         return report
+
+
+class BookingCampaign(TimestampedModel):
+    title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="booking_campaigns", verbose_name="tytuł")
+    name = models.CharField("nazwa kampanii", max_length=180, default="Premiera kinowa")
+    release_date = models.DateField("data premiery")
+    status = models.CharField(
+        "status",
+        max_length=24,
+        choices=BookingCampaignStatus.choices,
+        default=BookingCampaignStatus.PLANNING,
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="booking_campaigns",
+        verbose_name="opiekun kampanii",
+    )
+    target_cinemas = models.PositiveIntegerField("cel: liczba kin", default=0)
+    target_screens = models.PositiveIntegerField("cel: liczba ekranów", default=0)
+    currency = models.CharField("waluta", max_length=3, choices=Currency.choices, default=Currency.PLN)
+    default_share_percent = models.DecimalField(
+        "domyślny udział dystrybutora %",
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("50.00"),
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
+    )
+    notes = models.TextField("założenia i uwagi", blank=True)
+
+    class Meta:
+        ordering = ["-release_date", "title__title_pl"]
+        constraints = [
+            models.UniqueConstraint(fields=["title", "name"], name="unique_booking_campaign_name_per_title"),
+        ]
+        verbose_name = "kampania bookingowa"
+        verbose_name_plural = "kampanie bookingowe"
+
+    def __str__(self) -> str:
+        return f"{self.title} / {self.name} / {self.release_date}"
+
+
+class BookingDeal(TimestampedModel):
+    campaign = models.ForeignKey(BookingCampaign, on_delete=models.CASCADE, related_name="deals", verbose_name="kampania")
+    cinema = models.ForeignKey(
+        Counterparty,
+        on_delete=models.PROTECT,
+        related_name="booking_deals",
+        verbose_name="kino / sieć",
+        limit_choices_to={"counterparty_type__in": [CounterpartyType.CINEMA, CounterpartyType.CINEMA_CHAIN]},
+    )
+    contact = models.ForeignKey(
+        CinemaContact,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="booking_deals",
+        verbose_name="osoba kontaktowa",
+    )
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="booking_deals",
+        verbose_name="booker",
+    )
+    stage = models.CharField("etap", max_length=24, choices=BookingDealStage.choices, default=BookingDealStage.TARGET)
+    opening_date = models.DateField("początek grania", null=True, blank=True)
+    playing_to = models.DateField("planowany koniec", null=True, blank=True)
+    expected_screens = models.PositiveIntegerField("planowane ekrany", default=1)
+    confirmed_screens = models.PositiveIntegerField("potwierdzone ekrany", default=0)
+    minimum_screenings = models.PositiveIntegerField("minimum seansów", default=0)
+    settlement_basis = models.CharField(
+        "podstawa rozliczenia",
+        max_length=24,
+        choices=BookingSettlementBasis.choices,
+        default=BookingSettlementBasis.GROSS_VAT,
+    )
+    distributor_share_percent = models.DecimalField(
+        "udział dystrybutora %",
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("50.00"),
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
+    )
+    minimum_guarantee = models.DecimalField("MG kina", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    fixed_fee = models.DecimalField("stawka stała", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    currency = models.CharField("waluta", max_length=3, choices=Currency.choices, default=Currency.PLN)
+    screen_format = models.CharField("format", max_length=80, blank=True, help_text="Np. DCP 2D, IMAX, 4K.")
+    language_version = models.ForeignKey(
+        LanguageVersion,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="booking_deals",
+        verbose_name="wersja językowa",
+    )
+    last_contact_at = models.DateTimeField("ostatni kontakt", null=True, blank=True)
+    next_action = models.CharField("następne działanie", max_length=255, blank=True)
+    next_action_date = models.DateField("termin następnego działania", null=True, blank=True)
+    lost_reason = models.CharField("powód odrzucenia", max_length=255, blank=True)
+    notes = models.TextField("warunki i uwagi", blank=True)
+
+    class Meta:
+        ordering = ["campaign__release_date", "cinema__name"]
+        constraints = [
+            models.UniqueConstraint(fields=["campaign", "cinema"], name="unique_booking_deal_per_campaign_cinema"),
+        ]
+        indexes = [
+            models.Index(fields=["campaign", "stage"]),
+            models.Index(fields=["owner", "next_action_date"]),
+        ]
+        verbose_name = "negocjacja bookingowa"
+        verbose_name_plural = "negocjacje bookingowe"
+
+    def __str__(self) -> str:
+        return f"{self.campaign.title} / {self.cinema} / {self.get_stage_display()}"
+
+    def clean(self):
+        valid_types = {CounterpartyType.CINEMA, CounterpartyType.CINEMA_CHAIN}
+        if self.cinema_id and self.cinema.counterparty_type not in valid_types:
+            raise ValidationError({"cinema": "Booking można prowadzić wyłącznie z kinem albo siecią kin."})
+        if self.contact_id and self.contact.cinema_id != self.cinema_id:
+            raise ValidationError({"contact": "Wybrany kontakt nie należy do tego kina lub sieci."})
+        if self.opening_date and self.playing_to and self.opening_date > self.playing_to:
+            raise ValidationError({"playing_to": "Planowany koniec nie może być wcześniejszy niż początek grania."})
+        for field_name in ("minimum_guarantee", "fixed_fee"):
+            if getattr(self, field_name) < 0:
+                raise ValidationError({field_name: "Kwota nie może być ujemna."})
+        if self.stage == BookingDealStage.LOST and not self.lost_reason:
+            raise ValidationError({"lost_reason": "Podaj krótki powód odrzucenia bookingu."})
+
+    @property
+    def is_overdue(self) -> bool:
+        return bool(
+            self.next_action_date
+            and self.next_action_date < timezone.localdate()
+            and self.stage not in {BookingDealStage.ENDED, BookingDealStage.LOST}
+        )
+
+    def ensure_booking(self) -> CinemaBooking:
+        if not self.pk:
+            raise ValidationError("Najpierw zapisz negocjację bookingową.")
+        date_from = self.opening_date or self.campaign.release_date
+        date_to = self.playing_to or (date_from + timedelta(days=6))
+        profile = getattr(self.cinema, "cinema_profile", None)
+        booking = self.bookings.order_by("date_from", "pk").first()
+        defaults = {
+            "title": self.campaign.title,
+            "cinema": self.cinema,
+            "city": profile.city if profile else "",
+            "date_from": date_from,
+            "date_to": date_to,
+            "distributor_share_percent": self.distributor_share_percent,
+            "source_reference": f"booking-crm-deal-{self.pk}",
+            "notes": f"Utworzono z Booking CRM. {self.notes}".strip(),
+        }
+        if booking is None:
+            return CinemaBooking.objects.create(crm_deal=self, **defaults)
+        if not booking.box_office_gross and not booking.admissions and not booking.screenings:
+            for field_name, value in defaults.items():
+                setattr(booking, field_name, value)
+            booking.save(update_fields=[*defaults.keys(), "updated_at"])
+        return booking
+
+
+class BookingActivity(TimestampedModel):
+    deal = models.ForeignKey(BookingDeal, on_delete=models.CASCADE, related_name="activities", verbose_name="negocjacja")
+    activity_type = models.CharField("rodzaj", max_length=24, choices=BookingActivityType.choices, default=BookingActivityType.NOTE)
+    occurred_at = models.DateTimeField("data i czas", default=timezone.now)
+    summary = models.TextField("notatka")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="booking_activities",
+        verbose_name="autor",
+    )
+
+    class Meta:
+        ordering = ["-occurred_at", "-created_at"]
+        verbose_name = "aktywność bookingowa"
+        verbose_name_plural = "aktywności bookingowe"
+
+    def __str__(self) -> str:
+        return f"{self.get_activity_type_display()} / {self.deal}"
 
 
 class CinemaReportImport(TimestampedModel):
@@ -792,15 +1100,50 @@ class CinemaReportImportRow(TimestampedModel):
             raise ValidationError("Wiersz wymaga tytulu, kina oraz dat od/do przed akceptacja.")
         source_reference = f"cinema-import-row-{self.pk}"
         existing = CinemaBooking.objects.filter(source_reference=source_reference).first()
+        crm_deal = BookingDeal.objects.filter(
+            campaign__title=self.title,
+            cinema=self.cinema,
+            stage__in=[
+                BookingDealStage.CONFIRMED,
+                BookingDealStage.PLAYING,
+                BookingDealStage.HOLDOVER,
+                BookingDealStage.ENDED,
+            ],
+        ).filter(
+            Q(opening_date__isnull=True) | Q(opening_date__lte=self.date_to),
+            Q(playing_to__isnull=True) | Q(playing_to__gte=self.date_from),
+        ).order_by("-campaign__release_date", "pk").first()
+        if existing is None and crm_deal is not None:
+            existing = crm_deal.bookings.filter(
+                date_from__lte=self.date_to,
+                date_to__gte=self.date_from,
+            ).order_by("date_from", "pk").first()
         if existing:
+            if existing.crm_deal_id:
+                existing.city = self.city or existing.city
+                existing.date_from = self.date_from
+                existing.date_to = self.date_to
+                existing.screenings = self.screenings
+                existing.admissions = self.admissions
+                existing.box_office_gross = self.box_office_gross
+                existing.distributor_share_percent = self.distributor_share_percent
+                existing.source_file = self.report_import.source_file
+                import_note = f"Uzupełniono raportem kina #{self.report_import_id}."
+                if import_note not in existing.notes:
+                    existing.notes = f"{existing.notes} {import_note}".strip()
+                existing.save()
             self.booking = existing
             self.status = ImportStatus.IMPORTED
             self.save(update_fields=["booking", "status", "updated_at"])
             existing.sync_sales_report()
+            if crm_deal and crm_deal.stage == BookingDealStage.CONFIRMED:
+                crm_deal.stage = BookingDealStage.PLAYING
+                crm_deal.save(update_fields=["stage", "updated_at"])
             return existing
         booking = CinemaBooking.objects.create(
             title=self.title,
             cinema=self.cinema,
+            crm_deal=crm_deal,
             city=self.city,
             date_from=self.date_from,
             date_to=self.date_to,
@@ -815,6 +1158,9 @@ class CinemaReportImportRow(TimestampedModel):
         self.status = ImportStatus.IMPORTED
         self.save(update_fields=["booking", "status", "updated_at"])
         booking.sync_sales_report()
+        if crm_deal and crm_deal.stage == BookingDealStage.CONFIRMED:
+            crm_deal.stage = BookingDealStage.PLAYING
+            crm_deal.save(update_fields=["stage", "updated_at"])
         return booking
 
 

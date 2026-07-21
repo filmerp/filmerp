@@ -1,11 +1,22 @@
+from datetime import timedelta
 from decimal import Decimal
 
 from django import forms
+from django.contrib.auth import get_user_model
+from django.db import transaction
 
 from .models import (
     AgreementStatus,
     AcquisitionAgreement,
+    BookingActivity,
+    BookingActivityType,
+    BookingCampaign,
+    BookingDeal,
+    BookingDealStage,
+    BookingSettlementBasis,
     CinemaReportImport,
+    CinemaContact,
+    CinemaProfile,
     Cost,
     CostCategory,
     CostScopeMode,
@@ -14,6 +25,8 @@ from .models import (
     Currency,
     DocumentInboxItem,
     ExploitationField,
+    LanguageVersion,
+    ReportingCycle,
     Territory,
     Title,
 )
@@ -333,3 +346,199 @@ class TitleCatalogExportForm(forms.Form):
             cleaned["date_from"] = None
             cleaned["date_to"] = None
         return cleaned
+
+
+class BookingCampaignForm(forms.ModelForm):
+    class Meta:
+        model = BookingCampaign
+        fields = (
+            "title",
+            "name",
+            "release_date",
+            "status",
+            "owner",
+            "target_cinemas",
+            "target_screens",
+            "currency",
+            "default_share_percent",
+            "notes",
+        )
+        widgets = {
+            "release_date": forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}),
+            "default_share_percent": forms.NumberInput(attrs={"step": "0.01", "min": "0", "max": "100"}),
+            "notes": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["title"].queryset = Title.objects.order_by("title_pl")
+        self.fields["owner"].queryset = get_user_model().objects.filter(is_active=True).order_by("first_name", "last_name", "username")
+
+
+class BookingDealForm(forms.ModelForm):
+    class Meta:
+        model = BookingDeal
+        fields = (
+            "campaign",
+            "cinema",
+            "contact",
+            "owner",
+            "stage",
+            "opening_date",
+            "playing_to",
+            "expected_screens",
+            "confirmed_screens",
+            "minimum_screenings",
+            "settlement_basis",
+            "distributor_share_percent",
+            "minimum_guarantee",
+            "fixed_fee",
+            "currency",
+            "screen_format",
+            "language_version",
+            "next_action",
+            "next_action_date",
+            "lost_reason",
+            "notes",
+        )
+        widgets = {
+            "opening_date": forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}),
+            "playing_to": forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}),
+            "next_action_date": forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}),
+            "distributor_share_percent": forms.NumberInput(attrs={"step": "0.01", "min": "0", "max": "100"}),
+            "minimum_guarantee": forms.NumberInput(attrs={"step": "0.01", "min": "0"}),
+            "fixed_fee": forms.NumberInput(attrs={"step": "0.01", "min": "0"}),
+            "notes": forms.Textarea(attrs={"rows": 4}),
+        }
+
+    def __init__(self, *args, campaign=None, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        cinema_types = [CounterpartyType.CINEMA, CounterpartyType.CINEMA_CHAIN]
+        self.fields["campaign"].queryset = BookingCampaign.objects.select_related("title").order_by("-release_date", "title__title_pl")
+        self.fields["cinema"].queryset = Counterparty.objects.filter(counterparty_type__in=cinema_types).order_by("name")
+        self.fields["contact"].queryset = CinemaContact.objects.filter(active=True).select_related("cinema").order_by("cinema__name", "-is_primary", "name")
+        self.fields["owner"].queryset = get_user_model().objects.filter(is_active=True).order_by("first_name", "last_name", "username")
+        self.fields["language_version"].queryset = LanguageVersion.objects.order_by("name")
+        if campaign and not self.is_bound and not self.instance.pk:
+            self.initial.update({
+                "campaign": campaign,
+                "opening_date": campaign.release_date,
+                "playing_to": campaign.release_date + timedelta(days=6),
+                "currency": campaign.currency,
+                "distributor_share_percent": campaign.default_share_percent,
+                "owner": user if getattr(user, "is_authenticated", False) else campaign.owner,
+            })
+
+
+class BookingActivityForm(forms.ModelForm):
+    next_action = forms.CharField(label="Następne działanie", max_length=255, required=False)
+    next_action_date = forms.DateField(
+        label="Termin następnego działania",
+        required=False,
+        widget=forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}),
+    )
+
+    class Meta:
+        model = BookingActivity
+        fields = ("activity_type", "summary")
+        widgets = {"summary": forms.Textarea(attrs={"rows": 3})}
+
+
+class CinemaAccountForm(forms.Form):
+    name = forms.CharField(label="Nazwa kina / sieci", max_length=255)
+    account_type = forms.ChoiceField(
+        label="Rodzaj",
+        choices=((CounterpartyType.CINEMA, "Kino"), (CounterpartyType.CINEMA_CHAIN, "Sieć kin")),
+    )
+    chain = forms.ModelChoiceField(label="Sieć nadrzędna", queryset=Counterparty.objects.none(), required=False)
+    city = forms.CharField(label="Miasto", max_length=120, required=False)
+    address = forms.CharField(label="Adres", max_length=255, required=False)
+    website = forms.URLField(label="Strona WWW", required=False)
+    screens_count = forms.IntegerField(label="Liczba sal", min_value=0, initial=0)
+    seats_count = forms.IntegerField(label="Liczba miejsc", min_value=0, initial=0)
+    country = forms.CharField(label="Kraj", max_length=120, required=False, initial="Polska")
+    vat_id = forms.CharField(label="NIP / VAT ID", max_length=80, required=False)
+    email = forms.EmailField(label="E-mail ogólny", required=False)
+    phone = forms.CharField(label="Telefon ogólny", max_length=80, required=False)
+    payment_terms_days = forms.IntegerField(label="Termin płatności (dni)", min_value=0, initial=30)
+    reporting_cycle = forms.ChoiceField(label="Cykl raportowania", choices=ReportingCycle.choices, initial=ReportingCycle.WEEKLY)
+    active = forms.BooleanField(label="Aktywne", required=False, initial=True)
+    booking_notes = forms.CharField(label="Uwagi bookingowe", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+
+    def __init__(self, *args, instance=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.instance = instance
+        self.fields["chain"].queryset = Counterparty.objects.filter(counterparty_type=CounterpartyType.CINEMA_CHAIN).order_by("name")
+        if not instance or self.is_bound:
+            return
+        profile = getattr(instance, "cinema_profile", None)
+        self.initial.update({
+            "name": instance.name,
+            "account_type": instance.counterparty_type,
+            "country": instance.country,
+            "vat_id": instance.vat_id,
+            "email": instance.email,
+            "phone": instance.phone,
+            "payment_terms_days": instance.payment_terms_days,
+            "reporting_cycle": instance.reporting_cycle,
+            "chain": profile.chain_id if profile else None,
+            "city": profile.city if profile else "",
+            "address": profile.address if profile else "",
+            "website": profile.website if profile else "",
+            "screens_count": profile.screens_count if profile else 0,
+            "seats_count": profile.seats_count if profile else 0,
+            "active": profile.active if profile else True,
+            "booking_notes": profile.booking_notes if profile else "",
+        })
+
+    def clean_name(self):
+        name = self.cleaned_data["name"].strip()
+        duplicates = Counterparty.objects.filter(name__iexact=name)
+        if self.instance:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise forms.ValidationError("Kontrahent o tej nazwie już istnieje.")
+        return name
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("account_type") == CounterpartyType.CINEMA_CHAIN:
+            cleaned["chain"] = None
+        return cleaned
+
+    @transaction.atomic
+    def save(self):
+        counterparty = self.instance or Counterparty()
+        counterparty.name = self.cleaned_data["name"]
+        counterparty.counterparty_type = self.cleaned_data["account_type"]
+        for field_name in ("country", "vat_id", "email", "phone", "payment_terms_days", "reporting_cycle"):
+            setattr(counterparty, field_name, self.cleaned_data[field_name])
+        counterparty.full_clean()
+        counterparty.save()
+        profile, _ = CinemaProfile.objects.get_or_create(counterparty=counterparty)
+        for field_name in ("chain", "city", "address", "website", "screens_count", "seats_count", "active", "booking_notes"):
+            setattr(profile, field_name, self.cleaned_data[field_name])
+        profile.full_clean()
+        profile.save()
+        return counterparty
+
+
+class CinemaContactForm(forms.ModelForm):
+    class Meta:
+        model = CinemaContact
+        fields = ("name", "role", "email", "phone", "is_primary", "active", "notes")
+        widgets = {"notes": forms.Textarea(attrs={"rows": 3})}
+
+    @transaction.atomic
+    def save_for_cinema(self, cinema):
+        contact = super().save(commit=False)
+        contact.cinema = cinema
+        contact.full_clean()
+        contact.save()
+        if contact.is_primary:
+            CinemaContact.objects.filter(cinema=cinema, is_primary=True).exclude(pk=contact.pk).update(is_primary=False)
+            cinema.contact_person = contact.name
+            cinema.email = contact.email or cinema.email
+            cinema.phone = contact.phone or cinema.phone
+            cinema.save(update_fields=["contact_person", "email", "phone", "updated_at"])
+        return contact

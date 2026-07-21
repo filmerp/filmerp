@@ -1,5 +1,11 @@
 from django.urls import path
 
+from .booking_views import (
+    booking_campaign_form,
+    booking_cinema_form,
+    booking_crm,
+    booking_deal_form,
+)
 from .views import (
     avails,
     contract_waterfall_wizard,
@@ -27,6 +33,13 @@ urlpatterns = [
     path("titles/new/", title_setup, name="title_create"),
     path("titles/<int:pk>/", title_detail, name="title_detail"),
     path("titles/<int:pk>/edit/", title_setup, name="title_edit"),
+    path("booking/", booking_crm, name="booking_crm"),
+    path("booking/campaigns/new/", booking_campaign_form, name="booking_campaign_create"),
+    path("booking/campaigns/<int:pk>/", booking_campaign_form, name="booking_campaign_edit"),
+    path("booking/deals/new/", booking_deal_form, name="booking_deal_create"),
+    path("booking/deals/<int:pk>/", booking_deal_form, name="booking_deal_edit"),
+    path("booking/cinemas/new/", booking_cinema_form, name="booking_cinema_create"),
+    path("booking/cinemas/<int:pk>/", booking_cinema_form, name="booking_cinema_edit"),
     path("contracts/setup/", contract_waterfall_wizard, name="contract_waterfall_wizard"),
     path("avails/", avails, name="avails"),
     path("documents/", document_center, name="document_center"),

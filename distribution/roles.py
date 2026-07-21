@@ -4,7 +4,12 @@ from django.contrib.contenttypes.models import ContentType
 
 from distribution.models import (
     AcquisitionAgreement,
+    BookingActivity,
+    BookingCampaign,
+    BookingDeal,
     CinemaBooking,
+    CinemaContact,
+    CinemaProfile,
     CinemaReportImport,
     CinemaReportImportRow,
     Cost,
@@ -28,11 +33,14 @@ from distribution.models import (
 )
 
 
+BOOKING_MODELS = [BookingCampaign, BookingDeal, BookingActivity, CinemaProfile, CinemaContact]
+
+
 ROLE_MODELS = {
-    "legal": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, Counterparty, WaterfallPlan, WaterfallStep],
-    "sales": [SalesAgreement, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, RightsWindow, Territory, LanguageVersion, Title, TitleMaterial, Counterparty],
-    "finance": [AcquisitionAgreement, SalesAgreement, SalesReport, CinemaBooking, Cost, RoyaltyStatement, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine, WaterfallRunCostAllocation, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Title, TitleMaterial, Counterparty],
-    "readonly": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, TitleMaterial, Counterparty, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Cost, RoyaltyStatement, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine, WaterfallRunCostAllocation],
+    "legal": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, Counterparty, WaterfallPlan, WaterfallStep, *BOOKING_MODELS],
+    "sales": [SalesAgreement, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, RightsWindow, Territory, LanguageVersion, Title, TitleMaterial, Counterparty, *BOOKING_MODELS],
+    "finance": [AcquisitionAgreement, SalesAgreement, SalesReport, CinemaBooking, Cost, RoyaltyStatement, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine, WaterfallRunCostAllocation, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Title, TitleMaterial, Counterparty, *BOOKING_MODELS],
+    "readonly": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, TitleMaterial, Counterparty, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Cost, RoyaltyStatement, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine, WaterfallRunCostAllocation, *BOOKING_MODELS],
 }
 
 ROLE_ACTIONS = {

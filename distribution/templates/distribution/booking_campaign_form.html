@@ -1,0 +1,50 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if campaign %}Kampania bookingowa{% else %}Nowa kampania{% endif %} | FILMERP</title>
+  {% include "distribution/_app_icons.html" %}
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+  <link rel="stylesheet" href="{% static 'distribution/booking-crm.css' %}">
+</head>
+<body>
+{% include "distribution/_app_header.html" %}
+<main class="booking-form-main">
+  {% if messages %}<section class="messages">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</section>{% endif %}
+  <div class="page-heading">
+    <div><h1>{% if campaign %}Kampania bookingowa{% else %}Nowa kampania bookingowa{% endif %}</h1>{% if campaign %}<div class="muted">{{ campaign.title }}</div>{% endif %}</div>
+    <a class="button secondary" href="{% url 'distribution:booking_crm' %}{% if campaign %}?campaign={{ campaign.pk }}{% endif %}">Wróć do lejka</a>
+  </div>
+  <form method="post" class="booking-edit-form">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="notice danger">{{ form.non_field_errors }}</div>{% endif %}
+    <section class="booking-form-section">
+      <h2>Premiera i odpowiedzialność</h2>
+      <div class="booking-form-grid">
+        {% include "distribution/_booking_field.html" with field=form.title %}
+        {% include "distribution/_booking_field.html" with field=form.name %}
+        {% include "distribution/_booking_field.html" with field=form.release_date %}
+        {% include "distribution/_booking_field.html" with field=form.status %}
+        {% include "distribution/_booking_field.html" with field=form.owner %}
+      </div>
+    </section>
+    <section class="booking-form-section">
+      <h2>Cele i warunki domyślne</h2>
+      <div class="booking-form-grid">
+        {% include "distribution/_booking_field.html" with field=form.target_cinemas %}
+        {% include "distribution/_booking_field.html" with field=form.target_screens %}
+        {% include "distribution/_booking_field.html" with field=form.currency %}
+        {% include "distribution/_booking_field.html" with field=form.default_share_percent %}
+        {% include "distribution/_booking_field.html" with field=form.notes wide=True %}
+      </div>
+    </section>
+    <div class="booking-form-actions">
+      <button type="submit">Zapisz kampanię</button>
+      <a class="button secondary" href="{% url 'distribution:booking_crm' %}{% if campaign %}?campaign={{ campaign.pk }}{% endif %}">Anuluj</a>
+    </div>
+  </form>
+</main>
+</body>
+</html>

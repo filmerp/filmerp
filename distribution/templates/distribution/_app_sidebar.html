@@ -46,6 +46,12 @@
         <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#clapperboard"></use></svg>
         <span class="sidebar-label">Tytuły</span>
       </a>
+      {% if perms.distribution.view_bookingdeal %}
+      <a class="sidebar-link {% if current == 'booking_crm' or current == 'booking_campaign_create' or current == 'booking_campaign_edit' or current == 'booking_deal_create' or current == 'booking_deal_edit' or current == 'booking_cinema_create' or current == 'booking_cinema_edit' %}active{% endif %}" href="{% url 'distribution:booking_crm' %}" data-tooltip="Booking CRM" {% if current == 'booking_crm' or current == 'booking_campaign_create' or current == 'booking_campaign_edit' or current == 'booking_deal_create' or current == 'booking_deal_edit' or current == 'booking_cinema_create' or current == 'booking_cinema_edit' %}aria-current="page"{% endif %}>
+        <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#users"></use></svg>
+        <span class="sidebar-label">Booking CRM</span>
+      </a>
+      {% endif %}
       <a class="sidebar-link {% if current == 'document_center' %}active{% endif %}" href="{% url 'distribution:document_center' %}" data-tooltip="Dokumenty" {% if current == 'document_center' %}aria-current="page"{% endif %}>
         <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#file-text"></use></svg>
         <span class="sidebar-label">Dokumenty</span>

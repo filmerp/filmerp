@@ -1,0 +1,170 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Booking CRM | FILMERP</title>
+  {% include "distribution/_app_icons.html" %}
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+  <link rel="stylesheet" href="{% static 'distribution/booking-crm.css' %}">
+</head>
+<body>
+{% include "distribution/_app_header.html" %}
+<main class="booking-main">
+  {% if messages %}
+  <section class="messages">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</section>
+  {% endif %}
+
+  <div class="page-heading">
+    <div>
+      <h1>Booking CRM</h1>
+      {% if selected_campaign %}<div class="muted">{{ selected_campaign.title }} · premiera {{ selected_campaign.release_date|date:"d.m.Y" }}</div>{% endif %}
+    </div>
+    <div class="action-bar">
+      {% if can_add_campaign %}<a class="button secondary" href="{% url 'distribution:booking_campaign_create' %}">Nowa kampania</a>{% endif %}
+      {% if can_add_cinema %}<a class="button secondary" href="{% url 'distribution:booking_cinema_create' %}">Dodaj kino</a>{% endif %}
+      {% if can_add_deal and selected_campaign %}<a class="button" href="{% url 'distribution:booking_deal_create' %}?campaign={{ selected_campaign.pk }}">Dodaj negocjację</a>{% endif %}
+    </div>
+  </div>
+
+  <nav class="booking-tabs" aria-label="Widoki Booking CRM">
+    <a class="{% if active_view == 'pipeline' %}active{% endif %}" href="{% url 'distribution:booking_crm' %}{% if selected_campaign %}?campaign={{ selected_campaign.pk }}{% endif %}">Lejek</a>
+    <a class="{% if active_view == 'cinemas' %}active{% endif %}" href="{% url 'distribution:booking_crm' %}?view=cinemas{% if selected_campaign %}&amp;campaign={{ selected_campaign.pk }}{% endif %}">Kina i kontakty</a>
+    <a class="{% if active_view == 'tasks' %}active{% endif %}" href="{% url 'distribution:booking_crm' %}?view=tasks{% if selected_campaign %}&amp;campaign={{ selected_campaign.pk }}{% endif %}">Zadania{% if overdue_count %}<span>{{ overdue_count }}</span>{% endif %}</a>
+  </nav>
+
+  <section class="booking-filter-band">
+    <form method="get">
+      <input type="hidden" name="view" value="{{ active_view }}">
+      <label>Kampania
+        <select name="campaign">
+          <option value="">Wszystkie kampanie</option>
+          {% for campaign in campaigns %}
+          <option value="{{ campaign.pk }}" {% if selected_campaign.pk == campaign.pk %}selected{% endif %}>{{ campaign.title }} · {{ campaign.release_date|date:"d.m.Y" }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Booker
+        <select name="owner">
+          <option value="">Wszyscy</option>
+          {% for owner in owners %}<option value="{{ owner.pk }}" {% if owner_id == owner.pk|stringformat:"s" %}selected{% endif %}>{{ owner.get_full_name|default:owner.username }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Szukaj
+        <input type="search" name="q" value="{{ query }}" placeholder="kino, miasto, kontakt, tytuł">
+      </label>
+      <button type="submit">Pokaż</button>
+    </form>
+  </section>
+
+  {% if active_view == 'pipeline' %}
+    {% if selected_campaign %}
+    <section class="booking-campaign-strip">
+      <div>
+        <span class="label">Kampania</span>
+        <strong>{{ selected_campaign.title }}</strong>
+        <span class="status-pill {{ selected_campaign.status }}">{{ selected_campaign.get_status_display }}</span>
+      </div>
+      <div>
+        <span class="label">Cel kin</span>
+        <strong>{{ booked_count }} / {{ target_cinemas|default:"0" }}</strong>
+      </div>
+      <div>
+        <span class="label">Ekrany</span>
+        <strong>{{ confirmed_screens }} / {{ selected_campaign.target_screens }}</strong>
+      </div>
+      <div>
+        <span class="label">Realizacja</span>
+        <strong>{{ progress_percent }}%</strong>
+        <span class="booking-progress"><span style="width: {{ progress_percent }}%"></span></span>
+      </div>
+      {% if perms.distribution.change_bookingcampaign %}<a class="button export" href="{% url 'distribution:booking_campaign_edit' selected_campaign.pk %}">Edytuj kampanię</a>{% endif %}
+    </section>
+
+    <section class="booking-metrics" aria-label="Podsumowanie bookingu">
+      <div><strong>{{ deals_count }}</strong><span>wszystkich rozmów</span></div>
+      <div><strong>{{ booked_count }}</strong><span>potwierdzonych kin</span></div>
+      <div><strong>{{ confirmed_screens }}</strong><span>potwierdzonych ekranów</span></div>
+      <div class="{% if overdue_count %}booking-metric-alert{% endif %}"><strong>{{ overdue_count }}</strong><span>zadań po terminie</span></div>
+    </section>
+
+    <section class="booking-board" aria-label="Lejek bookingowy">
+      {% for column in pipeline %}
+      <div class="booking-column stage-{{ column.value }}">
+        <header><span>{{ column.label }}</span><strong>{{ column.deals|length }}</strong></header>
+        <div class="booking-column-body">
+          {% for deal in column.deals %}
+          <a class="booking-deal-card" href="{% url 'distribution:booking_deal_edit' deal.pk %}">
+            <span class="booking-deal-title">{{ deal.cinema }}</span>
+            <span class="booking-deal-film">{{ deal.campaign.title }}</span>
+            <span class="booking-deal-meta">
+              {% if deal.opening_date %}{{ deal.opening_date|date:"d.m" }}{% else %}brak daty{% endif %}
+              · {{ deal.distributor_share_percent }}%
+              {% if deal.confirmed_screens %} · {{ deal.confirmed_screens }} ekr.{% endif %}
+            </span>
+            {% if deal.next_action %}<span class="booking-next-action {% if deal.is_overdue %}overdue{% endif %}">{{ deal.next_action_date|date:"d.m"|default:"—" }} · {{ deal.next_action }}</span>{% endif %}
+            <span class="booking-owner">{{ deal.owner.get_full_name|default:deal.owner.username|default:"bez opiekuna" }}</span>
+          </a>
+          {% empty %}<span class="booking-column-empty">Brak pozycji</span>{% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </section>
+    {% else %}
+    <section class="empty-state">
+      <h2>Brak kampanii bookingowej</h2>
+      {% if can_add_campaign %}<a class="button" href="{% url 'distribution:booking_campaign_create' %}">Utwórz kampanię</a>{% endif %}
+    </section>
+    {% endif %}
+  {% elif active_view == 'cinemas' %}
+    <section class="booking-table-section">
+      <div class="section-header"><h2>Kina i sieci</h2><span class="muted">{{ cinemas|length }} pozycji</span></div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Kino / sieć</th><th>Miasto</th><th>Sieć</th><th>Kontakt główny</th><th>Raportowanie</th><th>Płatność</th><th>Otwarte rozmowy</th><th></th></tr></thead>
+          <tbody>
+          {% for cinema in cinemas %}
+            {% with profile=cinema.cinema_profile contact=cinema.cinema_contacts.all.0 %}
+            <tr>
+              <td><strong>{{ cinema.name }}</strong><div class="muted">{{ cinema.get_counterparty_type_display }}</div></td>
+              <td>{{ profile.city|default:"—" }}</td>
+              <td>{{ profile.chain|default:"—" }}</td>
+              <td>{% if contact %}{{ contact.name }}{% if contact.role %}<div class="muted">{{ contact.role }}</div>{% endif %}{% else %}—{% endif %}</td>
+              <td>{{ cinema.get_reporting_cycle_display }}</td>
+              <td>{{ cinema.payment_terms_days }} dni</td>
+              <td>{{ cinema.active_deals_count }}</td>
+              <td><a class="button export" href="{% url 'distribution:booking_cinema_edit' cinema.pk %}">Otwórz</a></td>
+            </tr>
+            {% endwith %}
+          {% empty %}<tr><td colspan="8" class="muted">Brak kin w bazie.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% else %}
+    <section class="booking-table-section">
+      <div class="section-header"><h2>Zadania bookingowe</h2><span class="muted">według terminu</span></div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Termin</th><th>Działanie</th><th>Tytuł</th><th>Kino</th><th>Booker</th><th>Etap</th><th></th></tr></thead>
+          <tbody>
+          {% for deal in task_deals %}
+          <tr class="{% if deal.is_overdue %}booking-task-overdue{% endif %}">
+            <td>{{ deal.next_action_date|date:"d.m.Y" }}</td>
+            <td><strong>{{ deal.next_action|default:"Kontakt z kinem" }}</strong></td>
+            <td>{{ deal.campaign.title }}</td>
+            <td>{{ deal.cinema }}</td>
+            <td>{{ deal.owner.get_full_name|default:deal.owner.username|default:"—" }}</td>
+            <td><span class="status-pill {{ deal.stage }}">{{ deal.get_stage_display }}</span></td>
+            <td><a class="button export" href="{% url 'distribution:booking_deal_edit' deal.pk %}">Otwórz</a></td>
+          </tr>
+          {% empty %}<tr><td colspan="7" class="muted">Brak otwartych zadań.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+</main>
+</body>
+</html>

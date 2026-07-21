@@ -1,0 +1,132 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if deal %}{{ deal.cinema }}{% else %}Nowa negocjacja{% endif %} | Booking CRM</title>
+  {% include "distribution/_app_icons.html" %}
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+  <link rel="stylesheet" href="{% static 'distribution/booking-crm.css' %}">
+</head>
+<body>
+{% include "distribution/_app_header.html" %}
+<main class="booking-form-main booking-deal-main">
+  {% if messages %}<section class="messages">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</section>{% endif %}
+  <div class="page-heading">
+    <div>
+      <h1>{% if deal %}{{ deal.cinema }}{% else %}Nowa negocjacja bookingowa{% endif %}</h1>
+      <div class="muted">{% if deal %}{{ deal.campaign.title }} · {{ deal.campaign.release_date|date:"d.m.Y" }}{% elif campaign %}{{ campaign.title }} · {{ campaign.release_date|date:"d.m.Y" }}{% endif %}</div>
+    </div>
+    <div class="action-bar">
+      {% if deal %}<span class="status-pill {{ deal.stage }}">{{ deal.get_stage_display }}</span>{% endif %}
+      <a class="button secondary" href="{% url 'distribution:booking_crm' %}{% if deal %}?campaign={{ deal.campaign_id }}{% elif campaign %}?campaign={{ campaign.pk }}{% endif %}">Wróć do lejka</a>
+    </div>
+  </div>
+
+  <form method="post" class="booking-edit-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="save_deal">
+    {% if form.non_field_errors %}<div class="notice danger">{{ form.non_field_errors }}</div>{% endif %}
+    <section class="booking-form-section">
+      <h2>Kino i odpowiedzialność</h2>
+      <div class="booking-form-grid">
+        {% include "distribution/_booking_field.html" with field=form.campaign %}
+        {% include "distribution/_booking_field.html" with field=form.cinema %}
+        {% include "distribution/_booking_field.html" with field=form.contact %}
+        {% include "distribution/_booking_field.html" with field=form.owner %}
+        {% include "distribution/_booking_field.html" with field=form.stage %}
+      </div>
+    </section>
+    <section class="booking-form-section">
+      <h2>Termin i ekspozycja</h2>
+      <div class="booking-form-grid">
+        {% include "distribution/_booking_field.html" with field=form.opening_date %}
+        {% include "distribution/_booking_field.html" with field=form.playing_to %}
+        {% include "distribution/_booking_field.html" with field=form.expected_screens %}
+        {% include "distribution/_booking_field.html" with field=form.confirmed_screens %}
+        {% include "distribution/_booking_field.html" with field=form.minimum_screenings %}
+        {% include "distribution/_booking_field.html" with field=form.screen_format %}
+        {% include "distribution/_booking_field.html" with field=form.language_version %}
+      </div>
+    </section>
+    <section class="booking-form-section">
+      <h2>Warunki handlowe</h2>
+      <div class="booking-form-grid">
+        {% include "distribution/_booking_field.html" with field=form.settlement_basis wide=True %}
+        {% include "distribution/_booking_field.html" with field=form.distributor_share_percent %}
+        {% include "distribution/_booking_field.html" with field=form.minimum_guarantee %}
+        {% include "distribution/_booking_field.html" with field=form.fixed_fee %}
+        {% include "distribution/_booking_field.html" with field=form.currency %}
+      </div>
+    </section>
+    <section class="booking-form-section">
+      <h2>Następny krok</h2>
+      <div class="booking-form-grid">
+        {% include "distribution/_booking_field.html" with field=form.next_action wide=True %}
+        {% include "distribution/_booking_field.html" with field=form.next_action_date %}
+        {% include "distribution/_booking_field.html" with field=form.lost_reason wide=True %}
+        {% include "distribution/_booking_field.html" with field=form.notes wide=True %}
+      </div>
+    </section>
+    <div class="booking-form-actions">
+      <button type="submit">Zapisz negocjację</button>
+      <a class="button secondary" href="{% url 'distribution:booking_crm' %}{% if deal %}?campaign={{ deal.campaign_id }}{% elif campaign %}?campaign={{ campaign.pk }}{% endif %}">Anuluj</a>
+    </div>
+  </form>
+
+  {% if deal %}
+  <div class="booking-detail-layout">
+    <section class="booking-form-section booking-activity-panel">
+      <h2>Historia kontaktu</h2>
+      <div class="booking-timeline">
+        {% for activity in activities %}
+        <article>
+          <span class="booking-timeline-mark"></span>
+          <div>
+            <header><strong>{{ activity.get_activity_type_display }}</strong><time>{{ activity.occurred_at|date:"d.m.Y H:i" }}</time></header>
+            <p>{{ activity.summary|linebreaksbr }}</p>
+            <small>{{ activity.created_by.get_full_name|default:activity.created_by.username|default:"system" }}</small>
+          </div>
+        </article>
+        {% empty %}<div class="muted">Brak zapisanych aktywności.</div>{% endfor %}
+      </div>
+    </section>
+    <section class="booking-form-section booking-activity-form-panel">
+      <h2>Dodaj aktywność</h2>
+      <form method="post" class="booking-activity-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="add_activity">
+        {% include "distribution/_booking_field.html" with field=activity_form.activity_type %}
+        {% include "distribution/_booking_field.html" with field=activity_form.summary wide=True %}
+        {% include "distribution/_booking_field.html" with field=activity_form.next_action wide=True %}
+        {% include "distribution/_booking_field.html" with field=activity_form.next_action_date %}
+        <button type="submit">Dodaj do historii</button>
+      </form>
+    </section>
+  </div>
+
+  <section class="booking-table-section">
+    <div class="section-header"><h2>Powiązane bookingi i raporty</h2><span class="muted">{{ bookings|length }} pozycji</span></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Okres</th><th>Seanse</th><th>Widzowie</th><th>Box office brutto</th><th>Udział dystrybutora</th><th>Źródło</th></tr></thead>
+        <tbody>
+        {% for booking in bookings %}
+        <tr>
+          <td>{{ booking.date_from|date:"d.m.Y" }}–{{ booking.date_to|date:"d.m.Y" }}</td>
+          <td>{{ booking.screenings }}</td>
+          <td>{{ booking.admissions }}</td>
+          <td class="num">{{ booking.box_office_gross }} PLN</td>
+          <td class="num">{{ booking.distributor_share_amount }} PLN</td>
+          <td>{{ booking.source_reference }}</td>
+        </tr>
+        {% empty %}<tr><td colspan="6" class="muted">Booking powstanie po potwierdzeniu negocjacji.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+</main>
+</body>
+</html>

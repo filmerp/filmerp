@@ -18,16 +18,28 @@ from openpyxl import Workbook, load_workbook
 import pdfplumber
 
 from .models import (
+    BookingActivity,
+    BookingActivityType,
+    BookingCampaign,
+    BookingCampaignStatus,
+    BookingDeal,
+    BookingDealStage,
+    BookingSettlementBasis,
+    CinemaBooking,
+    CinemaReportImport,
+    CinemaReportImportRow,
     Cost,
     CostCategory,
     CostScopeMode,
     AcquisitionAgreement,
     Counterparty,
+    CounterpartyType,
     Currency,
     DocumentInboxItem,
     DocumentStatus,
     DocumentType,
     ExploitationField,
+    ImportStatus,
     RoyaltyStatement,
     SalesReport,
     StatementStatus,
@@ -362,6 +374,7 @@ class SettlementWorkflowTests(TestCase):
             reverse("distribution:document_center"),
             reverse("distribution:title_list"),
             reverse("distribution:title_detail", args=[self.title.pk]),
+            reverse("distribution:booking_crm"),
             reverse("distribution:avails"),
             reverse("distribution:reports"),
             reverse("distribution:settlement_workbench"),
@@ -370,6 +383,7 @@ class SettlementWorkflowTests(TestCase):
         expected_links = [
             reverse("distribution:dashboard"),
             reverse("distribution:title_list"),
+            reverse("distribution:booking_crm"),
             reverse("distribution:document_center"),
             reverse("distribution:avails"),
             reverse("distribution:reports"),
@@ -903,3 +917,236 @@ class SettlementWorkflowTests(TestCase):
         self.assertEqual(document.status, DocumentStatus.PROCESSED)
         self.assertIsNotNone(row.booking_id)
         self.assertTrue(SalesReport.objects.filter(source_reference=f"cinema-import-row-{row.pk}").exists())
+
+
+class BookingCrmTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            username="booker",
+            email="booker@example.com",
+            password="test-pass",
+        )
+        self.client.force_login(self.user)
+        self.title = Title.objects.create(
+            title_pl="Premiera testowa",
+            polish_premiere_date=date(2026, 9, 10),
+        )
+        self.cinema = Counterparty.objects.create(
+            name="Kino Miejskie",
+            counterparty_type=CounterpartyType.CINEMA,
+        )
+        self.campaign = BookingCampaign.objects.create(
+            title=self.title,
+            name="Premiera kinowa 2026",
+            release_date=date(2026, 9, 10),
+            status=BookingCampaignStatus.BOOKING,
+            owner=self.user,
+            target_cinemas=20,
+            target_screens=25,
+            default_share_percent=Decimal("55.00"),
+        )
+
+    def deal_payload(self, **overrides):
+        payload = {
+            "action": "save_deal",
+            "campaign": str(self.campaign.pk),
+            "cinema": str(self.cinema.pk),
+            "contact": "",
+            "owner": str(self.user.pk),
+            "stage": BookingDealStage.CONFIRMED,
+            "opening_date": "2026-09-10",
+            "playing_to": "2026-09-16",
+            "expected_screens": "2",
+            "confirmed_screens": "2",
+            "minimum_screenings": "14",
+            "settlement_basis": BookingSettlementBasis.GROSS_VAT,
+            "distributor_share_percent": "55.00",
+            "minimum_guarantee": "0.00",
+            "fixed_fee": "0.00",
+            "currency": Currency.PLN,
+            "screen_format": "DCP 2D",
+            "language_version": "",
+            "next_action": "Potwierdzić repertuar",
+            "next_action_date": "2026-09-08",
+            "lost_reason": "",
+            "notes": "Warunki ustalone z kinem.",
+        }
+        payload.update(overrides)
+        return payload
+
+    def create_confirmed_deal(self):
+        response = self.client.post(
+            reverse("distribution:booking_deal_create"),
+            self.deal_payload(),
+        )
+        self.assertEqual(response.status_code, 302)
+        return BookingDeal.objects.get(campaign=self.campaign, cinema=self.cinema)
+
+    def test_booking_crm_is_a_separate_sidebar_workspace(self):
+        response = self.client.get(
+            reverse("distribution:booking_crm"),
+            {"campaign": self.campaign.pk},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Booking CRM")
+        self.assertContains(response, "Lejek")
+        self.assertContains(response, "Kina i kontakty")
+        self.assertContains(response, "Zadania")
+        self.assertContains(response, "Do kontaktu")
+        self.assertContains(response, 'data-tooltip="Booking CRM"')
+
+    def test_confirmed_deal_creates_one_linked_cinema_booking(self):
+        deal = self.create_confirmed_deal()
+        booking = CinemaBooking.objects.get(crm_deal=deal)
+        self.assertEqual(booking.title, self.title)
+        self.assertEqual(booking.cinema, self.cinema)
+        self.assertEqual(booking.date_from, date(2026, 9, 10))
+        self.assertEqual(booking.date_to, date(2026, 9, 16))
+        self.assertEqual(booking.source_reference, f"booking-crm-deal-{deal.pk}")
+        self.assertEqual(SalesReport.objects.count(), 0)
+
+        deal.ensure_booking()
+        self.assertEqual(CinemaBooking.objects.filter(crm_deal=deal).count(), 1)
+
+    def test_new_deal_defaults_to_release_week_and_stage_change_is_logged(self):
+        response = self.client.get(
+            reverse("distribution:booking_deal_create"),
+            {"campaign": self.campaign.pk},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'name="opening_date" value="2026-09-10"')
+        self.assertContains(response, 'name="playing_to" value="2026-09-16"')
+
+        deal = BookingDeal.objects.create(
+            campaign=self.campaign,
+            cinema=self.cinema,
+            owner=self.user,
+            stage=BookingDealStage.TARGET,
+        )
+        response = self.client.post(
+            reverse("distribution:booking_deal_edit", args=[deal.pk]),
+            self.deal_payload(stage=BookingDealStage.OFFER),
+        )
+        self.assertEqual(response.status_code, 302)
+        activity = BookingActivity.objects.get(deal=deal, activity_type=BookingActivityType.STATUS)
+        self.assertIn("Do kontaktu", activity.summary)
+        self.assertIn("Oferta", activity.summary)
+
+    def test_report_from_cinema_fills_existing_crm_booking(self):
+        deal = self.create_confirmed_deal()
+        report_import = CinemaReportImport.objects.create(
+            source_file="cinema_report_imports/booking-crm-test.xlsx",
+            original_filename="booking-crm-test.xlsx",
+            status=ImportStatus.PARSED,
+        )
+        row = CinemaReportImportRow.objects.create(
+            report_import=report_import,
+            status=ImportStatus.NEEDS_REVIEW,
+            title=self.title,
+            cinema=self.cinema,
+            city="Warszawa",
+            date_from=date(2026, 9, 10),
+            date_to=date(2026, 9, 16),
+            screenings=21,
+            admissions=840,
+            box_office_gross=Decimal("12000.00"),
+            distributor_share_percent=Decimal("55.00"),
+        )
+
+        booking = row.approve()
+        deal.refresh_from_db()
+        row.refresh_from_db()
+        booking.refresh_from_db()
+        self.assertEqual(CinemaBooking.objects.filter(crm_deal=deal).count(), 1)
+        self.assertEqual(row.booking, booking)
+        self.assertEqual(booking.admissions, 840)
+        self.assertEqual(booking.screenings, 21)
+        self.assertEqual(booking.box_office_gross, Decimal("12000.00"))
+        self.assertEqual(deal.stage, BookingDealStage.PLAYING)
+        sales_report = SalesReport.objects.get(source_reference=f"booking-crm-deal-{deal.pk}")
+        self.assertEqual(sales_report.gross_revenue, Decimal("12000.00"))
+        self.assertEqual(sales_report.deductions, Decimal("5400.00"))
+
+    def test_activity_updates_contact_history_and_next_action(self):
+        deal = BookingDeal.objects.create(
+            campaign=self.campaign,
+            cinema=self.cinema,
+            owner=self.user,
+            stage=BookingDealStage.CONTACTED,
+        )
+        response = self.client.post(
+            reverse("distribution:booking_deal_edit", args=[deal.pk]),
+            {
+                "action": "add_activity",
+                "activity-activity_type": BookingActivityType.CALL,
+                "activity-summary": "Rozmowa z kierownikiem kina.",
+                "activity-next_action": "Wysłać propozycję warunków",
+                "activity-next_action_date": "2026-08-25",
+            },
+        )
+        self.assertRedirects(response, reverse("distribution:booking_deal_edit", args=[deal.pk]))
+        deal.refresh_from_db()
+        activity = BookingActivity.objects.get(deal=deal)
+        self.assertEqual(activity.created_by, self.user)
+        self.assertIsNotNone(deal.last_contact_at)
+        self.assertEqual(deal.next_action, "Wysłać propozycję warunków")
+        self.assertEqual(deal.next_action_date, date(2026, 8, 25))
+
+    def test_cinema_account_and_primary_contact_are_created_in_crm(self):
+        response = self.client.post(
+            reverse("distribution:booking_cinema_create"),
+            {
+                "action": "save_cinema",
+                "name": "Kino Kameralne",
+                "account_type": CounterpartyType.CINEMA,
+                "chain": "",
+                "city": "Kraków",
+                "address": "ul. Filmowa 1",
+                "website": "",
+                "screens_count": "3",
+                "seats_count": "420",
+                "country": "Polska",
+                "vat_id": "",
+                "email": "kino@example.com",
+                "phone": "+48 123 456 789",
+                "payment_terms_days": "30",
+                "reporting_cycle": "weekly",
+                "active": "on",
+                "booking_notes": "Preferuje kontakt mailowy.",
+            },
+        )
+        cinema = Counterparty.objects.get(name="Kino Kameralne")
+        self.assertRedirects(response, reverse("distribution:booking_cinema_edit", args=[cinema.pk]))
+        self.assertEqual(cinema.cinema_profile.city, "Kraków")
+        self.assertEqual(cinema.cinema_profile.screens_count, 3)
+
+        response = self.client.post(
+            reverse("distribution:booking_cinema_edit", args=[cinema.pk]),
+            {
+                "action": "save_contact",
+                "contact-name": "Anna Kowalska",
+                "contact-role": "Programerka",
+                "contact-email": "anna@example.com",
+                "contact-phone": "+48 600 000 000",
+                "contact-is_primary": "on",
+                "contact-active": "on",
+                "contact-notes": "",
+            },
+        )
+        self.assertRedirects(response, reverse("distribution:booking_cinema_edit", args=[cinema.pk]))
+        contact = cinema.cinema_contacts.get()
+        self.assertTrue(contact.is_primary)
+        cinema.refresh_from_db()
+        self.assertEqual(cinema.contact_person, "Anna Kowalska")
+        self.assertEqual(cinema.email, "anna@example.com")
+
+    def test_readonly_role_can_see_booking_crm_but_cannot_edit_it(self):
+        sync_role_groups()
+        readonly_user = get_user_model().objects.create_user(username="booking-readonly", password="test-pass")
+        readonly_user.groups.add(Group.objects.get(name="readonly"))
+        self.client.force_login(readonly_user)
+
+        response = self.client.get(reverse("distribution:booking_crm"))
+        self.assertEqual(response.status_code, 200)
+        response = self.client.get(reverse("distribution:booking_campaign_create"))
+        self.assertEqual(response.status_code, 403)

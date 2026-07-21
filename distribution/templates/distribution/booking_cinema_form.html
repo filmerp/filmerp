@@ -1,0 +1,115 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if cinema %}{{ cinema }}{% else %}Nowe kino{% endif %} | Booking CRM</title>
+  {% include "distribution/_app_icons.html" %}
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+  <link rel="stylesheet" href="{% static 'distribution/booking-crm.css' %}">
+</head>
+<body>
+{% include "distribution/_app_header.html" %}
+<main class="booking-form-main">
+  {% if messages %}<section class="messages">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</section>{% endif %}
+  <div class="page-heading">
+    <div><h1>{% if cinema %}{{ cinema }}{% else %}Nowe kino lub sieć{% endif %}</h1>{% if cinema %}<div class="muted">{{ cinema.get_counterparty_type_display }}</div>{% endif %}</div>
+    <a class="button secondary" href="{% url 'distribution:booking_crm' %}?view=cinemas">Wróć do kin</a>
+  </div>
+
+  <form method="post" class="booking-edit-form">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="save_cinema">
+    {% if form.non_field_errors %}<div class="notice danger">{{ form.non_field_errors }}</div>{% endif %}
+    <section class="booking-form-section">
+      <h2>Dane kina</h2>
+      <div class="booking-form-grid">
+        {% include "distribution/_booking_field.html" with field=form.name wide=True %}
+        {% include "distribution/_booking_field.html" with field=form.account_type %}
+        {% include "distribution/_booking_field.html" with field=form.chain %}
+        {% include "distribution/_booking_field.html" with field=form.city %}
+        {% include "distribution/_booking_field.html" with field=form.address wide=True %}
+        {% include "distribution/_booking_field.html" with field=form.website wide=True %}
+        {% include "distribution/_booking_field.html" with field=form.screens_count %}
+        {% include "distribution/_booking_field.html" with field=form.seats_count %}
+        {% include "distribution/_booking_field.html" with field=form.active %}
+      </div>
+    </section>
+    <section class="booking-form-section">
+      <h2>Rozliczenia i kontakt ogólny</h2>
+      <div class="booking-form-grid">
+        {% include "distribution/_booking_field.html" with field=form.country %}
+        {% include "distribution/_booking_field.html" with field=form.vat_id %}
+        {% include "distribution/_booking_field.html" with field=form.email %}
+        {% include "distribution/_booking_field.html" with field=form.phone %}
+        {% include "distribution/_booking_field.html" with field=form.payment_terms_days %}
+        {% include "distribution/_booking_field.html" with field=form.reporting_cycle %}
+        {% include "distribution/_booking_field.html" with field=form.booking_notes wide=True %}
+      </div>
+    </section>
+    <div class="booking-form-actions">
+      <button type="submit">Zapisz dane</button>
+      <a class="button secondary" href="{% url 'distribution:booking_crm' %}?view=cinemas">Anuluj</a>
+    </div>
+  </form>
+
+  {% if cinema %}
+  <div class="booking-detail-layout cinema-detail-layout">
+    <section class="booking-form-section">
+      <div class="section-header"><h2>Osoby kontaktowe</h2><span class="muted">{{ contacts|length }}</span></div>
+      <div class="booking-contact-list">
+        {% for contact in contacts %}
+        <a href="{% url 'distribution:booking_cinema_edit' cinema.pk %}?contact={{ contact.pk }}" class="booking-contact-row {% if selected_contact.pk == contact.pk %}active{% endif %}">
+          <span><strong>{{ contact.name }}</strong>{% if contact.role %}<small>{{ contact.role }}</small>{% endif %}</span>
+          <span>{{ contact.email|default:"—" }}{% if contact.phone %}<small>{{ contact.phone }}</small>{% endif %}</span>
+          {% if contact.is_primary %}<span class="status-pill ready">Główny</span>{% endif %}
+        </a>
+        {% empty %}<div class="muted">Brak osób kontaktowych.</div>{% endfor %}
+      </div>
+    </section>
+    <section class="booking-form-section">
+      <h2>{% if selected_contact %}Edytuj kontakt{% else %}Nowy kontakt{% endif %}</h2>
+      <form method="post" class="booking-contact-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="save_contact">
+        {% if selected_contact %}<input type="hidden" name="contact_id" value="{{ selected_contact.pk }}">{% endif %}
+        {% include "distribution/_booking_field.html" with field=contact_form.name wide=True %}
+        {% include "distribution/_booking_field.html" with field=contact_form.role wide=True %}
+        {% include "distribution/_booking_field.html" with field=contact_form.email %}
+        {% include "distribution/_booking_field.html" with field=contact_form.phone %}
+        {% include "distribution/_booking_field.html" with field=contact_form.is_primary %}
+        {% include "distribution/_booking_field.html" with field=contact_form.active %}
+        {% include "distribution/_booking_field.html" with field=contact_form.notes wide=True %}
+        <div class="booking-form-actions">
+          <button type="submit">Zapisz kontakt</button>
+          {% if selected_contact %}<a class="button secondary" href="{% url 'distribution:booking_cinema_edit' cinema.pk %}">Anuluj edycję</a>{% endif %}
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <section class="booking-table-section">
+    <div class="section-header"><h2>Historia bookingowa</h2><span class="muted">{{ deals|length }} kampanii</span></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Tytuł</th><th>Premiera</th><th>Etap</th><th>Warunki</th><th>Booker</th><th></th></tr></thead>
+        <tbody>
+        {% for deal in deals %}
+        <tr>
+          <td><strong>{{ deal.campaign.title }}</strong></td>
+          <td>{{ deal.campaign.release_date|date:"d.m.Y" }}</td>
+          <td><span class="status-pill {{ deal.stage }}">{{ deal.get_stage_display }}</span></td>
+          <td>{{ deal.distributor_share_percent }}% · {{ deal.get_settlement_basis_display }}</td>
+          <td>{{ deal.owner.get_full_name|default:deal.owner.username|default:"—" }}</td>
+          <td><a class="button export" href="{% url 'distribution:booking_deal_edit' deal.pk %}">Otwórz</a></td>
+        </tr>
+        {% empty %}<tr><td colspan="6" class="muted">Brak historii negocjacji.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+</main>
+</body>
+</html>

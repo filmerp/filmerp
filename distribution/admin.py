@@ -18,7 +18,13 @@ from .forms import COST_ALLOCATION_FIELD_NAMES, CostScopeFormMixin
 from .models import (
     AcquisitionAgreement,
     AuditAction,
+    BookingActivity,
+    BookingCampaign,
+    BookingDeal,
+    BookingDealStage,
     CinemaBooking,
+    CinemaContact,
+    CinemaProfile,
     CinemaReportImport,
     CinemaReportImportRow,
     Cost,
@@ -326,6 +332,60 @@ class CounterpartyAdmin(FilmerpModelAdmin):
     search_fields = ("name", "vat_id", "contact_person", "email")
 
 
+@admin.register(CinemaProfile)
+class CinemaProfileAdmin(FilmerpModelAdmin):
+    list_display = ("counterparty", "city", "chain", "screens_count", "seats_count", "active")
+    list_filter = ("active", "city", "chain")
+    search_fields = ("counterparty__name", "city", "address")
+    autocomplete_fields = ("counterparty", "chain")
+
+
+@admin.register(CinemaContact)
+class CinemaContactAdmin(FilmerpModelAdmin):
+    list_display = ("name", "cinema", "role", "email", "phone", "is_primary", "active")
+    list_filter = ("is_primary", "active")
+    search_fields = ("name", "cinema__name", "role", "email", "phone")
+    autocomplete_fields = ("cinema",)
+
+
+@admin.register(BookingCampaign)
+class BookingCampaignAdmin(FilmerpModelAdmin):
+    list_display = ("title", "name", "release_date", "status", "owner", "target_cinemas", "target_screens")
+    list_filter = ("status", "release_date", "currency")
+    search_fields = ("title__title_pl", "title__original_title", "name", "owner__username")
+    autocomplete_fields = ("title",)
+
+
+@admin.register(BookingDeal)
+class BookingDealAdmin(FilmerpModelAdmin):
+    list_display = (
+        "campaign",
+        "cinema",
+        "stage",
+        "owner",
+        "opening_date",
+        "confirmed_screens",
+        "distributor_share_percent",
+        "next_action_date",
+    )
+    list_filter = ("stage", "campaign", "owner", "settlement_basis", "currency")
+    search_fields = ("campaign__title__title_pl", "cinema__name", "contact__name", "next_action", "notes")
+    autocomplete_fields = ("campaign", "cinema", "contact", "language_version")
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if obj.stage in {BookingDealStage.CONFIRMED, BookingDealStage.PLAYING, BookingDealStage.HOLDOVER}:
+            obj.ensure_booking()
+
+
+@admin.register(BookingActivity)
+class BookingActivityAdmin(FilmerpModelAdmin):
+    list_display = ("deal", "activity_type", "occurred_at", "created_by")
+    list_filter = ("activity_type", "occurred_at")
+    search_fields = ("deal__campaign__title__title_pl", "deal__cinema__name", "summary")
+    autocomplete_fields = ("deal",)
+
+
 @admin.register(Territory)
 class TerritoryAdmin(FilmerpModelAdmin):
     list_display = ("name", "code", "parent")
@@ -461,7 +521,7 @@ class CinemaBookingAdmin(FilmerpModelAdmin):
     )
     list_filter = ("date_from", "invoice_issued")
     search_fields = ("title__title_pl", "cinema__name", "city")
-    autocomplete_fields = ("title", "cinema")
+    autocomplete_fields = ("title", "cinema", "crm_deal")
 
     @admin.display(description="udział dystrybutora")
     def distributor_share_amount_display(self, obj):

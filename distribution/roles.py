@@ -7,7 +7,11 @@ from distribution.models import (
     BookingActivity,
     BookingCampaign,
     BookingDeal,
+    BookingTerm,
+    BookingWeekSettlement,
     CinemaBooking,
+    CinemaBookingWeek,
+    CinemaBookingWeekRevision,
     CinemaContact,
     CinemaProfile,
     CinemaReportImport,
@@ -33,7 +37,17 @@ from distribution.models import (
 )
 
 
-BOOKING_MODELS = [BookingCampaign, BookingDeal, BookingActivity, CinemaProfile, CinemaContact]
+BOOKING_MODELS = [
+    BookingCampaign,
+    BookingDeal,
+    BookingTerm,
+    BookingActivity,
+    CinemaProfile,
+    CinemaContact,
+    CinemaBookingWeek,
+    BookingWeekSettlement,
+    CinemaBookingWeekRevision,
+]
 
 
 ROLE_MODELS = {

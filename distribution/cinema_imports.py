@@ -1,3 +1,4 @@
+import hashlib
 import re
 import unicodedata
 from difflib import SequenceMatcher
@@ -14,6 +15,44 @@ from .models import CinemaReportImport, CinemaReportImportRow, Counterparty, Cou
 
 DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b")
 MONEY_RE = re.compile(r"(?<![\d.])(\d{1,3}(?:[ \u00a0]?\d{3})*[,.]\d{2})(?!\d)")
+
+
+def ensure_file_hash(report_import):
+    digest = hashlib.sha256()
+    report_import.source_file.open("rb")
+    try:
+        for chunk in report_import.source_file.chunks():
+            digest.update(chunk)
+    finally:
+        report_import.source_file.close()
+    file_hash = digest.hexdigest()
+    if report_import.file_hash != file_hash:
+        report_import.file_hash = file_hash
+        report_import.save(update_fields=["file_hash", "updated_at"])
+    return file_hash
+
+
+def source_fingerprint(report_import, identity):
+    file_hash = report_import.file_hash or ensure_file_hash(report_import)
+    normalized_identity = normalize_text(identity)
+    return hashlib.sha256(f"{file_hash}|{normalized_identity}".encode("utf-8")).hexdigest()
+
+
+def upsert_import_row(report_import, identity, defaults):
+    fingerprint = source_fingerprint(report_import, identity)
+    existing = report_import.rows.filter(source_fingerprint=fingerprint).first()
+    if existing and existing.status == ImportStatus.IMPORTED:
+        return existing
+    if existing:
+        for field_name, value in defaults.items():
+            setattr(existing, field_name, value)
+        existing.save(update_fields=[*defaults.keys(), "updated_at"])
+        return existing
+    return CinemaReportImportRow.objects.create(
+        report_import=report_import,
+        source_fingerprint=fingerprint,
+        **defaults,
+    )
 
 
 def parse_date(value):
@@ -184,6 +223,7 @@ def infer_row_from_line(line, fallback_title=None, fallback_cinema=None):
 
 
 def parse_cinema_report_pdf(report_import):
+    ensure_file_hash(report_import)
     path = report_import.source_file.path
     text = extract_pdf_text(path)
     fallback_title = find_known_title(text)
@@ -191,32 +231,44 @@ def parse_cinema_report_pdf(report_import):
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     candidate_lines = [line for line in lines if DATE_RE.search(line) or MONEY_RE.search(line)]
 
-    report_import.rows.all().delete()
+    report_import.rows.exclude(status=ImportStatus.IMPORTED).delete()
     created = 0
-    for line in candidate_lines:
+    for line_number, line in enumerate(candidate_lines, start=1):
         inferred = infer_row_from_line(line, fallback_title=fallback_title, fallback_cinema=fallback_cinema)
         if not any([inferred["date_from"], inferred["box_office_gross"], inferred["admissions"], inferred["title"], inferred["cinema"]]):
             continue
-        CinemaReportImportRow.objects.create(report_import=report_import, status=ImportStatus.NEEDS_REVIEW, **inferred)
+        upsert_import_row(
+            report_import,
+            f"pdf-line-{line_number}|{line}",
+            {"status": ImportStatus.NEEDS_REVIEW, **inferred},
+        )
         created += 1
 
     if created == 0:
-        CinemaReportImportRow.objects.create(
-            report_import=report_import,
-            status=ImportStatus.NEEDS_REVIEW,
-            title=fallback_title,
-            cinema=fallback_cinema,
-            confidence=Decimal("10.00"),
-            source_line=text[:4000],
-            raw_payload={"full_text": text[:10000]},
-            notes="Nie udalo sie rozbic PDF na wiersze. Uzupelnij dane recznie przed akceptacja.",
+        upsert_import_row(
+            report_import,
+            "pdf-fallback",
+            {
+                "status": ImportStatus.NEEDS_REVIEW,
+                "title": fallback_title,
+                "cinema": fallback_cinema,
+                "confidence": Decimal("10.00"),
+                "source_line": text[:4000],
+                "raw_payload": {"full_text": text[:10000]},
+                "notes": "Nie udało się rozbić PDF na wiersze. Uzupełnij dane ręcznie przed akceptacją.",
+            },
         )
         created = 1
 
     report_import.original_filename = report_import.original_filename or Path(report_import.source_file.name).name
     report_import.status = ImportStatus.NEEDS_REVIEW
     report_import.parsed_at = timezone.now()
-    report_import.parser_notes = f"Rozpoznano {created} wierszy z PDF. Sprawdz dane przed akceptacja."
+    duplicate = CinemaReportImport.objects.filter(
+        file_hash=report_import.file_hash,
+        status=ImportStatus.IMPORTED,
+    ).exclude(pk=report_import.pk).first()
+    duplicate_note = f" Ten sam plik był już zaimportowany jako #{duplicate.pk}." if duplicate else ""
+    report_import.parser_notes = f"Rozpoznano {created} wierszy z PDF. Sprawdź dane przed akceptacją.{duplicate_note}"
     report_import.save(update_fields=["original_filename", "status", "parsed_at", "parser_notes", "updated_at"])
     return created
 
@@ -281,9 +333,10 @@ def _find_identity_columns(ws, metric_header_row):
 
 
 def parse_cinema_report_xlsx(report_import):
+    ensure_file_hash(report_import)
     workbook = load_workbook(report_import.source_file.path, data_only=True, read_only=False)
     created = 0
-    report_import.rows.all().delete()
+    report_import.rows.exclude(status=ImportStatus.IMPORTED).delete()
 
     workbook_text = " ".join(workbook.sheetnames)
     for ws in workbook.worksheets:
@@ -315,45 +368,57 @@ def parse_cinema_report_xlsx(report_import):
                     confidence += Decimal("20.00")
                 if metric["date_from"]:
                     confidence += Decimal("15.00")
-                CinemaReportImportRow.objects.create(
-                    report_import=report_import,
-                    status=ImportStatus.NEEDS_REVIEW,
-                    title=fallback_title,
-                    cinema=cinema,
-                    city=city,
-                    date_from=metric["date_from"],
-                    date_to=metric["date_to"] or metric["date_from"],
-                    screenings=0,
-                    admissions=admissions,
-                    box_office_gross=gross,
-                    confidence=min(confidence, Decimal("100.00")),
-                    source_line=f"{ws.title} row {row_index}, {metric['date_label']}: {city} / {cinema_name}",
-                    raw_payload={
-                        "sheet": ws.title,
-                        "row": row_index,
-                        "date_label": metric["date_label"],
-                        "admissions_col": metric["admissions_col"],
-                        "gross_col": metric["gross_col"],
+                identity = f"{ws.title}|{row_index}|{metric['admissions_col']}|{metric['date_label']}"
+                upsert_import_row(
+                    report_import,
+                    identity,
+                    {
+                        "status": ImportStatus.NEEDS_REVIEW,
+                        "title": fallback_title,
+                        "cinema": cinema,
+                        "city": city,
+                        "date_from": metric["date_from"],
+                        "date_to": metric["date_to"] or metric["date_from"],
+                        "screenings": 0,
+                        "admissions": admissions,
+                        "box_office_gross": gross,
+                        "confidence": min(confidence, Decimal("100.00")),
+                        "source_line": f"{ws.title} wiersz {row_index}, {metric['date_label']}: {city} / {cinema_name}",
+                        "raw_payload": {
+                            "sheet": ws.title,
+                            "row": row_index,
+                            "date_label": metric["date_label"],
+                            "admissions_col": metric["admissions_col"],
+                            "gross_col": metric["gross_col"],
+                        },
                     },
                 )
                 created += 1
 
     if created == 0:
-        CinemaReportImportRow.objects.create(
-            report_import=report_import,
-            status=ImportStatus.NEEDS_REVIEW,
-            title=fallback_title,
-            confidence=Decimal("10.00"),
-            source_line="Nie znaleziono dodatnich wartosci w kolumnach Widzow.",
-            raw_payload={"sheets": workbook.sheetnames},
-            notes="Sprawdz, czy arkusz ma naglowek Widzow oraz dane widowni.",
+        upsert_import_row(
+            report_import,
+            "xlsx-fallback",
+            {
+                "status": ImportStatus.NEEDS_REVIEW,
+                "title": fallback_title,
+                "confidence": Decimal("10.00"),
+                "source_line": "Nie znaleziono dodatnich wartości w kolumnach Widzowie.",
+                "raw_payload": {"sheets": workbook.sheetnames},
+                "notes": "Sprawdź, czy arkusz ma nagłówek Widzowie oraz dane widowni.",
+            },
         )
         created = 1
 
     report_import.original_filename = report_import.original_filename or Path(report_import.source_file.name).name
     report_import.status = ImportStatus.NEEDS_REVIEW
     report_import.parsed_at = timezone.now()
-    report_import.parser_notes = f"Rozpoznano {created} wierszy z XLSX. Sprawdz dane przed akceptacja."
+    duplicate = CinemaReportImport.objects.filter(
+        file_hash=report_import.file_hash,
+        status=ImportStatus.IMPORTED,
+    ).exclude(pk=report_import.pk).first()
+    duplicate_note = f" Ten sam plik był już zaimportowany jako #{duplicate.pk}." if duplicate else ""
+    report_import.parser_notes = f"Rozpoznano {created} wierszy z XLSX. Sprawdź dane przed akceptacją.{duplicate_note}"
     report_import.save(update_fields=["original_filename", "status", "parsed_at", "parser_notes", "updated_at"])
     return created
 

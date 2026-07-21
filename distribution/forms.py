@@ -4,16 +4,19 @@ from decimal import Decimal
 from django import forms
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.forms.models import BaseInlineFormSet, inlineformset_factory
 
 from .models import (
     AgreementStatus,
     AcquisitionAgreement,
     BookingActivity,
     BookingActivityType,
+    BookingCalculationMethod,
     BookingCampaign,
     BookingDeal,
     BookingDealStage,
     BookingSettlementBasis,
+    BookingTerm,
     CinemaReportImport,
     CinemaContact,
     CinemaProfile,
@@ -361,11 +364,19 @@ class BookingCampaignForm(forms.ModelForm):
             "target_screens",
             "currency",
             "default_share_percent",
+            "default_calculation_method",
+            "default_settlement_basis",
+            "default_ticket_vat_rate",
+            "default_minimum_guarantee",
+            "default_fixed_fee",
             "notes",
         )
         widgets = {
             "release_date": forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}),
             "default_share_percent": forms.NumberInput(attrs={"step": "0.01", "min": "0", "max": "100"}),
+            "default_ticket_vat_rate": forms.NumberInput(attrs={"step": "0.01", "min": "0", "max": "100"}),
+            "default_minimum_guarantee": forms.NumberInput(attrs={"step": "0.01", "min": "0"}),
+            "default_fixed_fee": forms.NumberInput(attrs={"step": "0.01", "min": "0"}),
             "notes": forms.Textarea(attrs={"rows": 4}),
         }
 
@@ -373,6 +384,19 @@ class BookingCampaignForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["title"].queryset = Title.objects.order_by("title_pl")
         self.fields["owner"].queryset = get_user_model().objects.filter(is_active=True).order_by("first_name", "last_name", "username")
+
+    def clean(self):
+        cleaned = super().clean()
+        method = cleaned.get("default_calculation_method")
+        if method == BookingCalculationMethod.PERCENTAGE_MINIMUM and not cleaned.get("default_minimum_guarantee"):
+            self.add_error("default_minimum_guarantee", "Podaj domyślne minimum większe od zera.")
+        if method in {
+            BookingCalculationMethod.FIXED_SCREENING,
+            BookingCalculationMethod.FIXED_WEEK,
+            BookingCalculationMethod.FIXED_BOOKING,
+        } and not cleaned.get("default_fixed_fee"):
+            self.add_error("default_fixed_fee", "Podaj domyślną stawkę stałą większą od zera.")
+        return cleaned
 
 
 class BookingDealForm(forms.ModelForm):
@@ -389,7 +413,9 @@ class BookingDealForm(forms.ModelForm):
             "expected_screens",
             "confirmed_screens",
             "minimum_screenings",
+            "calculation_method",
             "settlement_basis",
+            "ticket_vat_rate",
             "distributor_share_percent",
             "minimum_guarantee",
             "fixed_fee",
@@ -406,6 +432,7 @@ class BookingDealForm(forms.ModelForm):
             "playing_to": forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}),
             "next_action_date": forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}),
             "distributor_share_percent": forms.NumberInput(attrs={"step": "0.01", "min": "0", "max": "100"}),
+            "ticket_vat_rate": forms.NumberInput(attrs={"step": "0.01", "min": "0", "max": "100"}),
             "minimum_guarantee": forms.NumberInput(attrs={"step": "0.01", "min": "0"}),
             "fixed_fee": forms.NumberInput(attrs={"step": "0.01", "min": "0"}),
             "notes": forms.Textarea(attrs={"rows": 4}),
@@ -426,8 +453,64 @@ class BookingDealForm(forms.ModelForm):
                 "playing_to": campaign.release_date + timedelta(days=6),
                 "currency": campaign.currency,
                 "distributor_share_percent": campaign.default_share_percent,
+                "calculation_method": campaign.default_calculation_method,
+                "settlement_basis": campaign.default_settlement_basis,
+                "ticket_vat_rate": campaign.default_ticket_vat_rate,
+                "minimum_guarantee": campaign.default_minimum_guarantee,
+                "fixed_fee": campaign.default_fixed_fee,
                 "owner": user if getattr(user, "is_authenticated", False) else campaign.owner,
             })
+
+
+class BookingTermForm(forms.ModelForm):
+    class Meta:
+        model = BookingTerm
+        fields = (
+            "name",
+            "week_from",
+            "calculation_method",
+            "settlement_basis",
+            "ticket_vat_rate",
+            "distributor_share_percent",
+            "minimum_amount",
+            "fixed_amount",
+            "currency",
+            "notes",
+        )
+        widgets = {
+            "week_from": forms.NumberInput(attrs={"min": "1", "step": "1"}),
+            "ticket_vat_rate": forms.NumberInput(attrs={"min": "0", "max": "100", "step": "0.01"}),
+            "distributor_share_percent": forms.NumberInput(attrs={"min": "0", "max": "100", "step": "0.01"}),
+            "minimum_amount": forms.NumberInput(attrs={"min": "0", "step": "0.01"}),
+            "fixed_amount": forms.NumberInput(attrs={"min": "0", "step": "0.01"}),
+        }
+
+
+class BaseBookingTermFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        starts = []
+        for form in self.forms:
+            if not form.cleaned_data or form.cleaned_data.get("DELETE"):
+                continue
+            starts.append(form.cleaned_data.get("week_from"))
+        starts = [value for value in starts if value]
+        if starts and len(starts) != len(set(starts)):
+            raise forms.ValidationError("Każdy zestaw warunków musi zaczynać się od innego tygodnia.")
+        if starts and 1 not in starts:
+            raise forms.ValidationError("Harmonogram warunków musi zawierać wpis obowiązujący od 1. tygodnia.")
+
+
+BookingTermFormSet = inlineformset_factory(
+    BookingDeal,
+    BookingTerm,
+    form=BookingTermForm,
+    formset=BaseBookingTermFormSet,
+    extra=1,
+    can_delete=True,
+)
 
 
 class BookingActivityForm(forms.ModelForm):

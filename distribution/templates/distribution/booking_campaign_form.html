@@ -36,7 +36,12 @@
         {% include "distribution/_booking_field.html" with field=form.target_cinemas %}
         {% include "distribution/_booking_field.html" with field=form.target_screens %}
         {% include "distribution/_booking_field.html" with field=form.currency %}
+        {% include "distribution/_booking_field.html" with field=form.default_calculation_method %}
+        {% include "distribution/_booking_field.html" with field=form.default_settlement_basis wide=True %}
         {% include "distribution/_booking_field.html" with field=form.default_share_percent %}
+        {% include "distribution/_booking_field.html" with field=form.default_ticket_vat_rate %}
+        {% include "distribution/_booking_field.html" with field=form.default_minimum_guarantee %}
+        {% include "distribution/_booking_field.html" with field=form.default_fixed_fee %}
         {% include "distribution/_booking_field.html" with field=form.notes wide=True %}
       </div>
     </section>

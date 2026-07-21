@@ -51,14 +51,40 @@
       </div>
     </section>
     <section class="booking-form-section">
-      <h2>Warunki handlowe</h2>
+      <h2>Warunki główne</h2>
       <div class="booking-form-grid">
+        {% include "distribution/_booking_field.html" with field=form.calculation_method %}
         {% include "distribution/_booking_field.html" with field=form.settlement_basis wide=True %}
+        {% include "distribution/_booking_field.html" with field=form.ticket_vat_rate %}
         {% include "distribution/_booking_field.html" with field=form.distributor_share_percent %}
         {% include "distribution/_booking_field.html" with field=form.minimum_guarantee %}
         {% include "distribution/_booking_field.html" with field=form.fixed_fee %}
         {% include "distribution/_booking_field.html" with field=form.currency %}
       </div>
+    </section>
+    <section class="booking-form-section">
+      <div class="section-header"><h2>Harmonogram warunków</h2><span class="muted">Warunki od wskazanego tygodnia</span></div>
+      {{ term_formset.management_form }}
+      {% if term_formset.non_form_errors %}<div class="notice danger">{{ term_formset.non_form_errors }}</div>{% endif %}
+      <div class="booking-term-list">
+        {% for term_form in term_formset %}
+        <div class="booking-term-row{% if deal and not term_form.instance.pk and not term_form.errors %} booking-term-row-new{% endif %}">
+          {{ term_form.id }}
+          {% include "distribution/_booking_field.html" with field=term_form.name %}
+          {% include "distribution/_booking_field.html" with field=term_form.week_from %}
+          {% include "distribution/_booking_field.html" with field=term_form.calculation_method %}
+          {% include "distribution/_booking_field.html" with field=term_form.settlement_basis %}
+          {% include "distribution/_booking_field.html" with field=term_form.ticket_vat_rate %}
+          {% include "distribution/_booking_field.html" with field=term_form.distributor_share_percent %}
+          {% include "distribution/_booking_field.html" with field=term_form.minimum_amount %}
+          {% include "distribution/_booking_field.html" with field=term_form.fixed_amount %}
+          {% include "distribution/_booking_field.html" with field=term_form.currency %}
+          {% include "distribution/_booking_field.html" with field=term_form.notes %}
+          {% if term_form.instance.pk %}{% include "distribution/_booking_field.html" with field=term_form.DELETE %}{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% if deal %}<button class="button secondary booking-add-term" type="button" id="booking-add-term">Dodaj zmianę warunków</button>{% endif %}
     </section>
     <section class="booking-form-section">
       <h2>Następny krok</h2>
@@ -117,8 +143,8 @@
           <td>{{ booking.date_from|date:"d.m.Y" }}–{{ booking.date_to|date:"d.m.Y" }}</td>
           <td>{{ booking.screenings }}</td>
           <td>{{ booking.admissions }}</td>
-          <td class="num">{{ booking.box_office_gross }} PLN</td>
-          <td class="num">{{ booking.distributor_share_amount }} PLN</td>
+          <td class="num">{{ booking.box_office_gross }} {{ booking.currency }}</td>
+          <td class="num">{{ booking.distributor_share_amount }} {{ booking.currency }}</td>
           <td>{{ booking.source_reference }}</td>
         </tr>
         {% empty %}<tr><td colspan="6" class="muted">Booking powstanie po potwierdzeniu negocjacji.</td></tr>{% endfor %}
@@ -128,5 +154,17 @@
   </section>
   {% endif %}
 </main>
+{% if deal %}
+<script>
+  const addTermButton = document.getElementById("booking-add-term");
+  const newTermRow = document.querySelector(".booking-term-row-new");
+  if (!newTermRow) addTermButton?.setAttribute("hidden", "hidden");
+  addTermButton?.addEventListener("click", () => {
+    newTermRow?.classList.remove("booking-term-row-new");
+    addTermButton.hidden = true;
+    newTermRow?.querySelector("input, select")?.focus();
+  });
+</script>
+{% endif %}
 </body>
 </html>

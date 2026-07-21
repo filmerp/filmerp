@@ -20,12 +20,21 @@ import pdfplumber
 from .models import (
     BookingActivity,
     BookingActivityType,
+    BookingCalculationMethod,
     BookingCampaign,
     BookingCampaignStatus,
     BookingDeal,
     BookingDealStage,
+    BookingSettlementStatus,
     BookingSettlementBasis,
+    BookingTerm,
+    BookingWeekStatus,
+    BookingWeekDecision,
+    BookingWeekSettlement,
     CinemaBooking,
+    CinemaBookingWeek,
+    CinemaBookingWeekRevision,
+    CinemaProfile,
     CinemaReportImport,
     CinemaReportImportRow,
     Cost,
@@ -56,6 +65,7 @@ from .models import (
     Title,
 )
 from .documents import classify_document
+from .booking_engine import calculate_booking_rental
 from .roles import sync_role_groups
 from .waterfall_engine import calculate_waterfall_run, finalize_waterfall_run
 
@@ -916,7 +926,7 @@ class SettlementWorkflowTests(TestCase):
         row.refresh_from_db()
         self.assertEqual(document.status, DocumentStatus.PROCESSED)
         self.assertIsNotNone(row.booking_id)
-        self.assertTrue(SalesReport.objects.filter(source_reference=f"cinema-import-row-{row.pk}").exists())
+        self.assertTrue(SalesReport.objects.filter(source_reference=f"cinema-booking-week-{row.booking_week_id}").exists())
 
 
 class BookingCrmTests(TestCase):
@@ -959,7 +969,9 @@ class BookingCrmTests(TestCase):
             "expected_screens": "2",
             "confirmed_screens": "2",
             "minimum_screenings": "14",
+            "calculation_method": BookingCalculationMethod.PERCENTAGE,
             "settlement_basis": BookingSettlementBasis.GROSS_VAT,
+            "ticket_vat_rate": "8.00",
             "distributor_share_percent": "55.00",
             "minimum_guarantee": "0.00",
             "fixed_fee": "0.00",
@@ -989,11 +1001,18 @@ class BookingCrmTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Booking CRM")
-        self.assertContains(response, "Lejek")
+        self.assertContains(response, "Kampania")
+        self.assertContains(response, "Negocjacje")
+        self.assertContains(response, "Tygodnie grania")
         self.assertContains(response, "Kina i kontakty")
         self.assertContains(response, "Zadania")
-        self.assertContains(response, "Do kontaktu")
         self.assertContains(response, 'data-tooltip="Booking CRM"')
+
+        response = self.client.get(
+            reverse("distribution:booking_crm"),
+            {"campaign": self.campaign.pk, "view": "negotiations", "mode": "kanban"},
+        )
+        self.assertContains(response, "Do kontaktu")
 
     def test_confirmed_deal_creates_one_linked_cinema_booking(self):
         deal = self.create_confirmed_deal()
@@ -1003,10 +1022,26 @@ class BookingCrmTests(TestCase):
         self.assertEqual(booking.date_from, date(2026, 9, 10))
         self.assertEqual(booking.date_to, date(2026, 9, 16))
         self.assertEqual(booking.source_reference, f"booking-crm-deal-{deal.pk}")
+        self.assertEqual(booking.weeks.count(), 1)
+        self.assertEqual(deal.terms.count(), 1)
         self.assertEqual(SalesReport.objects.count(), 0)
 
         deal.ensure_booking()
         self.assertEqual(CinemaBooking.objects.filter(crm_deal=deal).count(), 1)
+
+    def test_changing_plan_updates_only_empty_planned_weeks(self):
+        deal = self.create_confirmed_deal()
+        booking = CinemaBooking.objects.get(crm_deal=deal)
+        deal.playing_to = date(2026, 9, 23)
+        deal.save(update_fields=["playing_to", "updated_at"])
+        deal.ensure_booking()
+        self.assertEqual(list(booking.weeks.values_list("week_number", flat=True)), [1, 2])
+        self.assertEqual(booking.weeks.get(week_number=2).date_to, date(2026, 9, 23))
+
+        deal.playing_to = date(2026, 9, 16)
+        deal.save(update_fields=["playing_to", "updated_at"])
+        deal.ensure_booking()
+        self.assertEqual(list(booking.weeks.values_list("week_number", flat=True)), [1])
 
     def test_new_deal_defaults_to_release_week_and_stage_change_is_logged(self):
         response = self.client.get(
@@ -1031,6 +1066,32 @@ class BookingCrmTests(TestCase):
         activity = BookingActivity.objects.get(deal=deal, activity_type=BookingActivityType.STATUS)
         self.assertIn("Do kontaktu", activity.summary)
         self.assertIn("Oferta", activity.summary)
+
+    def test_deal_form_saves_explicit_weekly_term_schedule(self):
+        payload = self.deal_payload()
+        payload.update({
+            "terms-TOTAL_FORMS": "1",
+            "terms-INITIAL_FORMS": "0",
+            "terms-MIN_NUM_FORMS": "0",
+            "terms-MAX_NUM_FORMS": "1000",
+            "terms-0-name": "Warunki premierowe",
+            "terms-0-week_from": "1",
+            "terms-0-calculation_method": BookingCalculationMethod.PERCENTAGE_MINIMUM,
+            "terms-0-settlement_basis": BookingSettlementBasis.NET_VAT,
+            "terms-0-ticket_vat_rate": "8.00",
+            "terms-0-distributor_share_percent": "50.00",
+            "terms-0-minimum_amount": "500.00",
+            "terms-0-fixed_amount": "0.00",
+            "terms-0-currency": Currency.PLN,
+            "terms-0-notes": "Tydzień otwarcia",
+        })
+        response = self.client.post(reverse("distribution:booking_deal_create"), payload)
+        self.assertEqual(response.status_code, 302)
+        deal = BookingDeal.objects.get(campaign=self.campaign, cinema=self.cinema)
+        term = deal.terms.get()
+        self.assertEqual(term.calculation_method, BookingCalculationMethod.PERCENTAGE_MINIMUM)
+        self.assertEqual(term.settlement_basis, BookingSettlementBasis.NET_VAT)
+        self.assertEqual(term.minimum_amount, Decimal("500.00"))
 
     def test_report_from_cinema_fills_existing_crm_booking(self):
         deal = self.create_confirmed_deal()
@@ -1062,10 +1123,14 @@ class BookingCrmTests(TestCase):
         self.assertEqual(booking.admissions, 840)
         self.assertEqual(booking.screenings, 21)
         self.assertEqual(booking.box_office_gross, Decimal("12000.00"))
-        self.assertEqual(deal.stage, BookingDealStage.PLAYING)
-        sales_report = SalesReport.objects.get(source_reference=f"booking-crm-deal-{deal.pk}")
-        self.assertEqual(sales_report.gross_revenue, Decimal("12000.00"))
-        self.assertEqual(sales_report.deductions, Decimal("5400.00"))
+        self.assertEqual(deal.stage, BookingDealStage.CONFIRMED)
+        week = booking.weeks.get()
+        self.assertEqual(row.booking_week, week)
+        self.assertEqual(week.admissions, 840)
+        self.assertEqual(week.settlement.rental_amount, Decimal("6600.00"))
+        sales_report = SalesReport.objects.get(source_reference=f"cinema-booking-week-{week.pk}")
+        self.assertEqual(sales_report.gross_revenue, Decimal("6600.00"))
+        self.assertEqual(sales_report.deductions, Decimal("0.00"))
 
     def test_activity_updates_contact_history_and_next_action(self):
         deal = BookingDeal.objects.create(
@@ -1150,3 +1215,137 @@ class BookingCrmTests(TestCase):
         self.assertEqual(response.status_code, 200)
         response = self.client.get(reverse("distribution:booking_campaign_create"))
         self.assertEqual(response.status_code, 403)
+
+    def test_duplicate_report_is_ignored_and_changed_report_creates_revision(self):
+        deal = self.create_confirmed_deal()
+        booking = CinemaBooking.objects.get(crm_deal=deal)
+        report_import = CinemaReportImport.objects.create(
+            source_file="cinema_report_imports/correction.xlsx",
+            original_filename="correction.xlsx",
+        )
+        first = CinemaReportImportRow.objects.create(
+            report_import=report_import,
+            title=self.title,
+            cinema=self.cinema,
+            date_from=date(2026, 9, 10),
+            date_to=date(2026, 9, 16),
+            admissions=100,
+            box_office_gross=Decimal("1000.00"),
+            source_fingerprint="a" * 64,
+        )
+        first.approve()
+        week = booking.weeks.get()
+        self.assertEqual(week.admissions, 100)
+
+        duplicate = CinemaReportImportRow.objects.create(
+            report_import=report_import,
+            title=self.title,
+            cinema=self.cinema,
+            date_from=date(2026, 9, 10),
+            date_to=date(2026, 9, 16),
+            admissions=999,
+            box_office_gross=Decimal("9999.00"),
+            source_fingerprint="a" * 64,
+        )
+        duplicate.approve()
+        week.refresh_from_db()
+        self.assertEqual(duplicate.booking_week_id, week.pk)
+        self.assertEqual(week.admissions, 100)
+        self.assertEqual(CinemaBookingWeekRevision.objects.count(), 0)
+
+        correction = CinemaReportImportRow.objects.create(
+            report_import=report_import,
+            title=self.title,
+            cinema=self.cinema,
+            date_from=date(2026, 9, 10),
+            date_to=date(2026, 9, 16),
+            admissions=120,
+            box_office_gross=Decimal("1200.00"),
+            source_fingerprint="b" * 64,
+        )
+        correction.approve()
+        week.refresh_from_db()
+        self.assertEqual(week.status, BookingWeekStatus.CORRECTED)
+        self.assertEqual(week.admissions, 120)
+        self.assertEqual(week.revisions.count(), 1)
+        self.assertEqual(week.settlement.rental_amount, Decimal("660.00"))
+        self.assertEqual(SalesReport.objects.filter(source_reference=f"cinema-booking-week-{week.pk}").count(), 1)
+
+    def test_bulk_chain_selection_expands_to_its_cinemas(self):
+        chain = Counterparty.objects.create(name="Sieć Test", counterparty_type=CounterpartyType.CINEMA_CHAIN)
+        venue_a = Counterparty.objects.create(name="Sieć Test Warszawa", counterparty_type=CounterpartyType.CINEMA)
+        venue_b = Counterparty.objects.create(name="Sieć Test Gdańsk", counterparty_type=CounterpartyType.CINEMA)
+        CinemaProfile.objects.create(counterparty=venue_a, chain=chain, city="Warszawa")
+        CinemaProfile.objects.create(counterparty=venue_b, chain=chain, city="Gdańsk")
+
+        response = self.client.post(
+            reverse("distribution:booking_bulk_cinemas"),
+            {"campaign": str(self.campaign.pk), "cinema_ids": [str(chain.pk)]},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            set(self.campaign.deals.values_list("cinema_id", flat=True)),
+            {venue_a.pk, venue_b.pk},
+        )
+        self.assertEqual(BookingTerm.objects.filter(deal__campaign=self.campaign).count(), 2)
+
+    def test_week_decision_can_lock_report_and_create_holdover_week(self):
+        deal = self.create_confirmed_deal()
+        booking = CinemaBooking.objects.get(crm_deal=deal)
+        week = booking.weeks.get()
+        week.screenings = 12
+        week.admissions = 300
+        week.box_office_gross = Decimal("4000.00")
+        week.status = BookingWeekStatus.REPORTED
+        week.save()
+        week.recalculate()
+
+        response = self.client.post(
+            reverse("distribution:booking_week_update", args=[week.pk]),
+            {"status": BookingWeekStatus.LOCKED, "decision": BookingWeekDecision.EXTEND},
+        )
+        self.assertEqual(response.status_code, 302)
+        week.refresh_from_db()
+        booking.refresh_from_db()
+        self.assertEqual(week.status, BookingWeekStatus.LOCKED)
+        self.assertEqual(week.settlement.status, BookingSettlementStatus.APPROVED)
+        self.assertEqual(week.settlement.approved_by, self.user)
+        next_week = booking.weeks.get(week_number=2)
+        self.assertEqual(next_week.status, BookingWeekStatus.PLANNED)
+        self.assertEqual(next_week.date_from, date(2026, 9, 17))
+        self.assertEqual(booking.date_to, date(2026, 9, 23))
+
+
+class BookingCalculationTests(TestCase):
+    def test_net_vat_percentage_uses_tax_exclusive_base(self):
+        result = calculate_booking_rental(
+            box_office_gross_vat=Decimal("108.00"),
+            ticket_vat_rate=Decimal("8.00"),
+            settlement_basis=BookingSettlementBasis.NET_VAT,
+            calculation_method=BookingCalculationMethod.PERCENTAGE,
+            share_percent=Decimal("50.00"),
+        )
+        self.assertEqual(result.box_office_net_vat, Decimal("100.00"))
+        self.assertEqual(result.ticket_vat_amount, Decimal("8.00"))
+        self.assertEqual(result.rental_amount, Decimal("50.00"))
+
+    def test_minimum_and_fixed_per_screening_are_applied(self):
+        minimum = calculate_booking_rental(
+            box_office_gross_vat=Decimal("100.00"),
+            ticket_vat_rate=Decimal("8.00"),
+            settlement_basis=BookingSettlementBasis.GROSS_VAT,
+            calculation_method=BookingCalculationMethod.PERCENTAGE_MINIMUM,
+            share_percent=Decimal("30.00"),
+            minimum_amount=Decimal("40.00"),
+        )
+        fixed = calculate_booking_rental(
+            box_office_gross_vat=Decimal("0.00"),
+            ticket_vat_rate=Decimal("8.00"),
+            settlement_basis=BookingSettlementBasis.GROSS_VAT,
+            calculation_method=BookingCalculationMethod.FIXED_SCREENING,
+            share_percent=Decimal("0.00"),
+            fixed_amount=Decimal("12.00"),
+            screenings=5,
+        )
+        self.assertEqual(minimum.rental_amount, Decimal("40.00"))
+        self.assertEqual(fixed.rental_amount, Decimal("60.00"))

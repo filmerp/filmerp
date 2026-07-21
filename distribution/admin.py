@@ -22,7 +22,11 @@ from .models import (
     BookingCampaign,
     BookingDeal,
     BookingDealStage,
+    BookingTerm,
+    BookingWeekSettlement,
     CinemaBooking,
+    CinemaBookingWeek,
+    CinemaBookingWeekRevision,
     CinemaContact,
     CinemaProfile,
     CinemaReportImport,
@@ -115,6 +119,13 @@ class FilmerpModelAdmin(admin.ModelAdmin):
         return self._related_parent_response(request, obj, response)
 
 
+class HiddenBookingSupportAdmin(FilmerpModelAdmin):
+    """Expose technical booking records through inlines without cluttering the admin index."""
+
+    def get_model_perms(self, request):
+        return {}
+
+
 class RightsWindowInline(admin.TabularInline):
     model = RightsWindow
     extra = 0
@@ -185,8 +196,43 @@ class CinemaReportImportRowInline(admin.TabularInline):
         "distributor_share_percent",
         "confidence",
         "booking",
+        "booking_week",
     )
-    readonly_fields = ("confidence", "booking")
+    readonly_fields = ("confidence", "booking", "booking_week")
+    show_change_link = True
+
+
+class BookingTermInline(admin.TabularInline):
+    model = BookingTerm
+    extra = 0
+    fields = (
+        "name",
+        "week_from",
+        "calculation_method",
+        "settlement_basis",
+        "ticket_vat_rate",
+        "distributor_share_percent",
+        "minimum_amount",
+        "fixed_amount",
+        "currency",
+    )
+
+
+class CinemaBookingWeekInline(admin.TabularInline):
+    model = CinemaBookingWeek
+    extra = 0
+    fields = (
+        "week_number",
+        "date_from",
+        "date_to",
+        "status",
+        "planned_screens",
+        "screenings",
+        "admissions",
+        "box_office_gross",
+        "currency",
+        "decision",
+    )
     show_change_link = True
 
 
@@ -371,10 +417,12 @@ class BookingDealAdmin(FilmerpModelAdmin):
     list_filter = ("stage", "campaign", "owner", "settlement_basis", "currency")
     search_fields = ("campaign__title__title_pl", "cinema__name", "contact__name", "next_action", "notes")
     autocomplete_fields = ("campaign", "cinema", "contact", "language_version")
+    inlines = [BookingTermInline]
 
-    def save_model(self, request, obj, form, change):
-        super().save_model(request, obj, form, change)
-        if obj.stage in {BookingDealStage.CONFIRMED, BookingDealStage.PLAYING, BookingDealStage.HOLDOVER}:
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        obj = form.instance
+        if obj.stage == BookingDealStage.CONFIRMED:
             obj.ensure_booking()
 
 
@@ -384,6 +432,39 @@ class BookingActivityAdmin(FilmerpModelAdmin):
     list_filter = ("activity_type", "occurred_at")
     search_fields = ("deal__campaign__title__title_pl", "deal__cinema__name", "summary")
     autocomplete_fields = ("deal",)
+
+
+@admin.register(BookingTerm)
+class BookingTermAdmin(HiddenBookingSupportAdmin):
+    list_display = ("deal", "week_from", "calculation_method", "settlement_basis", "distributor_share_percent", "currency")
+    list_filter = ("calculation_method", "settlement_basis", "currency")
+    search_fields = ("deal__campaign__title__title_pl", "deal__cinema__name", "name", "notes")
+    autocomplete_fields = ("deal",)
+
+
+@admin.register(CinemaBookingWeek)
+class CinemaBookingWeekAdmin(HiddenBookingSupportAdmin):
+    list_display = ("booking", "week_number", "date_from", "date_to", "status", "admissions", "box_office_gross", "currency")
+    list_filter = ("status", "decision", "currency", "date_from")
+    search_fields = ("booking__title__title_pl", "booking__cinema__name", "source_reference")
+    autocomplete_fields = ("booking",)
+
+
+@admin.register(BookingWeekSettlement)
+class BookingWeekSettlementAdmin(HiddenBookingSupportAdmin):
+    list_display = ("booking_week", "status", "calculation_method", "settlement_base", "rental_amount", "currency", "calculated_at")
+    list_filter = ("status", "calculation_method", "settlement_basis", "currency")
+    search_fields = ("booking_week__booking__title__title_pl", "booking_week__booking__cinema__name")
+    autocomplete_fields = ("booking_week", "term")
+    readonly_fields = ("calculation_snapshot", "calculated_at", "approved_at", "created_at", "updated_at")
+
+
+@admin.register(CinemaBookingWeekRevision)
+class CinemaBookingWeekRevisionAdmin(HiddenBookingSupportAdmin):
+    list_display = ("booking_week", "reason", "source_reference", "created_at")
+    search_fields = ("booking_week__booking__title__title_pl", "booking_week__booking__cinema__name", "source_reference", "reason")
+    autocomplete_fields = ("booking_week",)
+    readonly_fields = ("previous_data", "incoming_data", "created_at", "updated_at")
 
 
 @admin.register(Territory)
@@ -513,23 +594,34 @@ class CinemaBookingAdmin(FilmerpModelAdmin):
         "city",
         "date_from",
         "date_to",
+        "status",
         "screenings",
         "admissions",
         "box_office_gross",
         "distributor_share_amount_display",
         "invoice_issued",
     )
-    list_filter = ("date_from", "invoice_issued")
+    list_filter = ("status", "currency", "date_from", "invoice_issued")
     search_fields = ("title__title_pl", "cinema__name", "city")
     autocomplete_fields = ("title", "cinema", "crm_deal")
+    inlines = [CinemaBookingWeekInline]
 
     @admin.display(description="udział dystrybutora")
     def distributor_share_amount_display(self, obj):
         return obj.distributor_share_amount
 
-    def save_model(self, request, obj, form, change):
-        super().save_model(request, obj, form, change)
-        obj.sync_sales_report()
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        obj = form.instance
+        weeks = list(obj.weeks.all())
+        if weeks:
+            for week in weeks:
+                if week.status != "planned":
+                    week.recalculate()
+                    week.sync_sales_report()
+            obj.refresh_totals_from_weeks()
+        else:
+            obj.sync_sales_report()
 
 
 @admin.action(description="Rozpoznaj raport kina PDF/XLSX")
@@ -576,7 +668,7 @@ class CinemaReportImportAdmin(FilmerpModelAdmin):
     list_display = ("original_filename", "source_file", "status", "parsed_at", "imported_at", "rows_link", "created_at")
     list_filter = ("status", "created_at", "parsed_at", "imported_at")
     search_fields = ("original_filename", "source_file", "parser_notes")
-    readonly_fields = ("parsed_at", "imported_at", "parser_notes", "created_at", "updated_at")
+    readonly_fields = ("file_hash", "parsed_at", "imported_at", "parser_notes", "created_at", "updated_at")
     inlines = [CinemaReportImportRowInline]
     actions = [parse_selected_cinema_report_imports, approve_all_valid_rows_for_selected_imports]
 
@@ -607,16 +699,17 @@ class CinemaReportImportRowAdmin(FilmerpModelAdmin):
         "box_office_gross",
         "confidence",
         "booking",
+        "booking_week",
     )
     list_filter = ("status", "date_from", "cinema", "title")
     search_fields = ("title__title_pl", "cinema__name", "city", "source_line", "notes")
-    autocomplete_fields = ("report_import", "title", "cinema", "booking")
-    readonly_fields = ("raw_payload", "booking", "created_at", "updated_at")
+    autocomplete_fields = ("report_import", "title", "cinema", "booking", "booking_week")
+    readonly_fields = ("raw_payload", "source_fingerprint", "booking", "booking_week", "created_at", "updated_at")
     actions = [approve_selected_cinema_import_rows]
     fieldsets = (
-        ("Status", {"fields": ("report_import", "status", "confidence", "booking")}),
+        ("Status", {"fields": ("report_import", "status", "confidence", "booking", "booking_week")}),
         ("Dane do akceptacji", {"fields": ("title", "cinema", "city", "date_from", "date_to", "screenings", "admissions", "box_office_gross", "distributor_share_percent", "currency")}),
-        ("Zrodlo i uwagi", {"fields": ("source_line", "raw_payload", "notes")}),
+        ("Źródło i uwagi", {"fields": ("source_fingerprint", "source_line", "raw_payload", "notes")}),
     )
 
     def save_model(self, request, obj, form, change):

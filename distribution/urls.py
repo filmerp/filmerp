@@ -2,9 +2,11 @@ from django.urls import path
 
 from .booking_views import (
     booking_campaign_form,
+    booking_bulk_cinemas,
     booking_cinema_form,
     booking_crm,
     booking_deal_form,
+    booking_week_update,
 )
 from .views import (
     avails,
@@ -36,8 +38,10 @@ urlpatterns = [
     path("booking/", booking_crm, name="booking_crm"),
     path("booking/campaigns/new/", booking_campaign_form, name="booking_campaign_create"),
     path("booking/campaigns/<int:pk>/", booking_campaign_form, name="booking_campaign_edit"),
+    path("booking/cinemas/add-to-campaign/", booking_bulk_cinemas, name="booking_bulk_cinemas"),
     path("booking/deals/new/", booking_deal_form, name="booking_deal_create"),
     path("booking/deals/<int:pk>/", booking_deal_form, name="booking_deal_edit"),
+    path("booking/weeks/<int:pk>/update/", booking_week_update, name="booking_week_update"),
     path("booking/cinemas/new/", booking_cinema_form, name="booking_cinema_create"),
     path("booking/cinemas/<int:pk>/", booking_cinema_form, name="booking_cinema_edit"),
     path("contracts/setup/", contract_waterfall_wizard, name="contract_waterfall_wizard"),

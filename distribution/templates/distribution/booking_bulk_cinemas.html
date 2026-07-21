@@ -1,0 +1,66 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dodaj kina | Booking CRM</title>
+  {% include "distribution/_app_icons.html" %}
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+  <link rel="stylesheet" href="{% static 'distribution/booking-crm.css' %}">
+</head>
+<body>
+{% include "distribution/_app_header.html" %}
+<main class="booking-form-main">
+  {% if messages %}<section class="messages">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</section>{% endif %}
+  <div class="page-heading">
+    <div><h1>Dodaj kina do kampanii</h1><div class="muted">{{ campaign.title }} · premiera {{ campaign.release_date|date:"d.m.Y" }}</div></div>
+    <a class="button secondary" href="{% url 'distribution:booking_crm' %}?view=negotiations&amp;campaign={{ campaign.pk }}">Anuluj</a>
+  </div>
+
+  <section class="booking-filter-band booking-bulk-search">
+    <form method="get">
+      <input type="hidden" name="campaign" value="{{ campaign.pk }}">
+      <label>Szukaj kina, miasta lub sieci
+        <input type="search" name="q" value="{{ query }}" placeholder="np. Warszawa albo Helios">
+      </label>
+      <button type="submit">Szukaj</button>
+    </form>
+  </section>
+
+  <form method="post" class="booking-bulk-form">
+    {% csrf_token %}
+    <input type="hidden" name="campaign" value="{{ campaign.pk }}">
+    <section class="booking-table-section">
+      <div class="section-header">
+        <div><h2>Kina i sieci</h2><span class="muted">Zaznaczenie sieci doda jej kina, jeśli są zapisane w bazie.</span></div>
+        <label class="booking-select-all"><input type="checkbox" id="select-all"> Zaznacz wszystkie</label>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th class="check-col"></th><th>Kino / sieć</th><th>Miasto</th><th>Sieć nadrzędna</th><th>Sale</th><th>Cykl raportowania</th></tr></thead>
+          <tbody>
+          {% for cinema in cinemas %}{% with profile=cinema.cinema_profile %}
+          <tr>
+            <td><input class="cinema-checkbox" type="checkbox" name="cinema_ids" value="{{ cinema.pk }}" aria-label="Dodaj {{ cinema.name }}"></td>
+            <td><strong>{{ cinema.name }}</strong><div class="muted">{{ cinema.get_counterparty_type_display }}</div></td>
+            <td>{{ profile.city|default:"—" }}</td><td>{{ profile.chain|default:"—" }}</td><td>{{ profile.screens_count|default:"0" }}</td><td>{{ cinema.get_reporting_cycle_display }}</td>
+          </tr>
+          {% empty %}<tr><td colspan="6" class="muted">Nie znaleziono kin.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <div class="booking-form-actions booking-sticky-actions">
+      <button type="submit">Dodaj zaznaczone do kampanii</button>
+      <a class="button secondary" href="{% url 'distribution:booking_crm' %}?view=negotiations&amp;campaign={{ campaign.pk }}">Anuluj</a>
+    </div>
+  </form>
+</main>
+<script>
+  const selectAll = document.getElementById("select-all");
+  const cinemaCheckboxes = [...document.querySelectorAll(".cinema-checkbox")];
+  selectAll?.addEventListener("change", () => cinemaCheckboxes.forEach((field) => { field.checked = selectAll.checked; }));
+</script>
+</body>
+</html>

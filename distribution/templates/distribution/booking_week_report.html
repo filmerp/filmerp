@@ -1,0 +1,197 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rozliczenie tygodnia | Booking CRM</title>
+  {% include "distribution/_app_icons.html" %}
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+  <link rel="stylesheet" href="{% static 'distribution/booking-crm.css' %}">
+</head>
+<body>
+{% include "distribution/_app_header.html" %}
+<main class="booking-form-main booking-week-report-main">
+  {% if messages %}
+  <section class="messages">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</section>
+  {% endif %}
+
+  <div class="page-heading">
+    <div>
+      <h1>Rozliczenie tygodnia {{ week.week_number }}</h1>
+      <div class="muted">{{ week.booking.title }} · {{ week.booking.cinema }} · {{ week.date_from|date:"d.m.Y" }}–{{ week.date_to|date:"d.m.Y" }}</div>
+    </div>
+    <div class="action-bar">
+      <span class="status-pill {{ week.status }}">{{ week.get_status_display }}</span>
+      <a class="button secondary" href="{% url 'distribution:booking_crm' %}?view=weeks{% if campaign_id %}&amp;campaign={{ campaign_id }}{% endif %}">Wróć do tygodni</a>
+    </div>
+  </div>
+
+  <section class="booking-settlement-progress" aria-label="Etapy rozliczenia">
+    <div class="{% if imports %}done{% else %}active{% endif %}"><strong>1</strong><span>Raport kina</span></div>
+    <div class="{% if selected_row %}done{% elif imports %}active{% endif %}"><strong>2</strong><span>Weryfikacja</span></div>
+    <div class="{% if week.status == 'locked' %}done{% elif selected_row %}active{% endif %}"><strong>3</strong><span>Zatwierdzenie</span></div>
+    <div class="{% if settlement.paid_at %}done{% elif week.status == 'locked' %}active{% endif %}"><strong>4</strong><span>Faktura i płatność</span></div>
+  </section>
+
+  <section class="booking-report-summary">
+    <div><span>Tytuł</span><strong>{{ week.booking.title }}</strong></div>
+    <div><span>Kino</span><strong>{{ week.booking.cinema }}</strong><small>{{ week.booking.city|default:"—" }}</small></div>
+    <div><span>Warunki</span><strong>{{ term_method_label }}</strong><small>{{ term_values.share_percent }}% · {{ term_basis_label }}</small></div>
+    <div><span>Raport</span><strong>{{ week.get_status_display }}</strong><small>{% if week.source_reference %}{{ week.source_reference }}{% else %}brak źródła{% endif %}</small></div>
+  </section>
+
+  <section class="booking-form-section booking-upload-section">
+    <div class="section-header">
+      <div><h2>Raport kina</h2><span class="muted">PDF lub XLSX przypisany bezpośrednio do tego tygodnia</span></div>
+      {% if selected_import %}<span class="status-pill {{ selected_import.status }}">{{ selected_import.get_status_display }}</span>{% endif %}
+    </div>
+    {% if can_upload %}
+    <form method="post" enctype="multipart/form-data" class="booking-report-upload">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="upload_report">
+      {% include "distribution/_booking_field.html" with field=upload_form.source_file %}
+      <button type="submit">Wczytaj i rozpoznaj</button>
+    </form>
+    {% endif %}
+    {% if imports %}
+    <div class="booking-import-history" aria-label="Historia plików">
+      {% for item in imports %}
+      <a class="{% if selected_import.pk == item.pk %}active{% endif %}" href="{% url 'distribution:booking_week_report' week.pk %}?import={{ item.pk }}">
+        <strong>{{ item.original_filename }}</strong>
+        <span>{{ item.created_at|date:"d.m.Y H:i" }} · {{ item.get_status_display }}</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="booking-empty-state">Nie wczytano jeszcze raportu dla tego tygodnia.</div>
+    {% endif %}
+  </section>
+
+  {% if selected_import %}
+  <section class="booking-form-section">
+    <div class="section-header">
+      <div><h2>Rozpoznane wiersze</h2><span class="muted">{{ selected_import.parser_notes }}</span></div>
+      <span class="muted">{{ reviewed_rows|length }} pozycji</span>
+    </div>
+    <div class="table-scroll">
+      <table class="booking-review-rows">
+        <thead><tr><th></th><th>Tytuł / kino</th><th>Okres</th><th>Widzowie</th><th>Box office</th><th>Pewność</th><th>Ocena</th></tr></thead>
+        <tbody>
+        {% for item in reviewed_rows %}
+        <tr class="{% if selected_row.pk == item.row.pk %}selected{% endif %}">
+          <td><a class="booking-row-picker" href="{% url 'distribution:booking_week_report' week.pk %}?import={{ selected_import.pk }}&amp;row={{ item.row.pk }}" aria-label="Wybierz wiersz {{ item.row.pk }}">Wybierz</a></td>
+          <td><strong>{{ item.row.title|default:"Brak tytułu" }}</strong><small>{{ item.row.cinema|default:"Brak kina" }}</small></td>
+          <td>{{ item.row.date_from|date:"d.m.Y"|default:"—" }}–{{ item.row.date_to|date:"d.m.Y"|default:"—" }}</td>
+          <td>{{ item.row.admissions }}</td>
+          <td class="num">{{ item.row.box_office_gross|floatformat:2 }} {{ item.row.currency }}</td>
+          <td>{{ item.row.confidence|floatformat:0 }}%</td>
+          <td>{% if item.ready %}<span class="status-pill verified">Gotowy</span>{% else %}<span class="status-pill needs_review">Sprawdź</span>{% endif %}</td>
+        </tr>
+        {% empty %}<tr><td colspan="7" class="muted">Nie rozpoznano żadnych wierszy.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if selected_row and row_form %}
+  <div class="booking-review-layout">
+    <section class="booking-form-section">
+      <div class="section-header"><h2>Dane do zatwierdzenia</h2><span class="muted">Wiersz #{{ selected_row.pk }}</span></div>
+      <form method="post" class="booking-edit-form booking-row-review-form">
+        {% csrf_token %}
+        <input type="hidden" name="import_id" value="{{ selected_import.pk }}">
+        <input type="hidden" name="row_id" value="{{ selected_row.pk }}">
+        {% if row_form.non_field_errors %}<div class="notice danger">{{ row_form.non_field_errors }}</div>{% endif %}
+        <div class="booking-form-grid">
+          {% include "distribution/_booking_field.html" with field=row_form.title wide=True %}
+          {% include "distribution/_booking_field.html" with field=row_form.cinema wide=True %}
+          {% include "distribution/_booking_field.html" with field=row_form.city %}
+          {% include "distribution/_booking_field.html" with field=row_form.date_from %}
+          {% include "distribution/_booking_field.html" with field=row_form.date_to %}
+          {% include "distribution/_booking_field.html" with field=row_form.screenings %}
+          {% include "distribution/_booking_field.html" with field=row_form.admissions %}
+          {% include "distribution/_booking_field.html" with field=row_form.box_office_gross %}
+          {% include "distribution/_booking_field.html" with field=row_form.reported_rental_amount %}
+          {% include "distribution/_booking_field.html" with field=row_form.currency %}
+          {% include "distribution/_booking_field.html" with field=row_form.notes wide=True %}
+        </div>
+        {% if can_review and selected_row.status != 'imported' %}
+        <div class="booking-form-actions">
+          <button class="secondary" type="submit" name="action" value="save_row">Zapisz poprawki</button>
+          {% if can_approve %}
+          <button type="submit" name="action" value="approve_row">Zatwierdź rozliczenie</button>
+          {% endif %}
+        </div>
+        {% endif %}
+      </form>
+    </section>
+
+    <section class="booking-form-section booking-calculation-panel">
+      <div class="section-header"><h2>Kontrola rozliczenia</h2>{% if selected_review.ready %}<span class="status-pill verified">Gotowe</span>{% else %}<span class="status-pill needs_review">Wymaga poprawy</span>{% endif %}</div>
+      {% if selected_review.errors %}
+      <div class="booking-review-messages danger">{% for error in selected_review.errors %}<p>{{ error }}</p>{% endfor %}</div>
+      {% endif %}
+      {% if selected_review.warnings %}
+      <div class="booking-review-messages warning">{% for warning in selected_review.warnings %}<p>{{ warning }}</p>{% endfor %}</div>
+      {% endif %}
+      {% if selected_review.calculation %}
+      <dl class="booking-calculation-list">
+        <div><dt>Box office brutto (VAT)</dt><dd>{{ selected_review.calculation.box_office_gross_vat|floatformat:2 }} {{ week.currency }}</dd></div>
+        <div><dt>VAT od biletów</dt><dd>{{ selected_review.calculation.ticket_vat_rate }}% · {{ selected_review.calculation.ticket_vat_amount|floatformat:2 }} {{ week.currency }}</dd></div>
+        <div><dt>Box office netto (VAT)</dt><dd>{{ selected_review.calculation.box_office_net_vat|floatformat:2 }} {{ week.currency }}</dd></div>
+        <div><dt>Podstawa naliczenia</dt><dd>{{ selected_review.calculation.settlement_base|floatformat:2 }} {{ week.currency }}</dd></div>
+        <div><dt>Udział dystrybutora</dt><dd>{{ selected_review.values.share_percent }}% · {{ selected_review.calculation.percentage_amount|floatformat:2 }} {{ week.currency }}</dd></div>
+        <div><dt>Minimum / MG kina</dt><dd>{{ selected_review.calculation.minimum_amount|floatformat:2 }} {{ week.currency }}</dd></div>
+        <div><dt>Stawka stała</dt><dd>{{ selected_review.calculation.fixed_amount|floatformat:2 }} {{ week.currency }}</dd></div>
+        <div class="total"><dt>Należność wg FILMERP</dt><dd>{{ selected_review.calculation.rental_amount|floatformat:2 }} {{ week.currency }}</dd></div>
+        <div><dt>Należność wg kina</dt><dd>{% if selected_row.reported_rental_amount != None %}{{ selected_row.reported_rental_amount|floatformat:2 }} {{ week.currency }}{% else %}nie podano{% endif %}</dd></div>
+        <div class="{% if selected_review.variance %}variance{% endif %}"><dt>Różnica</dt><dd>{% if selected_review.variance != None %}{{ selected_review.variance|floatformat:2 }} {{ week.currency }}{% else %}—{% endif %}</dd></div>
+      </dl>
+      {% endif %}
+    </section>
+  </div>
+  {% endif %}
+
+  {% if settlement %}
+  <section class="booking-form-section booking-payment-section">
+    <div class="section-header">
+      <div><h2>Faktura i płatność</h2><span class="muted">Należność dystrybutora {{ settlement.rental_amount|floatformat:2 }} {{ settlement.currency }}</span></div>
+      {% if settlement.paid_at %}<span class="status-pill settled">Zapłacono</span>{% elif settlement.is_overdue %}<span class="status-pill overdue">Po terminie</span>{% elif settlement.invoice_missing %}<span class="status-pill needs_review">Brak faktury</span>{% else %}<span class="status-pill checked">Oczekuje na płatność</span>{% endif %}
+    </div>
+    {% if settlement.status == 'approved' and can_manage_payment %}
+    <form method="post" enctype="multipart/form-data" class="booking-edit-form">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="save_invoice">
+      <div class="booking-form-grid">
+        {% include "distribution/_booking_field.html" with field=payment_form.invoice_number %}
+        {% include "distribution/_booking_field.html" with field=payment_form.invoice_file wide=True %}
+        {% include "distribution/_booking_field.html" with field=payment_form.invoice_issued_at %}
+        {% include "distribution/_booking_field.html" with field=payment_form.payment_due_date %}
+        {% include "distribution/_booking_field.html" with field=payment_form.paid_at %}
+        {% include "distribution/_booking_field.html" with field=payment_form.payment_notes wide=True %}
+      </div>
+      <div class="booking-form-actions">
+        <button type="submit">Zapisz dane finansowe</button>
+        {% if not settlement.paid_at %}<button class="secondary" type="submit" name="action" value="mark_paid">Oznacz jako zapłacone</button>{% endif %}
+      </div>
+    </form>
+    {% else %}
+    <div class="booking-empty-state">Dane faktury będą dostępne po zatwierdzeniu rozliczenia.</div>
+    {% endif %}
+  </section>
+  {% endif %}
+
+  {% if revisions %}
+  <section class="booking-form-section">
+    <div class="section-header"><h2>Historia korekt</h2><span class="muted">{{ revisions|length }} wpisów</span></div>
+    <div class="table-scroll"><table>
+      <thead><tr><th>Data</th><th>Powód</th><th>Źródło</th><th>Poprzednie dane</th></tr></thead>
+      <tbody>{% for revision in revisions %}<tr><td>{{ revision.created_at|date:"d.m.Y H:i" }}</td><td>{{ revision.reason }}</td><td>{{ revision.source_reference }}</td><td><code>{{ revision.previous_data }}</code></td></tr>{% endfor %}</tbody>
+    </table></div>
+  </section>
+  {% endif %}
+</main>
+</body>
+</html>

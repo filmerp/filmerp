@@ -49,6 +49,7 @@ from .models import (
     DocumentType,
     ExploitationField,
     ImportStatus,
+    ReportStatus,
     RoyaltyStatement,
     SalesReport,
     StatementStatus,
@@ -994,6 +995,32 @@ class BookingCrmTests(TestCase):
         self.assertEqual(response.status_code, 302)
         return BookingDeal.objects.get(campaign=self.campaign, cinema=self.cinema)
 
+    def create_targeted_report(self, *, reported_rental=Decimal("6500.00")):
+        deal = self.create_confirmed_deal()
+        week = CinemaBooking.objects.get(crm_deal=deal).weeks.get()
+        report_import = CinemaReportImport.objects.create(
+            source_file="cinema_report_imports/targeted-report.xlsx",
+            original_filename="targeted-report.xlsx",
+            status=ImportStatus.NEEDS_REVIEW,
+            target_booking_week=week,
+        )
+        row = CinemaReportImportRow.objects.create(
+            report_import=report_import,
+            status=ImportStatus.NEEDS_REVIEW,
+            title=self.title,
+            cinema=self.cinema,
+            city="Warszawa",
+            date_from=week.date_from,
+            date_to=week.date_to,
+            screenings=21,
+            admissions=840,
+            box_office_gross=Decimal("12000.00"),
+            reported_rental_amount=reported_rental,
+            currency=Currency.PLN,
+            confidence=Decimal("96.00"),
+        )
+        return week, report_import, row
+
     def test_booking_crm_is_a_separate_sidebar_workspace(self):
         response = self.client.get(
             reverse("distribution:booking_crm"),
@@ -1114,7 +1141,7 @@ class BookingCrmTests(TestCase):
             distributor_share_percent=Decimal("55.00"),
         )
 
-        booking = row.approve()
+        booking = row.approve(approved_by=self.user)
         deal.refresh_from_db()
         row.refresh_from_db()
         booking.refresh_from_db()
@@ -1128,6 +1155,8 @@ class BookingCrmTests(TestCase):
         self.assertEqual(row.booking_week, week)
         self.assertEqual(week.admissions, 840)
         self.assertEqual(week.settlement.rental_amount, Decimal("6600.00"))
+        self.assertEqual(week.status, BookingWeekStatus.LOCKED)
+        self.assertEqual(week.settlement.status, BookingSettlementStatus.APPROVED)
         sales_report = SalesReport.objects.get(source_reference=f"cinema-booking-week-{week.pk}")
         self.assertEqual(sales_report.gross_revenue, Decimal("6600.00"))
         self.assertEqual(sales_report.deductions, Decimal("0.00"))
@@ -1233,7 +1262,7 @@ class BookingCrmTests(TestCase):
             box_office_gross=Decimal("1000.00"),
             source_fingerprint="a" * 64,
         )
-        first.approve()
+        first.approve(approved_by=self.user)
         week = booking.weeks.get()
         self.assertEqual(week.admissions, 100)
 
@@ -1247,7 +1276,7 @@ class BookingCrmTests(TestCase):
             box_office_gross=Decimal("9999.00"),
             source_fingerprint="a" * 64,
         )
-        duplicate.approve()
+        duplicate.approve(approved_by=self.user)
         week.refresh_from_db()
         self.assertEqual(duplicate.booking_week_id, week.pk)
         self.assertEqual(week.admissions, 100)
@@ -1263,9 +1292,9 @@ class BookingCrmTests(TestCase):
             box_office_gross=Decimal("1200.00"),
             source_fingerprint="b" * 64,
         )
-        correction.approve()
+        correction.approve(approved_by=self.user)
         week.refresh_from_db()
-        self.assertEqual(week.status, BookingWeekStatus.CORRECTED)
+        self.assertEqual(week.status, BookingWeekStatus.LOCKED)
         self.assertEqual(week.admissions, 120)
         self.assertEqual(week.revisions.count(), 1)
         self.assertEqual(week.settlement.rental_amount, Decimal("660.00"))
@@ -1314,6 +1343,94 @@ class BookingCrmTests(TestCase):
         self.assertEqual(next_week.status, BookingWeekStatus.PLANNED)
         self.assertEqual(next_week.date_from, date(2026, 9, 17))
         self.assertEqual(booking.date_to, date(2026, 9, 23))
+
+    def test_recognized_row_does_not_create_revenue_before_final_approval(self):
+        week, report_import, row = self.create_targeted_report()
+
+        row.approve()
+        week.refresh_from_db()
+        report_import.refresh_from_db()
+
+        self.assertEqual(week.status, BookingWeekStatus.REPORTED)
+        self.assertEqual(week.settlement.status, BookingSettlementStatus.CALCULATED)
+        self.assertFalse(
+            SalesReport.objects.filter(source_reference=f"cinema-booking-week-{week.pk}").exists()
+        )
+
+    def test_week_report_review_approves_settlement_and_revenue_in_one_step(self):
+        week, report_import, row = self.create_targeted_report()
+        url = reverse("distribution:booking_week_report", args=[week.pk])
+
+        response = self.client.get(url, {"import": report_import.pk, "row": row.pk})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Kontrola rozliczenia")
+        self.assertContains(response, "Kwota podana przez kino różni się od kalkulacji FILMERP.")
+        self.assertContains(response, "Zatwierdź rozliczenie")
+
+        response = self.client.post(url, {
+            "action": "approve_row",
+            "import_id": str(report_import.pk),
+            "row_id": str(row.pk),
+            "title": str(self.title.pk),
+            "cinema": str(self.cinema.pk),
+            "city": "Warszawa",
+            "date_from": "2026-09-10",
+            "date_to": "2026-09-16",
+            "screenings": "21",
+            "admissions": "840",
+            "box_office_gross": "12000.00",
+            "reported_rental_amount": "6500.00",
+            "currency": Currency.PLN,
+            "notes": "",
+        })
+        self.assertEqual(response.status_code, 302)
+
+        week.refresh_from_db()
+        report_import.refresh_from_db()
+        row.refresh_from_db()
+        self.assertEqual(week.status, BookingWeekStatus.LOCKED)
+        self.assertEqual(week.settlement.status, BookingSettlementStatus.APPROVED)
+        self.assertEqual(week.settlement.approved_by, self.user)
+        self.assertIsNotNone(week.settlement.payment_due_date)
+        self.assertEqual(report_import.status, ImportStatus.IMPORTED)
+        self.assertEqual(row.status, ImportStatus.IMPORTED)
+        sales_report = SalesReport.objects.get(source_reference=f"cinema-booking-week-{week.pk}")
+        self.assertEqual(sales_report.gross_revenue, Decimal("6600.00"))
+        self.assertEqual(sales_report.status, ReportStatus.CHECKED)
+
+        response = self.client.get(
+            reverse("distribution:booking_crm"),
+            {"campaign": self.campaign.pk, "view": "weeks"},
+        )
+        self.assertContains(response, "Otwórz rozliczenie")
+        self.assertContains(response, "brak faktury")
+
+    def test_invoice_and_payment_update_the_same_revenue_record(self):
+        week, report_import, row = self.create_targeted_report(reported_rental=Decimal("6600.00"))
+        row.approve(approved_by=self.user)
+        url = reverse("distribution:booking_week_report", args=[week.pk])
+
+        response = self.client.post(url, {
+            "action": "save_invoice",
+            "invoice_number": "FV/09/2026/17",
+            "invoice_issued_at": "2026-09-20",
+            "payment_due_date": "2026-10-20",
+            "paid_at": "",
+            "payment_notes": "Wysłano do księgowości kina.",
+        })
+        self.assertEqual(response.status_code, 302)
+        week.refresh_from_db()
+        self.assertEqual(week.settlement.invoice_number, "FV/09/2026/17")
+        self.assertEqual(week.settlement.payment_due_date, date(2026, 10, 20))
+        sales_report = SalesReport.objects.get(source_reference=f"cinema-booking-week-{week.pk}")
+        self.assertEqual(sales_report.status, ReportStatus.INVOICED)
+
+        response = self.client.post(url, {"action": "mark_paid"})
+        self.assertEqual(response.status_code, 302)
+        week.refresh_from_db()
+        sales_report.refresh_from_db()
+        self.assertIsNotNone(week.settlement.paid_at)
+        self.assertEqual(sales_report.status, ReportStatus.SETTLED)
 
 
 class BookingCalculationTests(TestCase):

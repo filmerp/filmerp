@@ -180,11 +180,17 @@
     {% endif %}
 
   {% elif active_view == 'weeks' %}
+    <section class="booking-week-exceptions" aria-label="Wyjątki w rozliczeniach kin">
+      <div class="{% if missing_reports_count %}alert{% endif %}"><strong>{{ missing_reports_count }}</strong><span>brak raportu</span></div>
+      <div class="{% if pending_verification_count %}warning{% endif %}"><strong>{{ pending_verification_count }}</strong><span>do weryfikacji</span></div>
+      <div class="{% if missing_invoice_count %}warning{% endif %}"><strong>{{ missing_invoice_count }}</strong><span>brak faktury</span></div>
+      <div class="{% if overdue_payment_count %}alert{% endif %}"><strong>{{ overdue_payment_count }}</strong><span>płatności po terminie</span></div>
+    </section>
     <section class="booking-table-section booking-week-table">
       <div class="section-header"><h2>Tygodnie grania i raporty kin</h2><span class="muted">{{ week_rows|length }} pozycji</span></div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Kino</th><th>Tydzień / okres</th><th>Ekrany</th><th>Seanse</th><th>Widzowie</th><th>Box office brutto (VAT)</th><th>Zmiana tydz.</th><th>Należność dystrybutora</th><th>Raport</th><th>Decyzja</th></tr></thead>
+          <thead><tr><th>Kino</th><th>Tydzień / okres</th><th>Ekrany</th><th>Seanse</th><th>Widzowie</th><th>Box office brutto (VAT)</th><th>Zmiana tydz.</th><th>Należność dystrybutora</th><th>Rozliczenie</th><th>Decyzja</th></tr></thead>
           <tbody>
           {% for week in week_rows %}
           <tr class="{% if week in missing_week_rows %}booking-week-missing{% endif %}">
@@ -194,18 +200,21 @@
             <td class="num">{{ week.box_office_gross|floatformat:2 }} {{ week.currency }}</td>
             <td class="num">{% if week.previous_week_change_percent != None %}{{ week.previous_week_change_percent }}%{% else %}—{% endif %}</td>
             <td class="num"><strong>{{ week.settlement.rental_amount|default:"—" }} {{ week.currency }}</strong></td>
-            {% if can_change_week %}
             <td>
-              <form id="week-form-{{ week.pk }}" method="post" action="{% url 'distribution:booking_week_update' week.pk %}" class="booking-week-action">{% csrf_token %}</form>
-              <select name="status" form="week-form-{{ week.pk }}" aria-label="Status raportu {{ week.booking.cinema }} tydzień {{ week.week_number }}">
-                <option value="planned" {% if week.status == 'planned' %}selected{% endif %}>Oczekuje na raport</option>
-                <option value="reported" {% if week.status == 'reported' %}selected{% endif %}>Raport wczytany</option>
-                <option value="verified" {% if week.status == 'verified' %}selected{% endif %}>Zweryfikowany</option>
-                <option value="locked" {% if week.status == 'locked' %}selected{% endif %}>Zamknięty</option>
-                <option value="corrected" {% if week.status == 'corrected' %}selected{% endif %}>Po korekcie</option>
-              </select>
+              <span class="status-pill {{ week.status }}">{{ week.get_status_display }}</span>
+              {% if week.status == 'locked' and week.settlement %}
+                {% if week.settlement.paid_at %}<small class="booking-finance-note paid">zapłacono {{ week.settlement.paid_at|date:"d.m.Y" }}</small>
+                {% elif week.settlement.is_overdue %}<small class="booking-finance-note overdue">płatność po terminie</small>
+                {% elif week.settlement.invoice_missing %}<small class="booking-finance-note">brak faktury</small>
+                {% else %}<small class="booking-finance-note">termin {{ week.settlement.payment_due_date|date:"d.m.Y"|default:"—" }}</small>{% endif %}
+              {% endif %}
+              <a class="button export booking-week-open" href="{% url 'distribution:booking_week_report' week.pk %}">
+                {% if week.status == 'planned' %}Wczytaj raport{% elif week.status == 'locked' %}Otwórz rozliczenie{% else %}Sprawdź i zatwierdź{% endif %}
+              </a>
             </td>
+            {% if can_change_week %}
             <td><div class="booking-week-decision">
+              <form id="week-form-{{ week.pk }}" method="post" action="{% url 'distribution:booking_week_update' week.pk %}" class="booking-week-action">{% csrf_token %}</form>
               <select name="decision" form="week-form-{{ week.pk }}" aria-label="Decyzja dla {{ week.booking.cinema }} tydzień {{ week.week_number }}">
                 <option value="pending" {% if week.decision == 'pending' %}selected{% endif %}>Do decyzji</option>
                 <option value="extend" {% if week.decision == 'extend' %}selected{% endif %}>Przedłużyć</option>
@@ -215,7 +224,7 @@
               <button class="button export" type="submit" form="week-form-{{ week.pk }}">Zapisz</button>
             </div></td>
             {% else %}
-            <td><span class="status-pill {{ week.status }}">{{ week.get_status_display }}</span></td><td>{{ week.get_decision_display }}</td>
+            <td>{{ week.get_decision_display }}</td>
             {% endif %}
           </tr>
           {% empty %}<tr><td colspan="10" class="muted">Brak tygodni grania. Powstaną po potwierdzeniu negocjacji.</td></tr>{% endfor %}

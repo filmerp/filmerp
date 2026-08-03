@@ -73,7 +73,7 @@
       <div><strong>{{ open_issues_count }}</strong><span>problemów praw</span></div>
       <div><strong>{{ open_statements_count }}</strong><span>otwartych statementów</span></div>
       <div><strong>{{ expiring_rights|length }}</strong><span>praw wygasających do 90 dni</span></div>
-      <div><strong>{{ unpaid_agreements|length }}</strong><span>należności po terminie</span></div>
+      <div><strong>{{ overdue_receivables_count }}</strong><span>należności po terminie</span></div>
     </div>
     <div class="two portfolio-tables">
       <div>
@@ -87,7 +87,11 @@
         <h3>Należności po terminie</h3>
         <div class="table-scroll"><table>
           <thead><tr><th>Tytuł</th><th>Kontrahent</th><th>Kwota</th></tr></thead>
-          <tbody>{% for a in unpaid_agreements %}<tr><td><a href="{% url 'distribution:title_detail' a.title_id %}#finance">{{ a.title }}</a></td><td>{{ a.licensee }}</td><td class="num">{{ a.fixed_fee }} {{ a.currency }}</td></tr>{% empty %}<tr><td colspan="3" class="muted">Brak pozycji.</td></tr>{% endfor %}</tbody>
+          <tbody>
+          {% for a in unpaid_agreements %}<tr><td><a href="{% url 'distribution:title_detail' a.title_id %}#finance">{{ a.title }}</a></td><td>{{ a.licensee }}</td><td class="num">{{ a.fixed_fee }} {{ a.currency }}</td></tr>{% endfor %}
+          {% for settlement in overdue_booking_settlements %}<tr><td><a href="{% url 'distribution:booking_week_report' settlement.booking_week_id %}">{{ settlement.booking_week.booking.title }}</a></td><td>{{ settlement.booking_week.booking.cinema }}</td><td class="num">{{ settlement.rental_amount }} {{ settlement.currency }}</td></tr>{% endfor %}
+          {% if not unpaid_agreements and not overdue_booking_settlements %}<tr><td colspan="3" class="muted">Brak pozycji.</td></tr>{% endif %}
+          </tbody>
         </table></div>
       </div>
     </div>

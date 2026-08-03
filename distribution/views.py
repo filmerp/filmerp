@@ -39,6 +39,7 @@ from .pdf import build_royalty_statement_pdf
 from .models import (
     AcquisitionAgreement,
     AuditAction,
+    BookingWeekSettlement,
     CinemaBooking,
     CinemaReportImport,
     Cost,
@@ -208,6 +209,24 @@ def dashboard(request):
             "open_statements": sum((statement.amount_due for statement in statements), 0),
         })
 
+    unpaid_agreements_query = SalesAgreement.objects.filter(
+        invoice_paid=False,
+        payment_due_date__lt=today,
+    ).select_related("title", "licensee")
+    overdue_booking_settlements_query = BookingWeekSettlement.objects.filter(
+        status="approved",
+        paid_at__isnull=True,
+        payment_due_date__lt=today,
+    ).select_related(
+        "booking_week__booking__title",
+        "booking_week__booking__cinema",
+    )
+    overdue_receivables_count = (
+        unpaid_agreements_query.count() + overdue_booking_settlements_query.count()
+    )
+    unpaid_agreements = unpaid_agreements_query[:10]
+    overdue_booking_settlements = overdue_booking_settlements_query[:10]
+
     context = {
         "query": query,
         "title_rows": title_rows,
@@ -216,7 +235,9 @@ def dashboard(request):
         "expiring_rights": RightsWindow.objects.filter(date_to__gte=today, date_to__lte=expiring_until).order_by("date_to")[:10],
         "open_issues_count": RightsIssue.objects.filter(resolved=False).count(),
         "open_issues": RightsIssue.objects.filter(resolved=False).select_related("rights_window", "rights_window__title")[:10],
-        "unpaid_agreements": SalesAgreement.objects.filter(invoice_paid=False, payment_due_date__lt=today).select_related("title", "licensee")[:10],
+        "unpaid_agreements": unpaid_agreements,
+        "overdue_booking_settlements": overdue_booking_settlements,
+        "overdue_receivables_count": overdue_receivables_count,
         "financial_totals": financial_totals,
         "open_statements_count": open_statements.count(),
         "revenue_by_title": revenue_by_title,
@@ -519,7 +540,7 @@ def document_center(request):
                 if not row_ids:
                     messages.error(request, "Zaznacz co najmniej jeden wiersz.")
                 else:
-                    imported, skipped = approve_import_rows(rows)
+                    imported, skipped = approve_import_rows(rows, approved_by=request.user)
                     document.cinema_import.refresh_from_db()
                     if document.cinema_import.status == "imported":
                         document.status = DocumentStatus.PROCESSED
@@ -713,7 +734,7 @@ def settlement_workbench(request):
             if not request.user.has_perm("distribution.approve_cinema_reports"):
                 raise PermissionDenied
             report_import = get_object_or_404(CinemaReportImport, pk=request.POST.get("import_id"))
-            imported, skipped = approve_import_rows(report_import.rows.all())
+            imported, skipped = approve_import_rows(report_import.rows.all(), approved_by=request.user)
             record_audit_event(
                 AuditAction.APPROVE,
                 f"Zatwierdzono raport kinowy: {imported} pozycji.",

@@ -193,6 +193,7 @@ class CinemaReportImportRowInline(admin.TabularInline):
         "screenings",
         "admissions",
         "box_office_gross",
+        "reported_rental_amount",
         "distributor_share_percent",
         "confidence",
         "booking",
@@ -452,9 +453,9 @@ class CinemaBookingWeekAdmin(HiddenBookingSupportAdmin):
 
 @admin.register(BookingWeekSettlement)
 class BookingWeekSettlementAdmin(HiddenBookingSupportAdmin):
-    list_display = ("booking_week", "status", "calculation_method", "settlement_base", "rental_amount", "currency", "calculated_at")
-    list_filter = ("status", "calculation_method", "settlement_basis", "currency")
-    search_fields = ("booking_week__booking__title__title_pl", "booking_week__booking__cinema__name")
+    list_display = ("booking_week", "status", "calculation_method", "rental_amount", "currency", "invoice_number", "payment_due_date", "paid_at")
+    list_filter = ("status", "calculation_method", "settlement_basis", "currency", "invoice_issued_at", "paid_at")
+    search_fields = ("booking_week__booking__title__title_pl", "booking_week__booking__cinema__name", "invoice_number")
     autocomplete_fields = ("booking_week", "term")
     readonly_fields = ("calculation_snapshot", "calculated_at", "approved_at", "created_at", "updated_at")
 
@@ -641,7 +642,7 @@ def approve_selected_cinema_import_rows(modeladmin, request, queryset):
     if not request.user.has_perm("distribution.approve_cinema_reports"):
         from django.core.exceptions import PermissionDenied
         raise PermissionDenied
-    imported, skipped = approve_import_rows(queryset)
+    imported, skipped = approve_import_rows(queryset, approved_by=request.user)
     record_audit_event(AuditAction.APPROVE, f"Zatwierdzono {imported} wierszy raportow kinowych.", request=request, module="cinema_reports", metadata={"imported": imported, "skipped": skipped})
     if skipped:
         messages.warning(request, f"Zaimportowano {imported}, pominieto {skipped}. Wiersze pominiete wymagaja tytulu, kina i dat.")
@@ -655,7 +656,7 @@ def approve_all_valid_rows_for_selected_imports(modeladmin, request, queryset):
         from django.core.exceptions import PermissionDenied
         raise PermissionDenied
     rows = CinemaReportImportRow.objects.filter(report_import__in=queryset)
-    imported, skipped = approve_import_rows(rows)
+    imported, skipped = approve_import_rows(rows, approved_by=request.user)
     record_audit_event(AuditAction.APPROVE, f"Zatwierdzono {imported} wierszy raportow kinowych.", request=request, module="cinema_reports", metadata={"import_ids": list(queryset.values_list("pk", flat=True)), "imported": imported, "skipped": skipped})
     if skipped:
         messages.warning(request, f"Zaimportowano {imported}, pominieto {skipped}. Pominiete wiersze wymagaja poprawy danych albo byly juz zaimportowane.")
@@ -665,10 +666,11 @@ def approve_all_valid_rows_for_selected_imports(modeladmin, request, queryset):
 
 @admin.register(CinemaReportImport)
 class CinemaReportImportAdmin(FilmerpModelAdmin):
-    list_display = ("original_filename", "source_file", "status", "parsed_at", "imported_at", "rows_link", "created_at")
+    list_display = ("original_filename", "target_booking_week", "status", "parsed_at", "imported_at", "rows_link", "created_at")
     list_filter = ("status", "created_at", "parsed_at", "imported_at")
     search_fields = ("original_filename", "source_file", "parser_notes")
     readonly_fields = ("file_hash", "parsed_at", "imported_at", "parser_notes", "created_at", "updated_at")
+    autocomplete_fields = ("target_booking_week",)
     inlines = [CinemaReportImportRowInline]
     actions = [parse_selected_cinema_report_imports, approve_all_valid_rows_for_selected_imports]
 
@@ -697,6 +699,7 @@ class CinemaReportImportRowAdmin(FilmerpModelAdmin):
         "screenings",
         "admissions",
         "box_office_gross",
+        "reported_rental_amount",
         "confidence",
         "booking",
         "booking_week",
@@ -708,14 +711,14 @@ class CinemaReportImportRowAdmin(FilmerpModelAdmin):
     actions = [approve_selected_cinema_import_rows]
     fieldsets = (
         ("Status", {"fields": ("report_import", "status", "confidence", "booking", "booking_week")}),
-        ("Dane do akceptacji", {"fields": ("title", "cinema", "city", "date_from", "date_to", "screenings", "admissions", "box_office_gross", "distributor_share_percent", "currency")}),
+        ("Dane do akceptacji", {"fields": ("title", "cinema", "city", "date_from", "date_to", "screenings", "admissions", "box_office_gross", "reported_rental_amount", "distributor_share_percent", "currency")}),
         ("Źródło i uwagi", {"fields": ("source_fingerprint", "source_line", "raw_payload", "notes")}),
     )
 
     def save_model(self, request, obj, form, change):
         if obj.status == "imported" and not obj.booking_id:
             try:
-                obj.approve()
+                obj.approve(approved_by=request.user)
                 messages.success(request, "Utworzono booking kinowy dla zaakceptowanego wiersza.")
                 return
             except ValidationError as exc:

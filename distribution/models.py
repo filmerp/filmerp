@@ -1360,48 +1360,59 @@ class CinemaBookingWeek(TimestampedModel):
             return None
         return self.booking.crm_deal.terms.filter(week_from__lte=self.week_number).order_by("-week_from").first()
 
-    def recalculate(self, *, adjustment_amount=Decimal("0.00")):
-        from .booking_engine import calculate_booking_rental
-
+    def calculation_values(self):
         deal = self.booking.crm_deal
         term = self.resolve_term()
-        calculation_method = term.calculation_method if term else (
-            deal.calculation_method if deal else BookingCalculationMethod.PERCENTAGE
-        )
-        settlement_basis = term.settlement_basis if term else (
-            deal.settlement_basis if deal else BookingSettlementBasis.GROSS_VAT
-        )
-        ticket_vat_rate = term.ticket_vat_rate if term else (
-            deal.ticket_vat_rate if deal else Decimal("8.00")
-        )
-        share_percent = term.distributor_share_percent if term else (
-            deal.distributor_share_percent if deal else self.booking.distributor_share_percent
-        )
-        minimum_amount = term.minimum_amount if term else (
-            deal.minimum_guarantee if deal else Decimal("0.00")
-        )
-        fixed_amount = term.fixed_amount if term else (
-            deal.fixed_fee if deal else Decimal("0.00")
-        )
-        result = calculate_booking_rental(
-            box_office_gross_vat=self.box_office_gross,
-            ticket_vat_rate=ticket_vat_rate,
-            settlement_basis=settlement_basis,
-            calculation_method=calculation_method,
-            share_percent=share_percent,
-            minimum_amount=minimum_amount,
-            fixed_amount=fixed_amount,
-            screenings=self.screenings,
+        return {
+            "term": term,
+            "calculation_method": term.calculation_method if term else (
+                deal.calculation_method if deal else BookingCalculationMethod.PERCENTAGE
+            ),
+            "settlement_basis": term.settlement_basis if term else (
+                deal.settlement_basis if deal else BookingSettlementBasis.GROSS_VAT
+            ),
+            "ticket_vat_rate": term.ticket_vat_rate if term else (
+                deal.ticket_vat_rate if deal else Decimal("8.00")
+            ),
+            "share_percent": term.distributor_share_percent if term else (
+                deal.distributor_share_percent if deal else self.booking.distributor_share_percent
+            ),
+            "minimum_amount": term.minimum_amount if term else (
+                deal.minimum_guarantee if deal else Decimal("0.00")
+            ),
+            "fixed_amount": term.fixed_amount if term else (
+                deal.fixed_fee if deal else Decimal("0.00")
+            ),
+        }
+
+    def preview_calculation(self, *, box_office_gross=None, screenings=None, adjustment_amount=Decimal("0.00")):
+        from .booking_engine import calculate_booking_rental
+
+        values = self.calculation_values()
+        return calculate_booking_rental(
+            box_office_gross_vat=self.box_office_gross if box_office_gross is None else box_office_gross,
+            ticket_vat_rate=values["ticket_vat_rate"],
+            settlement_basis=values["settlement_basis"],
+            calculation_method=values["calculation_method"],
+            share_percent=values["share_percent"],
+            minimum_amount=values["minimum_amount"],
+            fixed_amount=values["fixed_amount"],
+            screenings=self.screenings if screenings is None else screenings,
             week_number=self.week_number,
-            first_applicable_week=term.week_from if term else 1,
+            first_applicable_week=values["term"].week_from if values["term"] else 1,
             adjustment_amount=adjustment_amount,
         )
+
+    def recalculate(self, *, adjustment_amount=Decimal("0.00")):
+        values = self.calculation_values()
+        term = values["term"]
+        result = self.preview_calculation(adjustment_amount=adjustment_amount)
         snapshot = result.as_json()
         snapshot.update({
             "booking_id": self.booking_id,
             "booking_week_id": self.pk,
             "term_id": term.pk if term else None,
-            "share_percent": str(share_percent),
+            "share_percent": str(values["share_percent"]),
             "currency": self.currency,
         })
         settlement, _ = BookingWeekSettlement.objects.update_or_create(
@@ -1430,9 +1441,16 @@ class CinemaBookingWeek(TimestampedModel):
 
     def sync_sales_report(self):
         settlement = getattr(self, "settlement", None) or self.recalculate()
+        if self.status != BookingWeekStatus.LOCKED or settlement.status != BookingSettlementStatus.APPROVED:
+            return None
         source_reference = f"cinema-booking-week-{self.pk}"
         source_row = self.import_rows.select_related("report_import").order_by("-created_at").first()
         source_file = source_row.report_import.source_file.name if source_row else self.booking.source_file.name
+        report_status = ReportStatus.CHECKED
+        if settlement.paid_at:
+            report_status = ReportStatus.SETTLED
+        elif settlement.invoice_number or settlement.invoice_file or settlement.invoice_issued_at:
+            report_status = ReportStatus.INVOICED
         report, _ = SalesReport.objects.update_or_create(
             source_reference=source_reference,
             defaults={
@@ -1447,7 +1465,7 @@ class CinemaBookingWeek(TimestampedModel):
                 "gross_revenue": settlement.rental_amount,
                 "deductions": Decimal("0.00"),
                 "vat_withholding": Decimal("0.00"),
-                "status": ReportStatus.IMPORTED,
+                "status": report_status,
                 "source_file": source_file,
                 "notes": (
                     f"Film rental za tydzień {self.week_number} bookingu #{self.booking_id}. "
@@ -1503,6 +1521,12 @@ class BookingWeekSettlement(TimestampedModel):
         verbose_name="zatwierdził",
     )
     approved_at = models.DateTimeField("zatwierdzono", null=True, blank=True)
+    invoice_number = models.CharField("numer faktury", max_length=120, blank=True)
+    invoice_file = models.FileField("faktura sprzedaży", upload_to="booking_invoices/", blank=True)
+    invoice_issued_at = models.DateField("data wystawienia faktury", null=True, blank=True)
+    payment_due_date = models.DateField("termin płatności", null=True, blank=True)
+    paid_at = models.DateField("data płatności", null=True, blank=True)
+    payment_notes = models.CharField("uwagi do płatności", max_length=255, blank=True)
 
     class Meta:
         ordering = ["-booking_week__date_from"]
@@ -1511,6 +1535,24 @@ class BookingWeekSettlement(TimestampedModel):
 
     def __str__(self) -> str:
         return f"{self.booking_week} / {self.rental_amount} {self.currency}"
+
+    @property
+    def is_overdue(self) -> bool:
+        return bool(
+            self.status == BookingSettlementStatus.APPROVED
+            and self.payment_due_date
+            and not self.paid_at
+            and self.payment_due_date < timezone.localdate()
+        )
+
+    @property
+    def invoice_missing(self) -> bool:
+        return bool(
+            self.status == BookingSettlementStatus.APPROVED
+            and not self.invoice_number
+            and not self.invoice_file
+            and not self.invoice_issued_at
+        )
 
 
 class CinemaBookingWeekRevision(TimestampedModel):
@@ -1536,6 +1578,14 @@ class CinemaBookingWeekRevision(TimestampedModel):
 
 class CinemaReportImport(TimestampedModel):
     source_file = models.FileField("plik raportu kina", upload_to="cinema_report_imports/")
+    target_booking_week = models.ForeignKey(
+        CinemaBookingWeek,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="targeted_report_imports",
+        verbose_name="docelowy tydzień bookingu",
+    )
     original_filename = models.CharField("oryginalna nazwa pliku", max_length=255, blank=True)
     file_hash = models.CharField("SHA-256 pliku", max_length=64, blank=True, db_index=True)
     status = models.CharField("status", max_length=30, choices=ImportStatus.choices, default=ImportStatus.UPLOADED)
@@ -1563,6 +1613,13 @@ class CinemaReportImportRow(TimestampedModel):
     screenings = models.PositiveIntegerField("liczba seansow", default=0)
     admissions = models.PositiveIntegerField("widzowie", default=0)
     box_office_gross = models.DecimalField("box office brutto", max_digits=14, decimal_places=2, default=Decimal("0.00"))
+    reported_rental_amount = models.DecimalField(
+        "należność dystrybutora wg raportu kina",
+        max_digits=14,
+        decimal_places=2,
+        null=True,
+        blank=True,
+    )
     distributor_share_percent = models.DecimalField("udzial dystrybutora %", max_digits=5, decimal_places=2, default=Decimal("50.00"))
     currency = models.CharField("waluta", max_length=3, choices=Currency.choices, default=Currency.PLN)
     confidence = models.DecimalField("pewnosc rozpoznania %", max_digits=5, decimal_places=2, default=Decimal("0.00"))
@@ -1592,14 +1649,59 @@ class CinemaReportImportRow(TimestampedModel):
         return bool(self.title and self.cinema and self.date_from and self.date_to)
 
     @transaction.atomic
-    def approve(self) -> CinemaBooking:
+    def approve(self, *, approved_by=None) -> CinemaBooking:
+        target_week = self.report_import.target_booking_week
+        if target_week:
+            changed_fields = []
+            if not self.title_id:
+                self.title = target_week.booking.title
+                changed_fields.append("title")
+            if not self.cinema_id:
+                self.cinema = target_week.booking.cinema
+                changed_fields.append("cinema")
+            if not self.date_from:
+                self.date_from = target_week.date_from
+                changed_fields.append("date_from")
+            if not self.date_to:
+                self.date_to = target_week.date_to
+                changed_fields.append("date_to")
+            if changed_fields:
+                self.save(update_fields=[*changed_fields, "updated_at"])
+            if self.title_id != target_week.booking.title_id:
+                raise ValidationError("Rozpoznany tytuł nie odpowiada wybranemu tygodniowi bookingu.")
+            if self.cinema_id != target_week.booking.cinema_id:
+                raise ValidationError("Rozpoznane kino nie odpowiada wybranemu tygodniowi bookingu.")
+            if self.date_from and self.date_to and (
+                self.date_to < target_week.date_from or self.date_from > target_week.date_to
+            ):
+                raise ValidationError("Okres raportu nie pokrywa się z wybranym tygodniem grania.")
         if self.date_from and self.date_to and self.date_from > self.date_to:
             self.date_from, self.date_to = self.date_to, self.date_from
             self.save(update_fields=["date_from", "date_to", "updated_at"])
         if self.booking_id and self.booking_week_id:
             self.status = ImportStatus.IMPORTED
             self.save(update_fields=["status", "updated_at"])
-            self.booking_week.sync_sales_report()
+            if approved_by:
+                settlement = self.booking_week.recalculate()
+                self.booking_week.status = BookingWeekStatus.LOCKED
+                self.booking_week.save(update_fields=["status", "updated_at"])
+                settlement.status = BookingSettlementStatus.APPROVED
+                settlement.approved_by = approved_by
+                settlement.approved_at = timezone.now()
+                if not settlement.payment_due_date:
+                    settlement.payment_due_date = timezone.localdate() + timedelta(
+                        days=self.booking.cinema.payment_terms_days
+                    )
+                settlement.save(
+                    update_fields=[
+                        "status",
+                        "approved_by",
+                        "approved_at",
+                        "payment_due_date",
+                        "updated_at",
+                    ]
+                )
+                self.booking_week.sync_sales_report()
             return self.booking
         if not self.can_approve():
             raise ValidationError("Wiersz wymaga tytułu, kina oraz dat od/do przed akceptacją.")
@@ -1620,7 +1722,7 @@ class CinemaReportImportRow(TimestampedModel):
                 return duplicate.booking
 
         source_reference = f"cinema-import-row-{self.pk}"
-        crm_deal = BookingDeal.objects.filter(
+        crm_deal = target_week.booking.crm_deal if target_week else BookingDeal.objects.filter(
             campaign__title=self.title,
             cinema=self.cinema,
             stage=BookingDealStage.CONFIRMED,
@@ -1629,7 +1731,9 @@ class CinemaReportImportRow(TimestampedModel):
             Q(playing_to__isnull=True) | Q(playing_to__gte=self.date_from),
         ).order_by("-campaign__release_date", "pk").first()
 
-        booking = self.booking if self.booking_id else CinemaBooking.objects.filter(source_reference=source_reference).first()
+        booking = target_week.booking if target_week else (
+            self.booking if self.booking_id else CinemaBooking.objects.filter(source_reference=source_reference).first()
+        )
         if booking is None and crm_deal is not None:
             booking = crm_deal.bookings.filter(
                 date_from__lte=self.date_to,
@@ -1653,7 +1757,7 @@ class CinemaReportImportRow(TimestampedModel):
                 notes=f"Utworzono z importu raportu kina #{self.report_import_id}. {self.notes}".strip(),
             )
 
-        week = booking.weeks.filter(date_from=self.date_from, date_to=self.date_to).first()
+        week = target_week or booking.weeks.filter(date_from=self.date_from, date_to=self.date_to).first()
         if week is None:
             week_number = max(((self.date_from - booking.date_from).days // 7) + 1, 1)
             week = booking.weeks.filter(week_number=week_number).first()
@@ -1711,7 +1815,26 @@ class CinemaReportImportRow(TimestampedModel):
         week.source_reference = source_reference
         week.status = BookingWeekStatus.CORRECTED if is_correction else BookingWeekStatus.REPORTED
         week.save()
-        week.recalculate()
+        settlement = week.recalculate()
+        if approved_by:
+            week.status = BookingWeekStatus.LOCKED
+            week.save(update_fields=["status", "updated_at"])
+            settlement.status = BookingSettlementStatus.APPROVED
+            settlement.approved_by = approved_by
+            settlement.approved_at = timezone.now()
+            if not settlement.payment_due_date:
+                settlement.payment_due_date = timezone.localdate() + timedelta(
+                    days=booking.cinema.payment_terms_days
+                )
+            settlement.save(
+                update_fields=[
+                    "status",
+                    "approved_by",
+                    "approved_at",
+                    "payment_due_date",
+                    "updated_at",
+                ]
+            )
 
         booking.city = self.city or booking.city
         booking.status = CinemaBookingStatus.PLAYING
@@ -1727,7 +1850,8 @@ class CinemaReportImportRow(TimestampedModel):
         self.booking_week = week
         self.status = ImportStatus.IMPORTED
         self.save(update_fields=["booking", "booking_week", "status", "updated_at"])
-        week.sync_sales_report()
+        if approved_by:
+            week.sync_sales_report()
         return booking
 
 

@@ -7,6 +7,7 @@ from .booking_views import (
     booking_crm,
     booking_deal_form,
     booking_week_update,
+    booking_week_report,
 )
 from .views import (
     avails,
@@ -42,6 +43,7 @@ urlpatterns = [
     path("booking/deals/new/", booking_deal_form, name="booking_deal_create"),
     path("booking/deals/<int:pk>/", booking_deal_form, name="booking_deal_edit"),
     path("booking/weeks/<int:pk>/update/", booking_week_update, name="booking_week_update"),
+    path("booking/weeks/<int:pk>/report/", booking_week_report, name="booking_week_report"),
     path("booking/cinemas/new/", booking_cinema_form, name="booking_cinema_create"),
     path("booking/cinemas/<int:pk>/", booking_cinema_form, name="booking_cinema_edit"),
     path("contracts/setup/", contract_waterfall_wizard, name="contract_waterfall_wizard"),

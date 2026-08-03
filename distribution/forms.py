@@ -17,7 +17,9 @@ from .models import (
     BookingDealStage,
     BookingSettlementBasis,
     BookingTerm,
+    BookingWeekSettlement,
     CinemaReportImport,
+    CinemaReportImportRow,
     CinemaContact,
     CinemaProfile,
     Cost,
@@ -199,6 +201,86 @@ class CinemaReportUploadForm(forms.ModelForm):
         widgets = {
             "source_file": forms.ClearableFileInput(attrs={"accept": ".pdf,.xlsx"}),
         }
+
+
+class CinemaReportRowReviewForm(forms.ModelForm):
+    class Meta:
+        model = CinemaReportImportRow
+        fields = (
+            "title",
+            "cinema",
+            "city",
+            "date_from",
+            "date_to",
+            "screenings",
+            "admissions",
+            "box_office_gross",
+            "reported_rental_amount",
+            "currency",
+            "notes",
+        )
+        widgets = {
+            "date_from": forms.DateInput(attrs={"type": "date"}),
+            "date_to": forms.DateInput(attrs={"type": "date"}),
+            "notes": forms.Textarea(attrs={"rows": 3}),
+            "box_office_gross": forms.NumberInput(attrs={"step": "0.01", "min": "0"}),
+            "reported_rental_amount": forms.NumberInput(attrs={"step": "0.01", "min": "0"}),
+        }
+
+    def __init__(self, *args, target_week=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.target_week = target_week
+        self.fields["title"].queryset = Title.objects.order_by("title_pl")
+        self.fields["cinema"].queryset = Counterparty.objects.filter(
+            counterparty_type__in=[CounterpartyType.CINEMA, CounterpartyType.CINEMA_CHAIN]
+        ).order_by("name")
+
+    def clean(self):
+        cleaned = super().clean()
+        date_from = cleaned.get("date_from")
+        date_to = cleaned.get("date_to")
+        if date_from and date_to and date_from > date_to:
+            self.add_error("date_to", "Data końcowa nie może być wcześniejsza niż początkowa.")
+        if self.target_week:
+            if cleaned.get("title") and cleaned["title"].pk != self.target_week.booking.title_id:
+                self.add_error("title", "Wybierz tytuł przypisany do tego tygodnia bookingu.")
+            if cleaned.get("cinema") and cleaned["cinema"].pk != self.target_week.booking.cinema_id:
+                self.add_error("cinema", "Wybierz kino przypisane do tego tygodnia bookingu.")
+            if date_from and date_to and (
+                date_to < self.target_week.date_from or date_from > self.target_week.date_to
+            ):
+                self.add_error("date_from", "Okres raportu musi pokrywać się z tygodniem grania.")
+        return cleaned
+
+
+class BookingSettlementPaymentForm(forms.ModelForm):
+    class Meta:
+        model = BookingWeekSettlement
+        fields = (
+            "invoice_number",
+            "invoice_file",
+            "invoice_issued_at",
+            "payment_due_date",
+            "paid_at",
+            "payment_notes",
+        )
+        widgets = {
+            "invoice_file": forms.ClearableFileInput(attrs={"accept": ".pdf"}),
+            "invoice_issued_at": forms.DateInput(attrs={"type": "date"}),
+            "payment_due_date": forms.DateInput(attrs={"type": "date"}),
+            "paid_at": forms.DateInput(attrs={"type": "date"}),
+        }
+
+    def clean(self):
+        cleaned = super().clean()
+        issued_at = cleaned.get("invoice_issued_at")
+        due_date = cleaned.get("payment_due_date")
+        paid_at = cleaned.get("paid_at")
+        if issued_at and due_date and due_date < issued_at:
+            self.add_error("payment_due_date", "Termin płatności nie może być wcześniejszy niż data faktury.")
+        if issued_at and paid_at and paid_at < issued_at:
+            self.add_error("paid_at", "Data płatności nie może być wcześniejsza niż data faktury.")
+        return cleaned
 
 
 class CostInvoiceUploadForm(CostScopeFormMixin):

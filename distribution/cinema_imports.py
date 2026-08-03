@@ -10,7 +10,15 @@ import pdfplumber
 from django.utils import timezone
 from openpyxl import load_workbook
 
-from .models import CinemaReportImport, CinemaReportImportRow, Counterparty, CounterpartyType, ImportStatus, Title
+from .models import (
+    CinemaBookingWeek,
+    CinemaReportImport,
+    CinemaReportImportRow,
+    Counterparty,
+    CounterpartyType,
+    ImportStatus,
+    Title,
+)
 
 
 DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b")
@@ -204,7 +212,13 @@ def infer_row_from_line(line, fallback_title=None, fallback_cinema=None):
 
     screenings = numbers[0] if len(numbers) >= 2 else 0
     admissions = numbers[1] if len(numbers) >= 2 else (numbers[0] if numbers else 0)
-    box_office = parse_decimal(money_matches[-1]) if money_matches else Decimal("0.00")
+    normalized_line = normalize_text(line)
+    rental_labels = ("film rental", "naleznosc dystrybutora", "udzial dystrybutora", "do zaplaty")
+    has_rental_label = any(label in normalized_line for label in rental_labels)
+    reported_rental = parse_decimal(money_matches[-1]) if has_rental_label and len(money_matches) >= 2 else None
+    box_office = parse_decimal(money_matches[-2]) if reported_rental is not None else (
+        parse_decimal(money_matches[-1]) if money_matches else Decimal("0.00")
+    )
     date_from = dates[0] if dates else None
     date_to = dates[-1] if dates else date_from
     date_from, date_to = normalize_date_pair(date_from, date_to)
@@ -216,6 +230,7 @@ def infer_row_from_line(line, fallback_title=None, fallback_cinema=None):
         "screenings": screenings,
         "admissions": admissions,
         "box_office_gross": box_office,
+        "reported_rental_amount": reported_rental,
         "confidence": min(confidence, Decimal("100.00")),
         "source_line": line,
         "raw_payload": {"dates": [str(date) for date in dates], "numbers": numbers, "money": money_matches},
@@ -298,6 +313,21 @@ def _find_metric_columns(ws):
                         "admissions_col": col_index,
                         "gross_col": col_index + 1,
                         "net_col": col_index + 2,
+                        "rental_col": next(
+                            (
+                                candidate_col
+                                for candidate_col in range(col_index + 1, min(col_index + 8, ws.max_column) + 1)
+                                if normalize_text(ws.cell(row_index, candidate_col).value)
+                                in {
+                                    "film rental",
+                                    "naleznosc dystrybutora",
+                                    "udzial dystrybutora",
+                                    "kwota dystrybutora",
+                                    "do zaplaty dystrybutorowi",
+                                }
+                            ),
+                            None,
+                        ),
                         "date_from": date_from,
                         "date_to": date_to,
                         "date_label": _xlsx_cell_text(date_value),
@@ -359,6 +389,11 @@ def parse_cinema_report_xlsx(report_import):
             for metric in metric_columns:
                 admissions = parse_int(ws.cell(row_index, metric["admissions_col"]).value)
                 gross = parse_decimal(ws.cell(row_index, metric["gross_col"]).value)
+                reported_rental = (
+                    parse_decimal(ws.cell(row_index, metric["rental_col"]).value)
+                    if metric["rental_col"]
+                    else None
+                )
                 if admissions <= 0 and gross <= 0:
                     continue
                 confidence = Decimal("40.00")
@@ -382,6 +417,7 @@ def parse_cinema_report_xlsx(report_import):
                         "screenings": 0,
                         "admissions": admissions,
                         "box_office_gross": gross,
+                        "reported_rental_amount": reported_rental,
                         "confidence": min(confidence, Decimal("100.00")),
                         "source_line": f"{ws.title} wiersz {row_index}, {metric['date_label']}: {city} / {cinema_name}",
                         "raw_payload": {
@@ -390,6 +426,7 @@ def parse_cinema_report_xlsx(report_import):
                             "date_label": metric["date_label"],
                             "admissions_col": metric["admissions_col"],
                             "gross_col": metric["gross_col"],
+                            "rental_col": metric["rental_col"],
                         },
                     },
                 )
@@ -432,7 +469,114 @@ def parse_cinema_report_import(report_import):
     raise ValueError("Obslugiwane sa pliki PDF oraz XLSX.")
 
 
-def approve_import_rows(rows):
+def prepare_import_for_week(report_import, week):
+    report_import.target_booking_week = week
+    report_import.save(update_fields=["target_booking_week", "updated_at"])
+    for row in report_import.rows.exclude(status=ImportStatus.IMPORTED):
+        update_fields = []
+        if not row.title_id:
+            row.title = week.booking.title
+            update_fields.append("title")
+        if not row.cinema_id:
+            row.cinema = week.booking.cinema
+            update_fields.append("cinema")
+        if not row.date_from:
+            row.date_from = week.date_from
+            update_fields.append("date_from")
+        if not row.date_to:
+            row.date_to = week.date_to
+            update_fields.append("date_to")
+        if not row.currency:
+            row.currency = week.currency
+            update_fields.append("currency")
+        if update_fields:
+            row.save(update_fields=[*update_fields, "updated_at"])
+
+
+def _candidate_week_for_row(row, preferred_week=None):
+    if preferred_week:
+        return preferred_week
+    if row.booking_week_id:
+        return row.booking_week
+    if not all([row.title_id, row.cinema_id, row.date_from, row.date_to]):
+        return None
+    return CinemaBookingWeek.objects.select_related(
+        "booking__title",
+        "booking__cinema",
+        "booking__crm_deal",
+    ).filter(
+        booking__title_id=row.title_id,
+        booking__cinema_id=row.cinema_id,
+        date_from__lte=row.date_to,
+        date_to__gte=row.date_from,
+    ).order_by("-date_from", "pk").first()
+
+
+def review_import_row(row, preferred_week=None):
+    week = _candidate_week_for_row(row, preferred_week or row.report_import.target_booking_week)
+    errors = []
+    warnings = []
+    duplicate = None
+    if row.source_fingerprint:
+        duplicate = CinemaReportImportRow.objects.filter(
+            source_fingerprint=row.source_fingerprint,
+            status=ImportStatus.IMPORTED,
+            booking_week__isnull=False,
+        ).exclude(pk=row.pk).select_related("booking_week").first()
+
+    if not row.title_id:
+        errors.append("Nie rozpoznano tytułu.")
+    if not row.cinema_id:
+        errors.append("Nie rozpoznano kina.")
+    if not row.date_from or not row.date_to:
+        errors.append("Brakuje okresu raportu.")
+    if not week:
+        errors.append("Nie znaleziono pasującego tygodnia bookingu.")
+    else:
+        if row.title_id and row.title_id != week.booking.title_id:
+            errors.append("Tytuł z raportu nie odpowiada wybranemu bookingowi.")
+        if row.cinema_id and row.cinema_id != week.booking.cinema_id:
+            errors.append("Kino z raportu nie odpowiada wybranemu bookingowi.")
+        if row.date_from and row.date_to:
+            if row.date_to < week.date_from or row.date_from > week.date_to:
+                errors.append("Okres raportu nie pokrywa się z tygodniem grania.")
+            elif row.date_from != week.date_from or row.date_to != week.date_to:
+                warnings.append("Okres raportu częściowo pokrywa się z tygodniem grania.")
+    if duplicate:
+        errors.append(f"Ten sam wiersz został już zatwierdzony w imporcie #{duplicate.report_import_id}.")
+    if row.confidence < Decimal("70.00"):
+        warnings.append("Pewność automatycznego rozpoznania jest niższa niż 70%.")
+
+    calculation = None
+    values = None
+    variance = None
+    if week:
+        values = week.calculation_values()
+        calculation = week.preview_calculation(
+            box_office_gross=row.box_office_gross,
+            screenings=row.screenings,
+        )
+        if row.reported_rental_amount is None:
+            warnings.append("Raport nie zawiera kwoty film rental; FILMERP obliczy ją z warunków bookingu.")
+        else:
+            variance = (row.reported_rental_amount - calculation.rental_amount).quantize(Decimal("0.01"))
+            if abs(variance) > Decimal("0.01"):
+                warnings.append("Kwota podana przez kino różni się od kalkulacji FILMERP.")
+
+    return {
+        "row": row,
+        "week": week,
+        "ready": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "duplicate": duplicate,
+        "calculation": calculation,
+        "values": values,
+        "variance": variance,
+    }
+
+
+def approve_import_rows(rows, *, approved_by=None):
     imported = 0
     skipped = 0
     for row in rows:
@@ -442,7 +586,7 @@ def approve_import_rows(rows):
         if not row.can_approve():
             skipped += 1
             continue
-        row.approve()
+        row.approve(approved_by=approved_by)
         imported += 1
     imports = CinemaReportImport.objects.filter(rows__in=rows).distinct()
     for report_import in imports:

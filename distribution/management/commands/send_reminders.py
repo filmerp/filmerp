@@ -5,7 +5,7 @@ from django.core.mail import send_mail
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from distribution.models import RightsStatus, RightsWindow, SalesAgreement
+from distribution.models import BookingSettlementStatus, BookingWeekSettlement, RightsStatus, RightsWindow, SalesAgreement
 
 
 class Command(BaseCommand):
@@ -53,6 +53,31 @@ class Command(BaseCommand):
                 f"Title: {agreement.title}\n"
                 f"Licensee: {agreement.licensee}\n"
                 f"Fixed fee: {agreement.fixed_fee} {agreement.currency}\n"
+            )
+            self._send_or_print(subject, body, recipient, dry_run)
+            sent += 1
+
+        overdue_booking_settlements = BookingWeekSettlement.objects.filter(
+            status=BookingSettlementStatus.APPROVED,
+            paid_at__isnull=True,
+            payment_due_date__lt=today,
+        ).select_related(
+            "booking_week__booking__title",
+            "booking_week__booking__cinema",
+        )
+        for settlement in overdue_booking_settlements:
+            booking = settlement.booking_week.booking
+            recipient = booking.cinema.email
+            if not recipient:
+                continue
+            subject = f"Payment overdue: {booking.title} / {booking.cinema}"
+            body = (
+                f"Payment for cinema settlement #{settlement.pk} is overdue since {settlement.payment_due_date}.\n"
+                f"Title: {booking.title}\n"
+                f"Cinema: {booking.cinema}\n"
+                f"Playing week: {settlement.booking_week.date_from} - {settlement.booking_week.date_to}\n"
+                f"Film rental due: {settlement.rental_amount} {settlement.currency}\n"
+                f"Invoice: {settlement.invoice_number or 'not assigned'}\n"
             )
             self._send_or_print(subject, body, recipient, dry_run)
             sent += 1

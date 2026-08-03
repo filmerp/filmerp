@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required, permission_required
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
@@ -15,26 +16,35 @@ from .forms import (
     BookingActivityForm,
     BookingCampaignForm,
     BookingDealForm,
+    BookingSettlementPaymentForm,
     BookingTermFormSet,
     CinemaAccountForm,
     CinemaContactForm,
+    CinemaReportRowReviewForm,
+    CinemaReportUploadForm,
 )
+from .cinema_imports import parse_cinema_report_import, prepare_import_for_week, review_import_row
 from .models import (
     AuditAction,
     BookingActivity,
     BookingActivityType,
+    BookingCalculationMethod,
     BookingCampaign,
     BookingCampaignStatus,
     BookingDeal,
     BookingDealStage,
     BookingSettlementStatus,
+    BookingSettlementBasis,
     BookingWeekDecision,
     BookingWeekStatus,
     CinemaBookingStatus,
     CinemaBookingWeek,
     CinemaContact,
+    CinemaReportImport,
+    CinemaReportImportRow,
     Counterparty,
     CounterpartyType,
+    ImportStatus,
 )
 from .security import record_audit_event
 
@@ -57,6 +67,16 @@ def _crm_url(*, campaign_id="", view="overview"):
         params.append(f"view={view}")
     query = f"?{'&'.join(params)}" if params else ""
     return f"{reverse('distribution:booking_crm')}{query}"
+
+
+def _week_report_url(week, *, import_id="", row_id=""):
+    params = []
+    if import_id:
+        params.append(f"import={import_id}")
+    if row_id:
+        params.append(f"row={row_id}")
+    query = f"?{'&'.join(params)}" if params else ""
+    return f"{reverse('distribution:booking_week_report', args=[week.pk])}{query}"
 
 
 @login_required
@@ -142,9 +162,22 @@ def booking_crm(request):
         if week.status == BookingWeekStatus.PLANNED and week.date_to < today
     ]
     reported_week_rows = [week for week in week_rows if week.status != BookingWeekStatus.PLANNED]
+    pending_verification_rows = [
+        week for week in week_rows
+        if week.status in {BookingWeekStatus.REPORTED, BookingWeekStatus.VERIFIED, BookingWeekStatus.CORRECTED}
+    ]
+    approved_week_rows = [week for week in week_rows if week.status == BookingWeekStatus.LOCKED]
+    missing_invoice_rows = [
+        week for week in approved_week_rows
+        if hasattr(week, "settlement") and week.settlement.invoice_missing
+    ]
+    overdue_payment_rows = [
+        week for week in approved_week_rows
+        if hasattr(week, "settlement") and week.settlement.is_overdue
+    ]
     admissions_total = sum(week.admissions for week in reported_week_rows)
     totals_by_currency = {}
-    for week in reported_week_rows:
+    for week in approved_week_rows:
         totals = totals_by_currency.setdefault(
             week.currency,
             {"currency": week.currency, "box_office": Decimal("0.00"), "rental": Decimal("0.00")},
@@ -198,6 +231,13 @@ def booking_crm(request):
         "missing_week_rows": missing_week_rows,
         "missing_reports_count": len(missing_week_rows),
         "reported_weeks_count": len(reported_week_rows),
+        "approved_weeks_count": len(approved_week_rows),
+        "pending_verification_rows": pending_verification_rows,
+        "pending_verification_count": len(pending_verification_rows),
+        "missing_invoice_rows": missing_invoice_rows,
+        "missing_invoice_count": len(missing_invoice_rows),
+        "overdue_payment_rows": overdue_payment_rows,
+        "overdue_payment_count": len(overdue_payment_rows),
         "financial_totals": financial_totals,
         "admissions_total": admissions_total,
         "task_deals": task_deals,
@@ -210,6 +250,7 @@ def booking_crm(request):
         "can_add_campaign": request.user.has_perm("distribution.add_bookingcampaign"),
         "can_add_deal": request.user.has_perm("distribution.add_bookingdeal"),
         "can_change_week": request.user.has_perm("distribution.change_cinemabookingweek"),
+        "can_upload_cinema_report": request.user.has_perm("distribution.add_cinemareportimport"),
         "can_add_cinema": request.user.has_perm("distribution.add_cinemaprofile") and request.user.has_perm("distribution.add_counterparty"),
     }
     return render(request, "distribution/booking_crm.html", context)
@@ -230,6 +271,11 @@ def booking_week_update(request, pk):
     if status not in valid_statuses or decision not in valid_decisions:
         messages.error(request, "Nieprawidłowy status tygodnia lub decyzja.")
         return redirect(_crm_url(campaign_id=week.booking.crm_deal.campaign_id if week.booking.crm_deal_id else "", view="weeks"))
+    if week.status == BookingWeekStatus.LOCKED and status != BookingWeekStatus.LOCKED:
+        messages.error(request, "Zamkniętego tygodnia nie można otworzyć ponownie. Wczytaj raport korygujący.")
+        return redirect(_week_report_url(week))
+    if status == BookingWeekStatus.LOCKED and not request.user.has_perm("distribution.approve_cinema_reports"):
+        raise PermissionDenied
 
     with transaction.atomic():
         week.status = status
@@ -242,7 +288,20 @@ def booking_week_update(request, pk):
             settlement.status = BookingSettlementStatus.APPROVED
             settlement.approved_by = request.user
             settlement.approved_at = timezone.now()
-            settlement.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
+            if not settlement.payment_due_date:
+                settlement.payment_due_date = timezone.localdate() + timedelta(
+                    days=week.booking.cinema.payment_terms_days
+                )
+            settlement.save(
+                update_fields=[
+                    "status",
+                    "approved_by",
+                    "approved_at",
+                    "payment_due_date",
+                    "updated_at",
+                ]
+            )
+            week.sync_sales_report()
 
         booking = week.booking
         if decision == BookingWeekDecision.EXTEND:
@@ -280,6 +339,272 @@ def booking_week_update(request, pk):
     messages.success(request, "Tydzień grania został zaktualizowany.")
     campaign_id = booking.crm_deal.campaign_id if booking.crm_deal_id else ""
     return redirect(_crm_url(campaign_id=campaign_id, view="weeks"))
+
+
+@login_required
+@permission_required("distribution.view_cinemabookingweek", raise_exception=True)
+def booking_week_report(request, pk):
+    week = get_object_or_404(
+        CinemaBookingWeek.objects.select_related(
+            "booking__title",
+            "booking__cinema",
+            "booking__crm_deal__campaign",
+            "settlement",
+        ),
+        pk=pk,
+    )
+    campaign_id = week.booking.crm_deal.campaign_id if week.booking.crm_deal_id else ""
+    selected_import = None
+    selected_row = None
+    row_form = None
+
+    if request.method == "POST":
+        action = request.POST.get("action", "")
+
+        if action == "upload_report":
+            if not request.user.has_perm("distribution.add_cinemareportimport"):
+                raise PermissionDenied
+            upload_form = CinemaReportUploadForm(request.POST, request.FILES)
+            if upload_form.is_valid():
+                report_import = upload_form.save(commit=False)
+                report_import.target_booking_week = week
+                report_import.original_filename = request.FILES["source_file"].name
+                report_import.save()
+                try:
+                    parsed = parse_cinema_report_import(report_import)
+                    prepare_import_for_week(report_import, week)
+                    reviewed_rows = [
+                        review_import_row(row, week)
+                        for row in report_import.rows.select_related("title", "cinema")
+                    ]
+                    reviewed_rows.sort(
+                        key=lambda item: (
+                            item["ready"],
+                            item["row"].confidence,
+                            bool(item["row"].box_office_gross),
+                            item["row"].admissions,
+                        ),
+                        reverse=True,
+                    )
+                    best_row = reviewed_rows[0]["row"] if reviewed_rows else None
+                    record_audit_event(
+                        AuditAction.IMPORT,
+                        f"Wczytano raport kina dla tygodnia {week.week_number}: {report_import.original_filename}.",
+                        request=request,
+                        module="booking_crm",
+                        instance=report_import,
+                        metadata={"booking_week_id": week.pk, "parsed_rows": parsed},
+                    )
+                    messages.success(
+                        request,
+                        f"Rozpoznano {parsed} wierszy. Sprawdź wskazany wiersz i zatwierdź rozliczenie.",
+                    )
+                    return redirect(
+                        _week_report_url(
+                            week,
+                            import_id=report_import.pk,
+                            row_id=best_row.pk if best_row else "",
+                        )
+                    )
+                except ValueError as exc:
+                    messages.error(request, str(exc))
+                    return redirect(_week_report_url(week, import_id=report_import.pk))
+            messages.error(request, "Wybierz raport kina w formacie PDF albo XLSX.")
+            return redirect(_week_report_url(week))
+
+        if action in {"save_row", "approve_row"}:
+            if not request.user.has_perm("distribution.change_cinemareportimportrow"):
+                raise PermissionDenied
+            selected_import = get_object_or_404(
+                CinemaReportImport,
+                pk=request.POST.get("import_id"),
+                target_booking_week=week,
+            )
+            selected_row = get_object_or_404(
+                CinemaReportImportRow,
+                pk=request.POST.get("row_id"),
+                report_import=selected_import,
+            )
+            row_form = CinemaReportRowReviewForm(
+                request.POST,
+                instance=selected_row,
+                target_week=week,
+            )
+            if row_form.is_valid():
+                selected_row = row_form.save()
+                review = review_import_row(selected_row, week)
+                if action == "save_row":
+                    messages.success(request, "Dane rozpoznanego wiersza zostały zapisane.")
+                elif not request.user.has_perm("distribution.approve_cinema_reports"):
+                    raise PermissionDenied
+                elif not review["ready"]:
+                    messages.error(request, "Usuń wskazane błędy przed zatwierdzeniem rozliczenia.")
+                else:
+                    try:
+                        with transaction.atomic():
+                            selected_row.approve(approved_by=request.user)
+                            selected_import.rows.exclude(pk=selected_row.pk).exclude(
+                                status=ImportStatus.IMPORTED
+                            ).update(status=ImportStatus.REJECTED)
+                            selected_import.status = ImportStatus.IMPORTED
+                            selected_import.imported_at = timezone.now()
+                            selected_import.save(update_fields=["status", "imported_at", "updated_at"])
+                            record_audit_event(
+                                AuditAction.APPROVE,
+                                f"Zatwierdzono rozliczenie tygodnia {week.week_number} dla {week.booking.cinema}.",
+                                request=request,
+                                module="booking_crm",
+                                instance=week,
+                                metadata={
+                                    "import_id": selected_import.pk,
+                                    "row_id": selected_row.pk,
+                                },
+                            )
+                        messages.success(
+                            request,
+                            "Rozliczenie zatwierdzono. Przychód trafił do raportów, waterfallu i Statement Center.",
+                        )
+                    except ValidationError as exc:
+                        messages.error(request, " ".join(exc.messages))
+                return redirect(
+                    _week_report_url(
+                        week,
+                        import_id=selected_import.pk,
+                        row_id=selected_row.pk,
+                    )
+                )
+            messages.error(request, "Popraw zaznaczone pola.")
+
+        if action in {"save_invoice", "mark_paid"}:
+            if not request.user.has_perm("distribution.change_bookingweeksettlement"):
+                raise PermissionDenied
+            settlement = getattr(week, "settlement", None)
+            if not settlement or settlement.status != BookingSettlementStatus.APPROVED:
+                messages.error(request, "Najpierw zatwierdź rozliczenie tygodnia.")
+                return redirect(_week_report_url(week))
+            if action == "mark_paid":
+                settlement.paid_at = timezone.localdate()
+                settlement.save(update_fields=["paid_at", "updated_at"])
+                week.sync_sales_report()
+                record_audit_event(
+                    AuditAction.UPDATE,
+                    f"Oznaczono płatność za tydzień {week.week_number} jako otrzymaną.",
+                    request=request,
+                    module="booking_crm",
+                    instance=settlement,
+                )
+                messages.success(request, "Płatność została oznaczona jako otrzymana.")
+                return redirect(_week_report_url(week))
+
+            payment_form = BookingSettlementPaymentForm(request.POST, request.FILES, instance=settlement)
+            if payment_form.is_valid():
+                settlement = payment_form.save(commit=False)
+                if (
+                    settlement.invoice_number or settlement.invoice_file
+                ) and not settlement.invoice_issued_at:
+                    settlement.invoice_issued_at = timezone.localdate()
+                if settlement.invoice_issued_at and not settlement.payment_due_date:
+                    settlement.payment_due_date = settlement.invoice_issued_at + timedelta(
+                        days=week.booking.cinema.payment_terms_days
+                    )
+                settlement.save()
+                week.booking.invoice_issued = bool(
+                    settlement.invoice_number or settlement.invoice_file or settlement.invoice_issued_at
+                )
+                week.booking.save(update_fields=["invoice_issued", "updated_at"])
+                week.sync_sales_report()
+                record_audit_event(
+                    AuditAction.UPDATE,
+                    f"Zaktualizowano fakturę i płatność dla tygodnia {week.week_number}.",
+                    request=request,
+                    module="booking_crm",
+                    instance=settlement,
+                )
+                messages.success(request, "Dane faktury i płatności zostały zapisane.")
+                return redirect(_week_report_url(week))
+            messages.error(request, "Popraw dane faktury lub płatności.")
+
+    imports = list(
+        CinemaReportImport.objects.filter(
+            Q(target_booking_week=week) | Q(rows__booking_week=week)
+        )
+        .distinct()
+        .prefetch_related("rows__title", "rows__cinema")
+        .order_by("-created_at")
+    )
+    import_id = request.GET.get("import") or request.POST.get("import_id")
+    if import_id:
+        selected_import = next((item for item in imports if str(item.pk) == str(import_id)), None)
+        if selected_import is None:
+            raise PermissionDenied
+    elif imports:
+        selected_import = imports[0]
+
+    reviewed_rows = []
+    if selected_import:
+        import_rows = selected_import.rows.select_related("title", "cinema")
+        if selected_import.target_booking_week_id != week.pk:
+            import_rows = import_rows.filter(booking_week=week)
+        reviewed_rows = [
+            review_import_row(row, week)
+            for row in import_rows.order_by("-confidence", "pk")
+        ]
+        row_id = request.GET.get("row") or request.POST.get("row_id")
+        if row_id:
+            selected_row = next(
+                (item["row"] for item in reviewed_rows if str(item["row"].pk) == str(row_id)),
+                None,
+            )
+        if selected_row is None and reviewed_rows:
+            selected_row = sorted(
+                reviewed_rows,
+                key=lambda item: (
+                    item["ready"],
+                    item["row"].confidence,
+                    bool(item["row"].box_office_gross),
+                ),
+                reverse=True,
+            )[0]["row"]
+        if selected_row and row_form is None:
+            row_form = CinemaReportRowReviewForm(instance=selected_row, target_week=week)
+            if selected_row.status == ImportStatus.IMPORTED or not request.user.has_perm(
+                "distribution.change_cinemareportimportrow"
+            ):
+                for field in row_form.fields.values():
+                    field.disabled = True
+
+    selected_review = review_import_row(selected_row, week) if selected_row else None
+    settlement = getattr(week, "settlement", None)
+    payment_form = BookingSettlementPaymentForm(instance=settlement) if settlement else None
+    term_values = week.calculation_values()
+    context = {
+        "week": week,
+        "campaign_id": campaign_id,
+        "imports": imports,
+        "selected_import": selected_import,
+        "reviewed_rows": reviewed_rows,
+        "selected_row": selected_row,
+        "selected_review": selected_review,
+        "row_form": row_form,
+        "upload_form": CinemaReportUploadForm(),
+        "settlement": settlement,
+        "payment_form": payment_form,
+        "term_values": term_values,
+        "term_method_label": dict(BookingCalculationMethod.choices).get(
+            term_values["calculation_method"],
+            term_values["calculation_method"],
+        ),
+        "term_basis_label": dict(BookingSettlementBasis.choices).get(
+            term_values["settlement_basis"],
+            term_values["settlement_basis"],
+        ),
+        "revisions": week.revisions.order_by("-created_at"),
+        "can_upload": request.user.has_perm("distribution.add_cinemareportimport"),
+        "can_review": request.user.has_perm("distribution.change_cinemareportimportrow"),
+        "can_approve": request.user.has_perm("distribution.approve_cinema_reports"),
+        "can_manage_payment": request.user.has_perm("distribution.change_bookingweeksettlement"),
+    }
+    return render(request, "distribution/booking_week_report.html", context)
 
 
 @login_required

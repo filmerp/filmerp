@@ -110,41 +110,14 @@
       <h2>Dokumenty źródłowe</h2>
       <div class="muted">Raporty kinowe, statementy i faktury kosztowe</div>
     </div>
-    <a class="button" href="{% url 'distribution:document_center' %}#upload">Otwórz Centrum dokumentów</a>
+    <a class="button" href="{% url 'distribution:document_center' %}#upload">Otwórz Dokumenty</a>
   </section>
 
   {% if selected_import %}
   <section class="workbench-section import-review">
     <div class="section-header">
-      <div><h2>Weryfikacja raportu</h2><div class="muted">{{ selected_import.original_filename }} · {{ selected_import.get_status_display }}</div></div>
-      <form method="post" class="inline-action-form">
-        {% csrf_token %}
-        <input type="hidden" name="action" value="approve_cinema_import">
-        <input type="hidden" name="import_id" value="{{ selected_import.pk }}">
-        <input type="hidden" name="title" value="{{ selected_title.pk }}">
-        <input type="hidden" name="plan" value="{{ selected_plan.pk|default:'' }}">
-        <input type="hidden" name="date_from" value="{{ period_start|date:'Y-m-d' }}">
-        <input type="hidden" name="date_to" value="{{ period_end|date:'Y-m-d' }}">
-        <input type="hidden" name="currency" value="{{ currency }}">
-        <button type="submit">Zaakceptuj poprawne wiersze</button>
-      </form>
-    </div>
-    <div class="table-scroll">
-      <table>
-        <thead><tr><th>Status</th><th>Tytuł</th><th>Kino</th><th>Okres</th><th class="num">Widzowie</th><th class="num">Seanse</th><th class="num">Box office</th><th>Pewność</th><th></th></tr></thead>
-        <tbody>
-          {% for row in selected_import.rows.all %}
-          <tr>
-            <td><span class="status-pill {{ row.status }}">{{ row.get_status_display }}</span></td>
-            <td>{{ row.title|default:"brak" }}</td><td>{{ row.cinema|default:"brak" }}</td>
-            <td>{{ row.date_from|default:"?" }} – {{ row.date_to|default:"?" }}</td>
-            <td class="num">{{ row.admissions }}</td><td class="num">{{ row.screenings }}</td><td class="num">{{ row.box_office_gross }} {{ row.currency }}</td>
-            <td>{{ row.confidence }}%</td>
-            <td><a href="/admin/distribution/cinemareportimportrow/{{ row.pk }}/change/">Popraw</a></td>
-          </tr>
-          {% empty %}<tr><td colspan="9" class="muted">Brak rozpoznanych wierszy.</td></tr>{% endfor %}
-        </tbody>
-      </table>
+      <div><h2>Raport przeniesiony do Dokumentów</h2><div class="muted">{{ selected_import.original_filename }} · sprawdź pozycje osobno, zanim trafią do rozliczenia.</div></div>
+      {% if selected_import.inbox_document %}<a class="button" href="{% url 'distribution:document_review' selected_import.inbox_document.pk %}">Sprawdź dokument</a>{% else %}<a class="button" href="{% url 'distribution:document_center' %}">Otwórz Dokumenty</a>{% endif %}
     </div>
   </section>
   {% endif %}

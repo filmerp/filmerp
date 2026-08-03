@@ -887,7 +887,8 @@ class SettlementWorkflowTests(TestCase):
         self.assertEqual(document.cost.title, self.title)
         self.assertEqual(Cost.objects.filter(title=self.title).count(), 1)
 
-    def test_document_center_imports_selected_cinema_report_rows(self):
+    def test_document_center_queues_cinema_report_for_individual_review(self):
+        existing_sales_count = SalesReport.objects.count()
         workbook = Workbook()
         sheet = workbook.active
         sheet["A1"] = self.title.title_pl
@@ -913,9 +914,16 @@ class SettlementWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         document = DocumentInboxItem.objects.get()
         self.assertEqual(document.document_type, DocumentType.CINEMA_REPORT)
+        self.assertEqual(document.status, DocumentStatus.NEEDS_REVIEW)
         row = document.cinema_import.rows.get()
         self.assertEqual(row.title, self.title)
         self.assertEqual(row.admissions, 100)
+        self.assertIsNone(row.booking_id)
+        self.assertEqual(SalesReport.objects.count(), existing_sales_count)
+
+        response = self.client.get(reverse("distribution:document_review", args=[document.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Pozycje z raportu")
 
         response = self.client.post(reverse("distribution:document_center"), {
             "action": "approve_report_rows",
@@ -925,9 +933,60 @@ class SettlementWorkflowTests(TestCase):
         self.assertEqual(response.status_code, 302)
         document.refresh_from_db()
         row.refresh_from_db()
-        self.assertEqual(document.status, DocumentStatus.PROCESSED)
-        self.assertIsNotNone(row.booking_id)
-        self.assertTrue(SalesReport.objects.filter(source_reference=f"cinema-booking-week-{row.booking_week_id}").exists())
+        self.assertEqual(document.status, DocumentStatus.NEEDS_REVIEW)
+        self.assertIsNone(row.booking_id)
+        self.assertEqual(SalesReport.objects.count(), existing_sales_count)
+
+    def test_document_review_rejects_only_selected_cinema_report_row(self):
+        existing_sales_count = SalesReport.objects.count()
+        report_import = CinemaReportImport.objects.create(
+            source_file="cinema_report_imports/review.xlsx",
+            original_filename="review.xlsx",
+        )
+        first_row = CinemaReportImportRow.objects.create(
+            report_import=report_import,
+            title=self.title,
+            cinema=self.cinema,
+            date_from=date(2026, 6, 1),
+            date_to=date(2026, 6, 7),
+            admissions=100,
+        )
+        second_row = CinemaReportImportRow.objects.create(
+            report_import=report_import,
+            title=self.title,
+            cinema=self.cinema,
+            date_from=date(2026, 6, 8),
+            date_to=date(2026, 6, 14),
+            admissions=120,
+        )
+        document = DocumentInboxItem.objects.create(
+            source_file="document_inbox/review.xlsx",
+            original_filename="review.xlsx",
+            file_hash="d" * 64,
+            document_type=DocumentType.CINEMA_REPORT,
+            status=DocumentStatus.NEEDS_REVIEW,
+            cinema_import=report_import,
+            uploaded_by=self.user,
+        )
+
+        response = self.client.post(reverse("distribution:document_review", args=[document.pk]), {
+            "action": "reject_report_row",
+            "row_id": str(first_row.pk),
+            "rejection_reason": "summary_row",
+            "rejection_note": "Wiersz zbiorczy, nie jest pozycją do rozliczenia.",
+        })
+        self.assertEqual(response.status_code, 302)
+
+        document.refresh_from_db()
+        report_import.refresh_from_db()
+        first_row.refresh_from_db()
+        second_row.refresh_from_db()
+        self.assertEqual(first_row.status, ImportStatus.REJECTED)
+        self.assertEqual(first_row.rejection_reason, "summary_row")
+        self.assertEqual(second_row.status, ImportStatus.NEEDS_REVIEW)
+        self.assertEqual(report_import.status, ImportStatus.NEEDS_REVIEW)
+        self.assertEqual(document.status, DocumentStatus.NEEDS_REVIEW)
+        self.assertEqual(SalesReport.objects.count(), existing_sales_count)
 
 
 class BookingCrmTests(TestCase):
@@ -1356,6 +1415,79 @@ class BookingCrmTests(TestCase):
         self.assertFalse(
             SalesReport.objects.filter(source_reference=f"cinema-booking-week-{week.pk}").exists()
         )
+
+    def test_document_review_assigns_a_report_position_to_one_matching_week(self):
+        week, report_import, row = self.create_targeted_report()
+        document = DocumentInboxItem.objects.create(
+            source_file="document_inbox/targeted-report.xlsx",
+            original_filename="targeted-report.xlsx",
+            file_hash="e" * 64,
+            document_type=DocumentType.CINEMA_REPORT,
+            status=DocumentStatus.NEEDS_REVIEW,
+            cinema_import=report_import,
+            uploaded_by=self.user,
+        )
+
+        response = self.client.post(
+            reverse("distribution:document_review", args=[document.pk]),
+            {
+                "action": "assign_report_row",
+                "row_id": str(row.pk),
+                "booking_week": str(week.pk),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            f"{reverse('distribution:booking_week_report', args=[week.pk])}?import={report_import.pk}&row={row.pk}",
+        )
+        row.refresh_from_db()
+        self.assertEqual(row.booking_week, week)
+        self.assertFalse(SalesReport.objects.filter(source_reference=f"cinema-booking-week-{week.pk}").exists())
+
+    def test_approving_one_report_position_leaves_other_positions_untouched(self):
+        week, report_import, row = self.create_targeted_report()
+        other_row = CinemaReportImportRow.objects.create(
+            report_import=report_import,
+            status=ImportStatus.NEEDS_REVIEW,
+            title=self.title,
+            cinema=self.cinema,
+            city="Warszawa",
+            date_from=week.date_from,
+            date_to=week.date_to,
+            screenings=10,
+            admissions=250,
+            box_office_gross=Decimal("4000.00"),
+            currency=Currency.PLN,
+            confidence=Decimal("90.00"),
+        )
+        url = reverse("distribution:booking_week_report", args=[week.pk])
+
+        response = self.client.post(url, {
+            "action": "approve_row",
+            "import_id": str(report_import.pk),
+            "row_id": str(row.pk),
+            "title": str(self.title.pk),
+            "cinema": str(self.cinema.pk),
+            "city": "Warszawa",
+            "date_from": "2026-09-10",
+            "date_to": "2026-09-16",
+            "screenings": "21",
+            "admissions": "840",
+            "box_office_gross": "12000.00",
+            "reported_rental_amount": "6500.00",
+            "currency": Currency.PLN,
+            "notes": "",
+        })
+
+        self.assertEqual(response.status_code, 302)
+        row.refresh_from_db()
+        other_row.refresh_from_db()
+        report_import.refresh_from_db()
+        self.assertEqual(row.status, ImportStatus.IMPORTED)
+        self.assertEqual(other_row.status, ImportStatus.NEEDS_REVIEW)
+        self.assertEqual(report_import.status, ImportStatus.NEEDS_REVIEW)
 
     def test_week_report_review_approves_settlement_and_revenue_in_one_step(self):
         week, report_import, row = self.create_targeted_report()

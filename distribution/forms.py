@@ -18,6 +18,8 @@ from .models import (
     BookingSettlementBasis,
     BookingTerm,
     BookingWeekSettlement,
+    CinemaBookingWeek,
+    CinemaReportRejectionReason,
     CinemaReportImport,
     CinemaReportImportRow,
     CinemaContact,
@@ -29,6 +31,7 @@ from .models import (
     CounterpartyType,
     Currency,
     DocumentInboxItem,
+    DocumentType,
     ExploitationField,
     LanguageVersion,
     ReportingCycle,
@@ -253,6 +256,43 @@ class CinemaReportRowReviewForm(forms.ModelForm):
         return cleaned
 
 
+class CinemaReportRowAssignmentForm(forms.Form):
+    booking_week = forms.ModelChoiceField(
+        label="Tydzień grania",
+        queryset=CinemaBookingWeek.objects.none(),
+        empty_label="Wybierz tydzień grania",
+    )
+
+    def __init__(self, *args, row=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        weeks = CinemaBookingWeek.objects.select_related("booking__title", "booking__cinema").order_by(
+            "-date_from", "booking__title__title_pl", "booking__cinema__name"
+        )
+        if row and row.title_id and row.cinema_id:
+            weeks = weeks.filter(booking__title_id=row.title_id, booking__cinema_id=row.cinema_id)
+            if row.date_from and row.date_to:
+                weeks = weeks.filter(date_from__lte=row.date_to, date_to__gte=row.date_from)
+        elif row and row.booking_week_id:
+            weeks = weeks.filter(pk=row.booking_week_id)
+        else:
+            weeks = weeks.none()
+        self.fields["booking_week"].queryset = weeks
+        if row and row.booking_week_id:
+            self.fields["booking_week"].initial = row.booking_week_id
+
+
+class CinemaReportRowRejectionForm(forms.Form):
+    rejection_reason = forms.ChoiceField(
+        label="Powód odrzucenia",
+        choices=CinemaReportRejectionReason.choices,
+    )
+    rejection_note = forms.CharField(
+        label="Komentarz",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 2}),
+    )
+
+
 class BookingSettlementPaymentForm(forms.ModelForm):
     class Meta:
         model = BookingWeekSettlement
@@ -327,6 +367,18 @@ class CostInvoiceUploadForm(CostScopeFormMixin):
 
 
 class DocumentUploadForm(forms.ModelForm):
+    document_type = forms.ChoiceField(
+        label="Rodzaj dokumentu",
+        required=False,
+        choices=(
+            ("", "Rozpoznaj automatycznie"),
+            (DocumentType.CINEMA_REPORT, "Raport kina"),
+            (DocumentType.CINEMA_STATEMENT, "Statement kina"),
+            (DocumentType.COST_INVOICE, "Faktura kosztowa"),
+            (DocumentType.OTHER, "Inny dokument"),
+        ),
+    )
+
     class Meta:
         model = DocumentInboxItem
         fields = ("source_file",)

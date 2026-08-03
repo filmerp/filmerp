@@ -153,6 +153,15 @@ class ImportStatus(models.TextChoices):
     IMPORTED = "imported", "zaimportowany"
 
 
+class CinemaReportRejectionReason(models.TextChoices):
+    DUPLICATE = "duplicate", "duplikat"
+    SUMMARY_ROW = "summary_row", "wiersz sumy / podsumowania"
+    NOT_OUR_TITLE = "not_our_title", "nie dotyczy naszego tytułu"
+    WRONG_PERIOD = "wrong_period", "nieprawidłowy okres"
+    INVALID_DATA = "invalid_data", "błędne dane źródłowe"
+    OTHER = "other", "inny powód"
+
+
 class DocumentType(models.TextChoices):
     UNKNOWN = "unknown", "nierozpoznany"
     CINEMA_REPORT = "cinema_report", "raport seansów / box office"
@@ -1635,6 +1644,21 @@ class CinemaReportImportRow(TimestampedModel):
         verbose_name="utworzony tydzień bookingu",
     )
     source_fingerprint = models.CharField("odcisk wiersza źródłowego", max_length=64, blank=True, db_index=True)
+    rejection_reason = models.CharField(
+        "powód odrzucenia",
+        max_length=30,
+        choices=CinemaReportRejectionReason.choices,
+        blank=True,
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="reviewed_cinema_report_rows",
+        verbose_name="zweryfikował",
+    )
+    reviewed_at = models.DateTimeField("data weryfikacji", null=True, blank=True)
     notes = models.TextField("uwagi", blank=True)
 
     class Meta:
@@ -1648,9 +1672,46 @@ class CinemaReportImportRow(TimestampedModel):
     def can_approve(self) -> bool:
         return bool(self.title and self.cinema and self.date_from and self.date_to)
 
+    def reject(self, *, reviewed_by=None, reason="", note=""):
+        if self.status == ImportStatus.IMPORTED:
+            raise ValidationError("Nie można odrzucić pozycji, która została już zatwierdzona do rozliczenia.")
+        if note:
+            self.notes = note.strip()
+        self.status = ImportStatus.REJECTED
+        self.rejection_reason = reason
+        self.reviewed_by = reviewed_by
+        self.reviewed_at = timezone.now()
+        self.save(
+            update_fields=[
+                "notes",
+                "status",
+                "rejection_reason",
+                "reviewed_by",
+                "reviewed_at",
+                "updated_at",
+            ]
+        )
+
+    def reopen(self):
+        if self.status != ImportStatus.REJECTED:
+            return
+        self.status = ImportStatus.NEEDS_REVIEW
+        self.rejection_reason = ""
+        self.reviewed_by = None
+        self.reviewed_at = None
+        self.save(
+            update_fields=[
+                "status",
+                "rejection_reason",
+                "reviewed_by",
+                "reviewed_at",
+                "updated_at",
+            ]
+        )
+
     @transaction.atomic
     def approve(self, *, approved_by=None) -> CinemaBooking:
-        target_week = self.report_import.target_booking_week
+        target_week = self.booking_week or self.report_import.target_booking_week
         if target_week:
             changed_fields = []
             if not self.title_id:
@@ -1680,7 +1741,10 @@ class CinemaReportImportRow(TimestampedModel):
             self.save(update_fields=["date_from", "date_to", "updated_at"])
         if self.booking_id and self.booking_week_id:
             self.status = ImportStatus.IMPORTED
-            self.save(update_fields=["status", "updated_at"])
+            self.rejection_reason = ""
+            self.reviewed_by = approved_by
+            self.reviewed_at = timezone.now()
+            self.save(update_fields=["status", "rejection_reason", "reviewed_by", "reviewed_at", "updated_at"])
             if approved_by:
                 settlement = self.booking_week.recalculate()
                 self.booking_week.status = BookingWeekStatus.LOCKED
@@ -1849,7 +1913,20 @@ class CinemaReportImportRow(TimestampedModel):
         self.booking = booking
         self.booking_week = week
         self.status = ImportStatus.IMPORTED
-        self.save(update_fields=["booking", "booking_week", "status", "updated_at"])
+        self.rejection_reason = ""
+        self.reviewed_by = approved_by
+        self.reviewed_at = timezone.now()
+        self.save(
+            update_fields=[
+                "booking",
+                "booking_week",
+                "status",
+                "rejection_reason",
+                "reviewed_by",
+                "reviewed_at",
+                "updated_at",
+            ]
+        )
         if approved_by:
             week.sync_sales_report()
         return booking

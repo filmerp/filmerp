@@ -21,9 +21,9 @@ from .forms import (
     CinemaAccountForm,
     CinemaContactForm,
     CinemaReportRowReviewForm,
-    CinemaReportUploadForm,
 )
-from .cinema_imports import parse_cinema_report_import, prepare_import_for_week, review_import_row
+from .cinema_imports import refresh_report_import_status, review_import_row
+from .documents import sync_document_status_from_cinema_import
 from .models import (
     AuditAction,
     BookingActivity,
@@ -362,55 +362,10 @@ def booking_week_report(request, pk):
         action = request.POST.get("action", "")
 
         if action == "upload_report":
-            if not request.user.has_perm("distribution.add_cinemareportimport"):
-                raise PermissionDenied
-            upload_form = CinemaReportUploadForm(request.POST, request.FILES)
-            if upload_form.is_valid():
-                report_import = upload_form.save(commit=False)
-                report_import.target_booking_week = week
-                report_import.original_filename = request.FILES["source_file"].name
-                report_import.save()
-                try:
-                    parsed = parse_cinema_report_import(report_import)
-                    prepare_import_for_week(report_import, week)
-                    reviewed_rows = [
-                        review_import_row(row, week)
-                        for row in report_import.rows.select_related("title", "cinema")
-                    ]
-                    reviewed_rows.sort(
-                        key=lambda item: (
-                            item["ready"],
-                            item["row"].confidence,
-                            bool(item["row"].box_office_gross),
-                            item["row"].admissions,
-                        ),
-                        reverse=True,
-                    )
-                    best_row = reviewed_rows[0]["row"] if reviewed_rows else None
-                    record_audit_event(
-                        AuditAction.IMPORT,
-                        f"Wczytano raport kina dla tygodnia {week.week_number}: {report_import.original_filename}.",
-                        request=request,
-                        module="booking_crm",
-                        instance=report_import,
-                        metadata={"booking_week_id": week.pk, "parsed_rows": parsed},
-                    )
-                    messages.success(
-                        request,
-                        f"Rozpoznano {parsed} wierszy. Sprawdź wskazany wiersz i zatwierdź rozliczenie.",
-                    )
-                    return redirect(
-                        _week_report_url(
-                            week,
-                            import_id=report_import.pk,
-                            row_id=best_row.pk if best_row else "",
-                        )
-                    )
-                except ValueError as exc:
-                    messages.error(request, str(exc))
-                    return redirect(_week_report_url(week, import_id=report_import.pk))
-            messages.error(request, "Wybierz raport kina w formacie PDF albo XLSX.")
-            return redirect(_week_report_url(week))
+            messages.info(request, "Raport wgraj przez Dokumenty. Po rozpoznaniu wrócisz na Panel główny.")
+            return redirect(
+                f"{reverse('distribution:document_center')}?target_week={week.pk}&type=cinema_report#upload"
+            )
 
         if action in {"save_row", "approve_row"}:
             if not request.user.has_perm("distribution.change_cinemareportimportrow"):
@@ -443,12 +398,8 @@ def booking_week_report(request, pk):
                     try:
                         with transaction.atomic():
                             selected_row.approve(approved_by=request.user)
-                            selected_import.rows.exclude(pk=selected_row.pk).exclude(
-                                status=ImportStatus.IMPORTED
-                            ).update(status=ImportStatus.REJECTED)
-                            selected_import.status = ImportStatus.IMPORTED
-                            selected_import.imported_at = timezone.now()
-                            selected_import.save(update_fields=["status", "imported_at", "updated_at"])
+                            refresh_report_import_status(selected_import)
+                            sync_document_status_from_cinema_import(selected_import, reviewed_by=request.user)
                             record_audit_event(
                                 AuditAction.APPROVE,
                                 f"Zatwierdzono rozliczenie tygodnia {week.week_number} dla {week.booking.cinema}.",
@@ -586,7 +537,6 @@ def booking_week_report(request, pk):
         "selected_row": selected_row,
         "selected_review": selected_review,
         "row_form": row_form,
-        "upload_form": CinemaReportUploadForm(),
         "settlement": settlement,
         "payment_form": payment_form,
         "term_values": term_values,

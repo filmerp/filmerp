@@ -22,6 +22,27 @@
     </div>
   </div>
 
+  {% if pending_documents_count and perms.distribution.view_documentinboxitem %}
+  <section class="dashboard-document-tasks" aria-label="Dokumenty do sprawdzenia">
+    <div class="section-header">
+      <div><h2>Dokumenty do sprawdzenia</h2><span class="muted">Pliki są zapisane. Nic nie trafi do rozliczeń, dopóki nie podejmiesz decyzji.</span></div>
+      <a class="button export" href="{% url 'distribution:document_center' %}?status=needs_review">Zobacz wszystkie ({{ pending_documents_count }})</a>
+    </div>
+    <div class="dashboard-document-task-list">
+      {% for document in pending_documents %}
+      <article>
+        <div>
+          <span class="status-pill needs_review">do sprawdzenia</span>
+          <strong>{{ document.original_filename }}</strong>
+          <small>{{ document.get_document_type_display }}{% if document.title %} · {{ document.title }}{% elif document.cinema_import.target_booking_week %} · {{ document.cinema_import.target_booking_week.booking.title }} · {{ document.cinema_import.target_booking_week.booking.cinema }}{% endif %}{% if document.extracted_data.row_count %} · {{ document.extracted_data.row_count }} pozycji{% endif %}</small>
+        </div>
+        <a class="button" href="{% url 'distribution:document_review' document.pk %}">Sprawdź</a>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
   <section class="title-command-bar">
     <form method="get">
       <label>Szukaj tytułu

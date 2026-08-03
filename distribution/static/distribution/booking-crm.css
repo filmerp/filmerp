@@ -862,6 +862,22 @@
   min-height: 36px;
 }
 
+.booking-report-upload > div {
+  display: grid;
+  gap: 3px;
+}
+
+.booking-report-upload span,
+.booking-approval-impact {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.booking-approval-impact {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
 .booking-import-history {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

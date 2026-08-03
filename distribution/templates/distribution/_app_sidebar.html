@@ -52,7 +52,7 @@
         <span class="sidebar-label">Booking CRM</span>
       </a>
       {% endif %}
-      <a class="sidebar-link {% if current == 'document_center' %}active{% endif %}" href="{% url 'distribution:document_center' %}" data-tooltip="Dokumenty" {% if current == 'document_center' %}aria-current="page"{% endif %}>
+      <a class="sidebar-link {% if current == 'document_center' or current == 'document_review' %}active{% endif %}" href="{% url 'distribution:document_center' %}" data-tooltip="Dokumenty" {% if current == 'document_center' or current == 'document_review' %}aria-current="page"{% endif %}>
         <svg class="sidebar-icon" aria-hidden="true"><use href="{{ sidebar_icons }}#file-text"></use></svg>
         <span class="sidebar-label">Dokumenty</span>
       </a>

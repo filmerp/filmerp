@@ -4,8 +4,19 @@ from decimal import Decimal
 from pathlib import Path
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
+from openpyxl import load_workbook
 
-from .cinema_imports import DATE_RE, extract_pdf_text, find_known_title, normalize_text, parse_cinema_report_import, parse_date, parse_decimal
+from .cinema_imports import (
+    DATE_RE,
+    extract_pdf_text,
+    find_known_title,
+    normalize_text,
+    parse_cinema_report_import,
+    parse_date,
+    parse_decimal,
+    refresh_report_import_status,
+)
 from .models import (
     CinemaReportImport,
     Counterparty,
@@ -48,7 +59,7 @@ def _known_counterparty(text: str):
     return None
 
 
-def classify_document(filename: str, text: str = "") -> tuple[str, Decimal]:
+def classify_document(filename: str, text: str = "", *, is_cinema_spreadsheet=False) -> tuple[str, Decimal]:
     extension = Path(filename).suffix.lower()
     haystack = normalize_text(f"{filename} {text[:12000]}")
     invoice_terms = ("faktura", "invoice", "sprzedawca", "nabywca", "razem netto", "do zaplaty")
@@ -66,8 +77,10 @@ def classify_document(filename: str, text: str = "") -> tuple[str, Decimal]:
             return DocumentType.CINEMA_STATEMENT, Decimal("82.00")
     if any(term in haystack for term in cinema_terms):
         return DocumentType.CINEMA_REPORT, Decimal("88.00")
+    if extension == ".xlsx" and is_cinema_spreadsheet:
+        return DocumentType.CINEMA_REPORT, Decimal("82.00")
     if extension == ".xlsx":
-        return DocumentType.CINEMA_REPORT, Decimal("72.00")
+        return DocumentType.UNKNOWN, Decimal("35.00")
     return DocumentType.UNKNOWN, Decimal("20.00")
 
 
@@ -116,7 +129,24 @@ def extract_invoice_data(text: str) -> dict:
     }
 
 
-def _process_cinema_document(document: DocumentInboxItem):
+def _xlsx_has_cinema_markers(document: DocumentInboxItem) -> bool:
+    if document.extension != "xlsx":
+        return False
+    try:
+        workbook = load_workbook(document.source_file.path, read_only=True, data_only=True)
+        values = []
+        for worksheet in workbook.worksheets[:3]:
+            for row in worksheet.iter_rows(min_row=1, max_row=25, values_only=True):
+                values.extend(str(value) for value in row[:30] if value not in (None, ""))
+        workbook.close()
+    except Exception:
+        return False
+    sample = normalize_text(" ".join(values))
+    markers = ("widzow", "widzowie", "seansow", "box office", "admissions", "frekwencja", "film rental")
+    return sum(marker in sample for marker in markers) >= 2
+
+
+def _process_cinema_document(document: DocumentInboxItem, target_booking_week=None):
     if document.extension not in {"pdf", "xlsx"}:
         document.notes = "Raporty kinowe można automatycznie odczytać z PDF lub XLSX. Uzupełnij typ albo wgraj właściwy plik."
         return
@@ -126,6 +156,7 @@ def _process_cinema_document(document: DocumentInboxItem):
     report_import = CinemaReportImport.objects.create(
         source_file=document.source_file.name,
         original_filename=document.original_filename,
+        target_booking_week=target_booking_week,
     )
     document.cinema_import = report_import
     try:
@@ -151,7 +182,7 @@ def _process_cinema_document(document: DocumentInboxItem):
     }
 
 
-def analyze_document(document: DocumentInboxItem, forced_type: str = "") -> DocumentInboxItem:
+def analyze_document(document: DocumentInboxItem, forced_type: str = "", target_booking_week=None) -> DocumentInboxItem:
     report_types = {DocumentType.CINEMA_REPORT, DocumentType.CINEMA_STATEMENT}
     if forced_type and document.cinema_import_id and forced_type not in report_types:
         if document.cinema_import.rows.filter(status=ImportStatus.IMPORTED).exists():
@@ -162,7 +193,11 @@ def analyze_document(document: DocumentInboxItem, forced_type: str = "") -> Docu
         document.counterparty = None
 
     text = _pdf_text(document)
-    detected_type, confidence = classify_document(document.original_filename, text)
+    detected_type, confidence = classify_document(
+        document.original_filename,
+        text,
+        is_cinema_spreadsheet=_xlsx_has_cinema_markers(document),
+    )
     document.document_type = forced_type or detected_type
     document.classification_confidence = Decimal("100.00") if forced_type else confidence
     document.status = DocumentStatus.NEEDS_REVIEW
@@ -176,7 +211,12 @@ def analyze_document(document: DocumentInboxItem, forced_type: str = "") -> Docu
         if document.is_image:
             document.notes = "Obraz faktury zapisano. Uzupełnij dane ręcznie; automatyczny OCR obrazów nie jest jeszcze włączony."
     elif document.document_type in {DocumentType.CINEMA_REPORT, DocumentType.CINEMA_STATEMENT}:
-        _process_cinema_document(document)
+        _process_cinema_document(document, target_booking_week=target_booking_week)
+        if document.is_pdf and not text.strip() and not document.notes:
+            document.notes = (
+                "Nie udało się odczytać tekstu z tego PDF. Sprawdź pozycje ręcznie "
+                "albo wgraj wersję PDF z warstwą tekstową lub XLSX."
+            )
     else:
         document.extracted_data = {"text_excerpt": text[:2000], "has_searchable_text": bool(text.strip())}
 
@@ -185,7 +225,7 @@ def analyze_document(document: DocumentInboxItem, forced_type: str = "") -> Docu
 
 
 @transaction.atomic
-def ingest_document(upload, user=None) -> tuple[DocumentInboxItem, bool]:
+def ingest_document(upload, user=None, *, forced_type="", target_booking_week=None) -> tuple[DocumentInboxItem, bool]:
     extension = Path(upload.name).suffix.lower().lstrip(".")
     if extension not in ALLOWED_DOCUMENT_EXTENSIONS:
         raise ValueError("Obsługiwane formaty: PDF, XLSX, JPG, PNG i WEBP.")
@@ -206,5 +246,32 @@ def ingest_document(upload, user=None) -> tuple[DocumentInboxItem, bool]:
         )
     except IntegrityError:
         return DocumentInboxItem.objects.get(file_hash=file_hash), False
-    analyze_document(document)
+    analyze_document(document, forced_type=forced_type, target_booking_week=target_booking_week)
     return document, True
+
+
+def sync_document_status_from_cinema_import(report_import, *, reviewed_by=None):
+    """Reflect completed row decisions in the user-facing document inbox."""
+    refresh_report_import_status(report_import)
+    try:
+        document = report_import.inbox_document
+    except DocumentInboxItem.DoesNotExist:
+        return None
+
+    rows = report_import.rows.all()
+    has_pending_rows = rows.exclude(status__in=[ImportStatus.IMPORTED, ImportStatus.REJECTED]).exists()
+    has_imported_rows = rows.filter(status=ImportStatus.IMPORTED).exists()
+    if has_pending_rows:
+        document.status = DocumentStatus.NEEDS_REVIEW
+        document.processed_at = None
+    elif has_imported_rows:
+        document.status = DocumentStatus.PROCESSED
+        document.processed_at = document.processed_at or timezone.now()
+    else:
+        document.status = DocumentStatus.REJECTED
+        document.processed_at = None
+
+    if reviewed_by:
+        document.reviewed_by = reviewed_by
+    document.save(update_fields=["status", "processed_at", "reviewed_by", "updated_at"])
+    return document

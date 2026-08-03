@@ -1,0 +1,185 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ document.original_filename }} | FILMERP</title>
+  {% include "distribution/_app_icons.html" %}
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+  <link rel="stylesheet" href="{% static 'distribution/cost-scope.css' %}">
+</head>
+<body>
+{% include "distribution/_app_header.html" %}
+<main class="document-review-page">
+  <div class="page-heading document-review-page-heading">
+    <div>
+      <a class="back-link" href="{% url 'distribution:document_center' %}">Dokumenty</a>
+      <h1>{{ document.original_filename }}</h1>
+      <div class="muted">Wgrano {{ document.created_at|date:"d.m.Y H:i" }}{% if document.uploaded_by %} przez {{ document.uploaded_by }}{% endif %}.</div>
+    </div>
+    <div class="action-bar">
+      {% if document.status == 'processed' %}<span class="status-pill imported">zatwierdzony</span>
+      {% elif document.status == 'rejected' %}<span class="status-pill rejected">odrzucony</span>
+      {% else %}<span class="status-pill needs_review">do sprawdzenia</span>{% endif %}
+      <a class="button secondary" href="{{ document.source_file.url }}" target="_blank" rel="noopener">Otwórz oryginał</a>
+    </div>
+  </div>
+
+  {% if messages %}
+  <section class="messages">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</section>
+  {% endif %}
+
+  <section class="document-recognition-panel">
+    <div>
+      <span class="eyebrow">FILMERP rozpoznał</span>
+      <strong>{{ document.get_document_type_display }}</strong>
+      <small>Pewność rozpoznania: {{ document.classification_confidence|floatformat:0 }}%</small>
+    </div>
+    {% if document.notes %}<p>{{ document.notes }}</p>{% endif %}
+    {% if document.status != 'processed' %}
+    <details class="document-type-correction">
+      <summary>To nie jest właściwy rodzaj dokumentu</summary>
+      <form method="post" class="inline-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="classify">
+        <label>Rodzaj {{ classification_form.document_type }}</label>
+        <button class="secondary" type="submit">Zmień rodzaj</button>
+      </form>
+    </details>
+    {% endif %}
+  </section>
+
+  {% if document.cost %}
+  <section class="document-result-panel">
+    <span class="eyebrow">Faktura kosztowa</span>
+    <h2>Utworzono koszt</h2>
+    <p><strong>{{ document.cost.net_amount }} {{ document.cost.currency }} netto (VAT)</strong> · {{ document.cost.title }}{% if document.cost.supplier %} · {{ document.cost.supplier }}{% endif %}</p>
+    <a class="button" href="{% url 'distribution:title_detail' document.cost.title_id %}#finance">Otwórz przy tytule</a>
+  </section>
+  {% elif cost_form %}
+  <section class="document-review-layout">
+    <div class="document-source-panel">
+      <h2>Źródło</h2>
+      {% if document.is_pdf %}<iframe src="{{ document.source_file.url }}#toolbar=1" title="Podgląd {{ document.original_filename }}"></iframe>
+      {% elif document.is_image %}<img src="{{ document.source_file.url }}" alt="{{ document.original_filename }}">
+      {% else %}<div class="file-preview-fallback"><strong>{{ document.extension|upper }}</strong><span>Otwórz plik źródłowy, aby zobaczyć arkusz.</span></div>{% endif %}
+    </div>
+    <section class="document-data-panel">
+      <span class="eyebrow">Dane do zatwierdzenia</span>
+      <h2>Faktura kosztowa</h2>
+      {% if document.extracted_data.invoice_number or document.extracted_data.gross_amount %}
+      <div class="extracted-hints">
+        {% if document.extracted_data.invoice_number %}<span>Numer FV <strong>{{ document.extracted_data.invoice_number }}</strong></span>{% endif %}
+        {% if document.extracted_data.gross_amount %}<span>Rozpoznane brutto (VAT) <strong>{{ document.extracted_data.gross_amount }} {{ document.extracted_data.currency }}</strong></span>{% endif %}
+      </div>
+      {% endif %}
+      {% if perms.distribution.add_cost %}
+      <form method="post" class="document-cost-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="create_cost">
+        <label>Tytuł {{ cost_form.title }}</label>
+        <label>Dostawca {{ cost_form.supplier_name }}</label>
+        <label>Data kosztu {{ cost_form.cost_date }}</label>
+        <label>Kategoria {{ cost_form.category }}</label>
+        <label>Waluta {{ cost_form.currency }}</label>
+        <label>Netto (VAT) {{ cost_form.net_amount }}</label>
+        <label>VAT (%) {{ cost_form.vat_rate }}</label>
+        <label class="check-label">{{ cost_form.recoupable }} Koszt do odzyskania (recoupable)</label>
+        <fieldset class="cost-scope-panel">
+          <legend>Zakres P&A / eksploatacji</legend>
+          <div class="cost-scope-options">{{ cost_form.scope_mode }}</div>
+          <div class="cost-scope-fields" data-cost-scope-selected>{{ cost_form.scope_fields }}</div>
+          <div class="cost-allocation-grid" data-cost-scope-allocated>{% for allocation in cost_form.allocation_rows %}<label><span>{{ allocation.label }}</span>{{ allocation.field }}</label>{% endfor %}</div>
+          {{ cost_form.allocation_percentages }}{{ cost_form.scope_fields.errors }}{{ cost_form.allocation_percentages.errors }}
+        </fieldset>
+        <button type="submit">Zatwierdź i utwórz koszt</button>
+      </form>
+      {% else %}<div class="readonly-notice">Brak uprawnienia do tworzenia kosztów.</div>{% endif %}
+    </section>
+  </section>
+  {% elif document.cinema_import %}
+  <section class="document-report-summary">
+    <div><span>Pozycje</span><strong>{{ report_rows|length }}</strong></div>
+    <div><span>Do sprawdzenia</span><strong>{{ pending_report_rows_count }}</strong></div>
+    <div><span>Źródło</span><strong>{{ document.cinema_import.original_filename }}</strong></div>
+  </section>
+
+  <section class="document-rows-panel">
+    <div class="section-header"><div><h2>Pozycje z raportu</h2><span class="muted">Każdą pozycję sprawdzasz osobno. Zatwierdzenie jednej nie zmienia pozostałych.</span></div></div>
+    <div class="table-scroll">
+      <table class="document-list-table report-position-table">
+        <thead><tr><th>Tytuł / kino</th><th>Okres</th><th>Widzowie</th><th>Box office brutto (VAT)</th><th>Stan</th><th></th></tr></thead>
+        <tbody>
+        {% for row in report_rows %}
+        <tr class="{% if selected_row.pk == row.pk %}selected{% endif %}">
+          <td><strong>{{ row.title|default:"Nie rozpoznano tytułu" }}</strong><small>{{ row.cinema|default:"Nie rozpoznano kina" }}</small></td>
+          <td>{{ row.date_from|date:"d.m.Y"|default:"—" }}–{{ row.date_to|date:"d.m.Y"|default:"—" }}</td>
+          <td class="num">{{ row.admissions }}</td>
+          <td class="num">{{ row.box_office_gross|floatformat:2 }} {{ row.currency }}</td>
+          <td>
+            {% if row.status == 'imported' %}<span class="status-pill imported">zatwierdzona</span>
+            {% elif row.status == 'rejected' %}<span class="status-pill rejected">odrzucona</span>
+            {% elif row.booking_week %}<span class="status-pill verified">gotowa do rozliczenia</span>
+            {% else %}<span class="status-pill needs_review">wymaga przypisania</span>{% endif %}
+          </td>
+          <td><a class="button export" href="?row={{ row.pk }}">{% if selected_row.pk == row.pk %}Otwarta{% else %}Sprawdź{% endif %}</a></td>
+        </tr>
+        {% empty %}<tr><td colspan="6" class="document-empty">Nie udało się rozpoznać żadnej pozycji. Wybierz właściwy rodzaj dokumentu lub wprowadź dane ręcznie.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  {% if selected_row %}
+  <section class="document-row-workspace">
+    <div class="document-row-editor">
+      <div class="section-header"><div><span class="eyebrow">Sprawdzana pozycja</span><h2>{{ selected_row.title|default:"Pozycja bez tytułu" }}</h2></div><span class="status-pill {{ selected_row.status }}">{{ selected_row.get_status_display }}</span></div>
+      {% if selected_row.status == 'imported' and selected_row.booking_week %}
+        <div class="document-result-panel"><strong>Ta pozycja została zatwierdzona.</strong><span>Wpływ jest już przypisany do tygodnia grania i może być uwzględniony w waterfallu oraz Statement Center.</span><a class="button" href="{% url 'distribution:booking_week_report' selected_row.booking_week_id %}?import={{ document.cinema_import_id }}&row={{ selected_row.pk }}">Otwórz rozliczenie tygodnia</a></div>
+      {% elif selected_row.status == 'rejected' %}
+        <div class="document-rejection-result"><strong>Odrzucono: {{ selected_row.get_rejection_reason_display|default:"bez podanego powodu" }}</strong>{% if selected_row.notes %}<span>{{ selected_row.notes }}</span>{% endif %}</div>
+        {% if perms.distribution.change_cinemareportimportrow %}<form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="action" value="reopen_report_row"><input type="hidden" name="row_id" value="{{ selected_row.pk }}"><button class="secondary" type="submit">Przywróć do sprawdzenia</button></form>{% endif %}
+      {% else %}
+        {% if selected_review.errors %}<div class="booking-review-messages danger">{% for error in selected_review.errors %}<p>{{ error }}</p>{% endfor %}</div>{% endif %}
+        {% if selected_review.warnings %}<div class="booking-review-messages warning">{% for warning in selected_review.warnings %}<p>{{ warning }}</p>{% endfor %}</div>{% endif %}
+        {% if perms.distribution.change_cinemareportimportrow %}
+        <form method="post" class="document-row-form">
+          {% csrf_token %}<input type="hidden" name="action" value="save_report_row"><input type="hidden" name="row_id" value="{{ selected_row.pk }}">
+          <div class="setup-field-grid">
+            <label>Tytuł {{ row_form.title }}</label><label>Kino {{ row_form.cinema }}</label><label>Miasto {{ row_form.city }}</label>
+            <label>Data od {{ row_form.date_from }}</label><label>Data do {{ row_form.date_to }}</label><label>Seanse {{ row_form.screenings }}</label>
+            <label>Widzowie {{ row_form.admissions }}</label><label>Box office brutto (VAT) {{ row_form.box_office_gross }}</label><label>Należność wg kina {{ row_form.reported_rental_amount }}</label>
+            <label>Waluta {{ row_form.currency }}</label><label class="span-all">Uwagi {{ row_form.notes }}</label>
+          </div>
+          <div class="form-submit-bar"><button class="secondary" type="submit">Zapisz poprawki</button></div>
+        </form>
+
+        {% if selected_row.booking_week %}
+        <section class="document-next-step"><span class="eyebrow">Kolejny krok</span><strong>Pozycja jest przypisana do tygodnia {{ selected_row.booking_week.week_number }}.</strong><a class="button" href="{% url 'distribution:booking_week_report' selected_row.booking_week_id %}?import={{ document.cinema_import_id }}&row={{ selected_row.pk }}">Sprawdź kalkulację i zatwierdź rozliczenie</a></section>
+        {% else %}
+        <form method="post" class="document-assignment-form">
+          {% csrf_token %}<input type="hidden" name="action" value="assign_report_row"><input type="hidden" name="row_id" value="{{ selected_row.pk }}">
+          <div><span class="eyebrow">Przypisanie</span><strong>Wybierz pasujący tydzień grania</strong><small>FILMERP pokazuje tylko tygodnie dla tego samego tytułu, kina i okresu.</small></div>
+          <label>{{ assignment_form.booking_week }}</label><button type="submit">Przejdź do rozliczenia</button>
+        </form>
+        {% endif %}
+        <details class="document-reject-details"><summary>Odrzuć tę pozycję</summary><form method="post" class="document-rejection-form">{% csrf_token %}<input type="hidden" name="action" value="reject_report_row"><input type="hidden" name="row_id" value="{{ selected_row.pk }}"><label>Powód {{ rejection_form.rejection_reason }}</label><label>Komentarz {{ rejection_form.rejection_note }}</label><button class="danger-button" type="submit">Odrzuć pozycję</button></form></details>
+        {% endif %}
+      {% endif %}
+    </div>
+    <aside class="document-source-panel document-row-source">
+      <h2>Źródło</h2>
+      {% if document.is_pdf %}<iframe src="{{ document.source_file.url }}#toolbar=1" title="Podgląd {{ document.original_filename }}"></iframe>
+      {% elif document.is_image %}<img src="{{ document.source_file.url }}" alt="{{ document.original_filename }}">
+      {% else %}<div class="file-preview-fallback"><strong>{{ document.extension|upper }}</strong><span>Otwórz plik źródłowy, aby sprawdzić arkusz.</span></div>{% endif %}
+    </aside>
+  </section>
+  {% endif %}
+  {% else %}
+  <section class="document-result-panel document-unknown"><h2>Dokument wymaga określenia typu</h2><p>Wybierz rodzaj dokumentu powyżej. FILMERP zapisze plik, ale nie zaksięguje żadnych danych bez Twojej decyzji.</p>{% if document.status != 'processed' %}<form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="action" value="reject_document"><button class="secondary" type="submit">Odrzuć dokument</button></form>{% endif %}</section>
+  {% endif %}
+</main>
+{% if cost_form %}<script src="{% static 'distribution/cost-scope.js' %}"></script><script src="{% static 'distribution/cost-vat.js' %}"></script>{% endif %}
+</body>
+</html>

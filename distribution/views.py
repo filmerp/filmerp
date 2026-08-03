@@ -21,10 +21,12 @@ from openpyxl.utils import get_column_letter
 from allauth.account.views import LoginView as AllauthLoginView
 
 from .avails import check_availability
-from .cinema_imports import approve_import_rows, parse_cinema_report_import
-from .documents import analyze_document, ingest_document
+from .cinema_imports import review_import_row
+from .documents import analyze_document, ingest_document, sync_document_status_from_cinema_import
 from .forms import (
-    CinemaReportUploadForm,
+    CinemaReportRowAssignmentForm,
+    CinemaReportRowRejectionForm,
+    CinemaReportRowReviewForm,
     CostInvoiceUploadForm,
     DocumentClassificationForm,
     DocumentCostForm,
@@ -41,7 +43,9 @@ from .models import (
     AuditAction,
     BookingWeekSettlement,
     CinemaBooking,
+    CinemaBookingWeek,
     CinemaReportImport,
+    CinemaReportImportRow,
     Cost,
     Counterparty,
     Currency,
@@ -50,6 +54,7 @@ from .models import (
     DocumentStatus,
     DocumentType,
     ExploitationField,
+    ImportStatus,
     LanguageVersion,
     RightsIssue,
     RightsStatus,
@@ -226,6 +231,14 @@ def dashboard(request):
     )
     unpaid_agreements = unpaid_agreements_query[:10]
     overdue_booking_settlements = overdue_booking_settlements_query[:10]
+    pending_documents_query = DocumentInboxItem.objects.filter(
+        status=DocumentStatus.NEEDS_REVIEW
+    ).select_related(
+        "title",
+        "counterparty",
+        "cinema_import__target_booking_week__booking__title",
+        "cinema_import__target_booking_week__booking__cinema",
+    ).order_by("-created_at")
 
     context = {
         "query": query,
@@ -238,6 +251,8 @@ def dashboard(request):
         "unpaid_agreements": unpaid_agreements,
         "overdue_booking_settlements": overdue_booking_settlements,
         "overdue_receivables_count": overdue_receivables_count,
+        "pending_documents": pending_documents_query[:6],
+        "pending_documents_count": pending_documents_query.count(),
         "financial_totals": financial_totals,
         "open_statements_count": open_statements.count(),
         "revenue_by_title": revenue_by_title,
@@ -441,9 +456,18 @@ def _previous_month_period():
     return last_day_previous_month.replace(day=1), last_day_previous_month
 
 
-def _document_center_url(document_id=""):
-    url = reverse("distribution:document_center")
-    return f"{url}?document={document_id}" if document_id else url
+def _document_review_url(document):
+    return reverse("distribution:document_review", args=[document.pk])
+
+
+def _target_week_from_request(request):
+    target_week_id = request.POST.get("target_week") or request.GET.get("target_week")
+    if not target_week_id:
+        return None
+    return get_object_or_404(
+        CinemaBookingWeek.objects.select_related("booking__title", "booking__cinema"),
+        pk=target_week_id,
+    )
 
 
 @login_required
@@ -458,25 +482,37 @@ def document_center(request):
             form = DocumentUploadForm(request.POST, request.FILES)
             if form.is_valid():
                 try:
-                    document, created = ingest_document(request.FILES["source_file"], request.user)
+                    target_week = _target_week_from_request(request)
+                    document, created = ingest_document(
+                        request.FILES["source_file"],
+                        request.user,
+                        forced_type=form.cleaned_data.get("document_type", ""),
+                        target_booking_week=target_week,
+                    )
                     record_audit_event(
                         AuditAction.IMPORT,
                         f"Wczytano dokument {document.original_filename}.",
                         request=request,
                         module="documents",
                         instance=document,
-                        metadata={"created": created},
+                        metadata={
+                            "created": created,
+                            "target_booking_week_id": target_week.pk if target_week else None,
+                            "document_type": document.document_type,
+                        },
                     )
                     if created:
-                        messages.success(request, "Dokument wczytano i przekazano do weryfikacji.")
+                        count = (document.extracted_data or {}).get("row_count", 0)
+                        suffix = f" Rozpoznano {count} pozycji do sprawdzenia." if count else ""
+                        messages.success(request, f"Dokument wczytano pomyślnie.{suffix}")
                     else:
-                        messages.warning(request, "Ten sam plik jest już w Centrum dokumentów. Otwieram istniejący rekord.")
-                    return redirect(_document_center_url(document.pk))
+                        messages.warning(request, "Ten plik jest już w Dokumentach. Nie utworzono duplikatu.")
+                    return redirect("distribution:dashboard")
                 except ValueError as exc:
                     messages.error(request, str(exc))
             else:
                 messages.error(request, "Wybierz plik PDF, XLSX albo obraz faktury.")
-            return redirect(_document_center_url())
+            return redirect("distribution:document_center")
 
         document = get_object_or_404(
             DocumentInboxItem.objects.select_related("cinema_import", "cost"),
@@ -504,62 +540,15 @@ def document_center(request):
                         messages.success(request, "Zmieniono rodzaj dokumentu i ponowiono analizę.")
                     except ValueError as exc:
                         messages.error(request, str(exc))
-            return redirect(_document_center_url(document.pk))
+            return redirect(_document_review_url(document))
 
         if action == "apply_report_title":
-            if not document.cinema_import_id:
-                messages.error(request, "Ten dokument nie ma rozpoznanych wierszy raportu.")
-            else:
-                row_ids = request.POST.getlist("row_ids")
-                if not row_ids:
-                    messages.error(request, "Zaznacz co najmniej jeden wiersz.")
-                else:
-                    title = get_object_or_404(Title, pk=request.POST.get("title_id"))
-                    updated = document.cinema_import.rows.filter(pk__in=row_ids).exclude(status="imported").update(title=title)
-                    document.title = title
-                    document.save(update_fields=["title", "updated_at"])
-                    record_audit_event(
-                        AuditAction.UPDATE,
-                        f"Przypisano tytul do {updated} wierszy raportu.",
-                        request=request,
-                        module="cinema_reports",
-                        instance=document,
-                        metadata={"title_id": title.pk, "rows": updated},
-                    )
-                    messages.success(request, f"Przypisano tytuł do {updated} wierszy.")
-            return redirect(_document_center_url(document.pk))
+            messages.error(request, "Przypisywanie i zatwierdzanie raportu wykonaj z ekranu sprawdzania dokumentu.")
+            return redirect(_document_review_url(document))
 
         if action == "approve_report_rows":
-            if not request.user.has_perm("distribution.approve_cinema_reports"):
-                raise PermissionDenied
-            if not document.cinema_import_id:
-                messages.error(request, "Ten dokument nie ma rozpoznanych wierszy raportu.")
-            else:
-                row_ids = request.POST.getlist("row_ids")
-                rows = document.cinema_import.rows.filter(pk__in=row_ids)
-                if not row_ids:
-                    messages.error(request, "Zaznacz co najmniej jeden wiersz.")
-                else:
-                    imported, skipped = approve_import_rows(rows, approved_by=request.user)
-                    document.cinema_import.refresh_from_db()
-                    if document.cinema_import.status == "imported":
-                        document.status = DocumentStatus.PROCESSED
-                        document.processed_at = timezone.now()
-                    document.reviewed_by = request.user
-                    document.save(update_fields=["status", "processed_at", "reviewed_by", "updated_at"])
-                    record_audit_event(
-                        AuditAction.APPROVE,
-                        f"Zatwierdzono wiersze raportu kinowego: {imported}.",
-                        request=request,
-                        module="cinema_reports",
-                        instance=document.cinema_import,
-                        metadata={"imported": imported, "skipped": skipped},
-                    )
-                    if skipped:
-                        messages.warning(request, f"Utworzono {imported} bookingów. Pominięto {skipped} wierszy wymagających poprawy.")
-                    else:
-                        messages.success(request, f"Utworzono bookingi i raporty sprzedaży: {imported}.")
-            return redirect(_document_center_url(document.pk))
+            messages.error(request, "Raport trzeba najpierw przypisać do tygodnia grania. Otwieram ekran sprawdzania.")
+            return redirect(_document_review_url(document))
 
         if action == "create_cost":
             if not request.user.has_perm("distribution.add_cost"):
@@ -589,7 +578,7 @@ def document_center(request):
                 else:
                     errors = " ".join(error for field_errors in form.errors.values() for error in field_errors)
                     messages.error(request, f"Nie utworzono kosztu. {errors}")
-            return redirect(_document_center_url(document.pk))
+            return redirect(_document_review_url(document))
 
         if action == "reject":
             has_imported_rows = document.cinema_import_id and document.cinema_import.rows.filter(status="imported").exists()
@@ -607,7 +596,7 @@ def document_center(request):
                     instance=document,
                 )
                 messages.success(request, "Dokument oznaczono jako odrzucony.")
-            return redirect(_document_center_url(document.pk))
+            return redirect(_document_review_url(document))
 
     base_documents = DocumentInboxItem.objects.select_related(
         "title", "counterparty", "uploaded_by", "reviewed_by", "cinema_import", "cost"
@@ -617,34 +606,246 @@ def document_center(request):
     if status_filter in DocumentStatus.values:
         queue = queue.filter(status=status_filter)
 
-    selected_document = None
-    selected_id = request.GET.get("document")
-    if selected_id:
-        selected_document = get_object_or_404(base_documents, pk=selected_id)
-    elif queue.exists():
-        selected_document = queue.first()
-
-    report_rows = selected_document.cinema_import.rows.select_related("title", "cinema", "booking") if selected_document and selected_document.cinema_import_id else None
-    classification_form = DocumentClassificationForm(instance=selected_document) if selected_document else None
-    cost_form = None
-    if selected_document and selected_document.document_type == DocumentType.COST_INVOICE and not selected_document.cost_id:
-        cost_form = DocumentCostForm(document=selected_document)
-
+    target_week = _target_week_from_request(request)
+    suggested_type = request.GET.get("type", "")
+    if suggested_type not in {value for value, _ in DocumentType.choices}:
+        suggested_type = ""
     context = {
         "documents": queue,
-        "selected_document": selected_document,
-        "report_rows": report_rows,
-        "upload_form": DocumentUploadForm(),
-        "classification_form": classification_form,
-        "cost_form": cost_form,
-        "titles": Title.objects.order_by("title_pl"),
+        "upload_form": DocumentUploadForm(initial={"document_type": suggested_type}),
         "status_filter": status_filter,
         "document_statuses": DocumentStatus.choices,
         "document_count": base_documents.count(),
         "review_count": base_documents.filter(status=DocumentStatus.NEEDS_REVIEW).count(),
         "processed_count": base_documents.filter(status=DocumentStatus.PROCESSED).count(),
+        "target_week": target_week,
     }
     return render(request, "distribution/document_center.html", context)
+
+
+@login_required
+@permission_required("distribution.view_documentinboxitem", raise_exception=True)
+def document_review(request, pk):
+    document = get_object_or_404(
+        DocumentInboxItem.objects.select_related("title", "counterparty", "uploaded_by", "reviewed_by", "cinema_import", "cost"),
+        pk=pk,
+    )
+
+    def review_url(row_id=""):
+        url = _document_review_url(document)
+        return f"{url}?row={row_id}" if row_id else url
+
+    if request.method == "POST":
+        action = request.POST.get("action", "")
+        if not request.user.has_perm("distribution.change_documentinboxitem"):
+            raise PermissionDenied
+
+        if action == "classify":
+            if document.status == DocumentStatus.PROCESSED:
+                messages.error(request, "Zatwierdzonego dokumentu nie można ponownie sklasyfikować.")
+            else:
+                form = DocumentClassificationForm(request.POST, instance=document)
+                if form.is_valid():
+                    try:
+                        target_week = document.cinema_import.target_booking_week if document.cinema_import_id else None
+                        analyze_document(document, forced_type=form.cleaned_data["document_type"], target_booking_week=target_week)
+                        record_audit_event(
+                            AuditAction.UPDATE,
+                            "Zmieniono rodzaj dokumentu i ponowiono analizę.",
+                            request=request,
+                            module="documents",
+                            instance=document,
+                        )
+                        messages.success(request, "Rodzaj dokumentu został zaktualizowany.")
+                    except ValueError as exc:
+                        messages.error(request, str(exc))
+            return redirect(review_url())
+
+        if action == "create_cost":
+            if not request.user.has_perm("distribution.add_cost"):
+                raise PermissionDenied
+            if document.cost_id:
+                messages.warning(request, "Ta faktura została już utworzona jako koszt.")
+            else:
+                form = DocumentCostForm(request.POST, document=document)
+                if form.is_valid():
+                    cost = form.save()
+                    document.cost = cost
+                    document.title = cost.title
+                    document.counterparty = cost.supplier
+                    document.status = DocumentStatus.PROCESSED
+                    document.reviewed_by = request.user
+                    document.processed_at = timezone.now()
+                    document.save(update_fields=["cost", "title", "counterparty", "status", "reviewed_by", "processed_at", "updated_at"])
+                    record_audit_event(
+                        AuditAction.CREATE,
+                        f"Utworzono koszt z faktury: {cost.net_amount} {cost.currency}.",
+                        request=request,
+                        module="costs",
+                        instance=cost,
+                        metadata={"document_id": document.pk},
+                    )
+                    messages.success(request, "Faktura została przypisana jako koszt. Możesz ją znaleźć przy tytule i w P&A.")
+                else:
+                    errors = " ".join(error for field_errors in form.errors.values() for error in field_errors)
+                    messages.error(request, f"Nie utworzono kosztu. {errors}")
+            return redirect(review_url())
+
+        if action == "reject_document":
+            has_imported_rows = document.cinema_import_id and document.cinema_import.rows.filter(status=ImportStatus.IMPORTED).exists()
+            if document.cost_id or has_imported_rows:
+                messages.error(request, "Dokument ma już zatwierdzone dane i nie może zostać odrzucony w całości.")
+            else:
+                document.status = DocumentStatus.REJECTED
+                document.reviewed_by = request.user
+                document.save(update_fields=["status", "reviewed_by", "updated_at"])
+                record_audit_event(AuditAction.REJECT, "Odrzucono dokument.", request=request, module="documents", instance=document)
+                messages.success(request, "Dokument oznaczono jako odrzucony. Plik pozostaje w historii.")
+            return redirect(review_url())
+
+        if not document.cinema_import_id:
+            raise PermissionDenied
+        row = get_object_or_404(document.cinema_import.rows, pk=request.POST.get("row_id"))
+
+        if action == "save_report_row":
+            if not request.user.has_perm("distribution.change_cinemareportimportrow"):
+                raise PermissionDenied
+            if row.status in {ImportStatus.IMPORTED, ImportStatus.REJECTED}:
+                messages.error(request, "Najpierw przywróć odrzuconą pozycję albo otwórz zatwierdzone rozliczenie.")
+            else:
+                form = CinemaReportRowReviewForm(request.POST, instance=row)
+                if form.is_valid():
+                    row = form.save(commit=False)
+                    row.status = ImportStatus.NEEDS_REVIEW
+                    row.save()
+                    record_audit_event(
+                        AuditAction.UPDATE,
+                        "Poprawiono pozycję z raportu kina.",
+                        request=request,
+                        module="cinema_reports",
+                        instance=row,
+                    )
+                    messages.success(request, "Pozycję zapisano. Teraz przypisz ją do tygodnia grania.")
+                else:
+                    messages.error(request, "Popraw zaznaczone dane pozycji.")
+            return redirect(review_url(row.pk))
+
+        if action == "assign_report_row":
+            if not request.user.has_perm("distribution.change_cinemareportimportrow"):
+                raise PermissionDenied
+            if row.status in {ImportStatus.IMPORTED, ImportStatus.REJECTED}:
+                messages.error(request, "Ta pozycja nie może już zostać przypisana.")
+                return redirect(review_url(row.pk))
+            assignment_form = CinemaReportRowAssignmentForm(request.POST, row=row)
+            if assignment_form.is_valid():
+                week = assignment_form.cleaned_data["booking_week"]
+                review = review_import_row(row, week)
+                if review["errors"]:
+                    messages.error(request, "Nie można przypisać pozycji: " + " ".join(review["errors"]))
+                else:
+                    row.booking_week = week
+                    row.save(update_fields=["booking_week", "updated_at"])
+                    record_audit_event(
+                        AuditAction.UPDATE,
+                        f"Przypisano pozycję raportu do tygodnia {week.week_number}.",
+                        request=request,
+                        module="cinema_reports",
+                        instance=row,
+                        metadata={"booking_week_id": week.pk},
+                    )
+                    messages.success(request, "Pozycję przypisano. Sprawdź teraz kalkulację i zatwierdź rozliczenie.")
+                    return redirect(
+                        f"{reverse('distribution:booking_week_report', args=[week.pk])}?import={document.cinema_import_id}&row={row.pk}"
+                    )
+            else:
+                messages.error(request, "Wybierz pasujący tydzień grania.")
+            return redirect(review_url(row.pk))
+
+        if action == "reject_report_row":
+            if not request.user.has_perm("distribution.change_cinemareportimportrow"):
+                raise PermissionDenied
+            rejection_form = CinemaReportRowRejectionForm(request.POST)
+            if rejection_form.is_valid():
+                try:
+                    row.reject(
+                        reviewed_by=request.user,
+                        reason=rejection_form.cleaned_data["rejection_reason"],
+                        note=rejection_form.cleaned_data["rejection_note"],
+                    )
+                    sync_document_status_from_cinema_import(document.cinema_import, reviewed_by=request.user)
+                    record_audit_event(
+                        AuditAction.REJECT,
+                        "Odrzucono pozycję z raportu kina.",
+                        request=request,
+                        module="cinema_reports",
+                        instance=row,
+                        metadata={"reason": row.rejection_reason},
+                    )
+                    messages.success(request, "Pozycję odrzucono. Nie wpłynie na booking ani przychody.")
+                except ValidationError as exc:
+                    messages.error(request, " ".join(exc.messages))
+            else:
+                messages.error(request, "Wybierz powód odrzucenia.")
+            return redirect(review_url(row.pk))
+
+        if action == "reopen_report_row":
+            if not request.user.has_perm("distribution.change_cinemareportimportrow"):
+                raise PermissionDenied
+            row.reopen()
+            sync_document_status_from_cinema_import(document.cinema_import, reviewed_by=request.user)
+            record_audit_event(
+                AuditAction.UPDATE,
+                "Przywrócono odrzuconą pozycję raportu do weryfikacji.",
+                request=request,
+                module="cinema_reports",
+                instance=row,
+            )
+            messages.success(request, "Pozycję przywrócono do weryfikacji.")
+            return redirect(review_url(row.pk))
+
+        raise PermissionDenied
+
+    report_rows = []
+    selected_row = None
+    if document.cinema_import_id:
+        report_rows = list(
+            document.cinema_import.rows.select_related(
+                "title", "cinema", "booking_week__booking__title", "booking_week__booking__cinema", "reviewed_by"
+            ).order_by("date_from", "title__title_pl", "pk")
+        )
+        selected_id = request.GET.get("row")
+        if selected_id:
+            selected_row = next((item for item in report_rows if str(item.pk) == str(selected_id)), None)
+        if selected_row is None:
+            selected_row = next((item for item in report_rows if item.status == ImportStatus.NEEDS_REVIEW), None)
+        if selected_row is None and report_rows:
+            selected_row = report_rows[0]
+
+    pending_report_rows_count = sum(
+        row.status not in {ImportStatus.IMPORTED, ImportStatus.REJECTED}
+        for row in report_rows
+    )
+    selected_review = review_import_row(selected_row) if selected_row else None
+    row_form = CinemaReportRowReviewForm(instance=selected_row) if selected_row else None
+    assignment_form = CinemaReportRowAssignmentForm(row=selected_row) if selected_row else None
+    rejection_form = CinemaReportRowRejectionForm() if selected_row else None
+    cost_form = None
+    if document.document_type == DocumentType.COST_INVOICE and not document.cost_id:
+        cost_form = DocumentCostForm(document=document)
+
+    context = {
+        "document": document,
+        "classification_form": DocumentClassificationForm(instance=document),
+        "cost_form": cost_form,
+        "report_rows": report_rows,
+        "pending_report_rows_count": pending_report_rows_count,
+        "selected_row": selected_row,
+        "selected_review": selected_review,
+        "row_form": row_form,
+        "assignment_form": assignment_form,
+        "rejection_form": rejection_form,
+    }
+    return render(request, "distribution/document_review.html", context)
 
 
 def _settlement_url(*, title_id="", plan_id="", period_start="", period_end="", currency="", run_id="", import_id=""):
@@ -707,48 +908,12 @@ def settlement_workbench(request):
     if request.method == "POST":
         action = request.POST.get("action")
         if action == "upload_cinema_report":
-            form = CinemaReportUploadForm(request.POST, request.FILES)
-            if form.is_valid():
-                report_import = form.save(commit=False)
-                report_import.original_filename = request.FILES["source_file"].name
-                report_import.save()
-                try:
-                    parsed = parse_cinema_report_import(report_import)
-                    record_audit_event(
-                        AuditAction.IMPORT,
-                        f"Wczytano raport kinowy {report_import.original_filename}.",
-                        request=request,
-                        module="cinema_reports",
-                        instance=report_import,
-                        metadata={"parsed_rows": parsed},
-                    )
-                    messages.success(request, f"Rozpoznano {parsed} wierszy. Sprawdz je przed akceptacja.")
-                except ValueError as exc:
-                    messages.error(request, str(exc))
-                redirect_kwargs["import_id"] = report_import.pk
-            else:
-                messages.error(request, "Wybierz raport kina w formacie PDF albo XLSX.")
-            return redirect(_settlement_url(**redirect_kwargs))
+            messages.info(request, "Raport kina wgraj przez Dokumenty. Tam przejdziesz przez przypisanie i weryfikację.")
+            return redirect("distribution:document_center")
 
         if action == "approve_cinema_import":
-            if not request.user.has_perm("distribution.approve_cinema_reports"):
-                raise PermissionDenied
-            report_import = get_object_or_404(CinemaReportImport, pk=request.POST.get("import_id"))
-            imported, skipped = approve_import_rows(report_import.rows.all(), approved_by=request.user)
-            record_audit_event(
-                AuditAction.APPROVE,
-                f"Zatwierdzono raport kinowy: {imported} pozycji.",
-                request=request,
-                module="cinema_reports",
-                instance=report_import,
-                metadata={"imported": imported, "skipped": skipped},
-            )
-            if skipped:
-                messages.warning(request, f"Utworzono {imported} bookingow. {skipped} wierszy nadal wymaga uzupelnienia.")
-            else:
-                messages.success(request, f"Utworzono bookingi i raporty sprzedazy: {imported}.")
-            redirect_kwargs["import_id"] = report_import.pk
-            return redirect(_settlement_url(**redirect_kwargs))
+            messages.error(request, "Raport trzeba sprawdzić w Dokumentach i przypisać do tygodnia grania.")
+            return redirect("distribution:document_center")
 
         if action == "upload_cost_invoice":
             if not selected_title:
@@ -889,7 +1054,6 @@ def settlement_workbench(request):
         "run": run,
         "recipients": recipients,
         "statements": statements,
-        "cinema_upload_form": CinemaReportUploadForm(),
         "invoice_form": invoice_form,
         "selected_import": selected_import,
         "recent_imports": recent_imports,

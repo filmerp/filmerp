@@ -47,12 +47,10 @@
       {% if selected_import %}<span class="status-pill {{ selected_import.status }}">{{ selected_import.get_status_display }}</span>{% endif %}
     </div>
     {% if can_upload %}
-    <form method="post" enctype="multipart/form-data" class="booking-report-upload">
-      {% csrf_token %}
-      <input type="hidden" name="action" value="upload_report">
-      {% include "distribution/_booking_field.html" with field=upload_form.source_file %}
-      <button type="submit">Wczytaj i rozpoznaj</button>
-    </form>
+    <div class="booking-report-upload">
+      <div><strong>Wgraj raport przez Dokumenty</strong><span>Po rozpoznaniu FILMERP pokaże zadanie na Panelu głównym. Raport będzie już powiązany z tym tygodniem grania.</span></div>
+      <a class="button" href="{% url 'distribution:document_center' %}?target_week={{ week.pk }}&amp;type=cinema_report#upload">Wczytaj raport</a>
+    </div>
     {% endif %}
     {% if imports %}
     <div class="booking-import-history" aria-label="Historia plików">
@@ -71,7 +69,7 @@
   {% if selected_import %}
   <section class="booking-form-section">
     <div class="section-header">
-      <div><h2>Rozpoznane wiersze</h2><span class="muted">{{ selected_import.parser_notes }}</span></div>
+      <div><h2>Pozycje z raportu</h2><span class="muted">{{ selected_import.parser_notes }}</span></div>
       <span class="muted">{{ reviewed_rows|length }} pozycji</span>
     </div>
     <div class="table-scroll">
@@ -80,7 +78,7 @@
         <tbody>
         {% for item in reviewed_rows %}
         <tr class="{% if selected_row.pk == item.row.pk %}selected{% endif %}">
-          <td><a class="booking-row-picker" href="{% url 'distribution:booking_week_report' week.pk %}?import={{ selected_import.pk }}&amp;row={{ item.row.pk }}" aria-label="Wybierz wiersz {{ item.row.pk }}">Wybierz</a></td>
+          <td><a class="booking-row-picker" href="{% url 'distribution:booking_week_report' week.pk %}?import={{ selected_import.pk }}&amp;row={{ item.row.pk }}" aria-label="Sprawdź pozycję {{ item.row.pk }}">Sprawdź</a></td>
           <td><strong>{{ item.row.title|default:"Brak tytułu" }}</strong><small>{{ item.row.cinema|default:"Brak kina" }}</small></td>
           <td>{{ item.row.date_from|date:"d.m.Y"|default:"—" }}–{{ item.row.date_to|date:"d.m.Y"|default:"—" }}</td>
           <td>{{ item.row.admissions }}</td>
@@ -121,6 +119,7 @@
         <div class="booking-form-actions">
           <button class="secondary" type="submit" name="action" value="save_row">Zapisz poprawki</button>
           {% if can_approve %}
+          <p class="booking-approval-impact">Zatwierdzenie zapisze wpływ dla tego tygodnia. Pozostałe pozycje z pliku pozostaną bez zmian.</p>
           <button type="submit" name="action" value="approve_row">Zatwierdź rozliczenie</button>
           {% endif %}
         </div>

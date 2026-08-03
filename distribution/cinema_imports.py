@@ -576,6 +576,29 @@ def review_import_row(row, preferred_week=None):
     }
 
 
+def refresh_report_import_status(report_import):
+    """Keep the file-level status in sync without deciding any pending rows."""
+    rows = report_import.rows.all()
+    pending = rows.exclude(status__in=[ImportStatus.IMPORTED, ImportStatus.REJECTED]).exists()
+    imported = rows.filter(status=ImportStatus.IMPORTED).exists()
+
+    if pending:
+        status = ImportStatus.NEEDS_REVIEW
+        imported_at = None
+    elif imported:
+        status = ImportStatus.IMPORTED
+        imported_at = report_import.imported_at or timezone.now()
+    else:
+        status = ImportStatus.REJECTED
+        imported_at = None
+
+    if report_import.status != status or report_import.imported_at != imported_at:
+        report_import.status = status
+        report_import.imported_at = imported_at
+        report_import.save(update_fields=["status", "imported_at", "updated_at"])
+    return report_import
+
+
 def approve_import_rows(rows, *, approved_by=None):
     imported = 0
     skipped = 0
@@ -590,10 +613,5 @@ def approve_import_rows(rows, *, approved_by=None):
         imported += 1
     imports = CinemaReportImport.objects.filter(rows__in=rows).distinct()
     for report_import in imports:
-        if report_import.rows.exclude(status=ImportStatus.IMPORTED).exists():
-            report_import.status = ImportStatus.NEEDS_REVIEW
-        else:
-            report_import.status = ImportStatus.IMPORTED
-            report_import.imported_at = timezone.now()
-        report_import.save(update_fields=["status", "imported_at", "updated_at"])
+        refresh_report_import_status(report_import)
     return imported, skipped

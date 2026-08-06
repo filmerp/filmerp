@@ -1,0 +1,122 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if budget %}{{ budget.name }}{% else %}Nowy budżet P&A{% endif %} | FILMERP</title>
+  {% include "distribution/_app_icons.html" %}
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+  <link rel="stylesheet" href="{% static 'distribution/cost-scope.css' %}">
+</head>
+<body>
+{% include "distribution/_app_header.html" %}
+<main>
+  <div class="page-heading">
+    <div>
+      <a class="back-link" href="{% url 'distribution:title_detail' title.pk %}#finance">← Wróć do karty tytułu</a>
+      <h1>{% if budget %}Budżet P&A: {{ budget.name }}{% else %}Nowy budżet P&A{% endif %}</h1>
+      <div class="muted">{{ title.title_pl }} · zaplanuj koszty, zakres pól eksploatacji i recoupment.</div>
+    </div>
+  </div>
+
+  <form method="post" class="pa-budget-form" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors or line_formset.non_form_errors %}
+    <div class="notice error">{{ form.non_field_errors }}{{ line_formset.non_form_errors }}</div>
+    {% endif %}
+
+    <section class="title-workflow-section">
+      <div class="workflow-section-heading compact-heading">
+        <div class="workflow-number">1</div>
+        <div><h2>Budżet</h2><p>Nazwa, waluta i okres planu kosztowego.</p></div>
+      </div>
+      <div class="setup-field-grid budget-header-grid">
+        <label>{{ form.name.label }}{{ form.name }}{{ form.name.errors }}</label>
+        <label>{{ form.currency.label }}{{ form.currency }}{{ form.currency.errors }}</label>
+        <label>{{ form.status.label }}{{ form.status }}{{ form.status.errors }}</label>
+        <label>{{ form.period_start.label }}{{ form.period_start }}{{ form.period_start.errors }}</label>
+        <label>{{ form.period_end.label }}{{ form.period_end }}{{ form.period_end.errors }}</label>
+        <label class="span-all">{{ form.notes.label }}{{ form.notes }}{{ form.notes.errors }}</label>
+      </div>
+    </section>
+
+    <section class="title-workflow-section">
+      <div class="workflow-section-heading compact-heading">
+        <div class="workflow-number">2</div>
+        <div><h2>Pozycje budżetu</h2><p>Każda faktura może zostać przypisana do jednej z tych pozycji.</p></div>
+        <button class="button" type="button" id="add-budget-line">Dodaj pozycję</button>
+      </div>
+      {{ line_formset.management_form }}
+      <div class="pa-budget-lines" id="pa-budget-lines">
+        {% for line_form in line_formset %}
+        <details class="pa-budget-line" data-budget-line-form open>
+          <summary>
+            <strong>Pozycja {{ forloop.counter }}{% if line_form.instance.pk %}: {{ line_form.instance.name }}{% endif %}</strong>
+            {% if line_form.instance.pk %}<span>{{ line_form.instance.planned_amount }} {{ line_form.instance.budget.currency }}</span>{% endif %}
+          </summary>
+          <div class="pa-budget-line-body">
+            {{ line_form.id }}
+            {% if line_form.non_field_errors %}<div class="notice error">{{ line_form.non_field_errors }}</div>{% endif %}
+            <div class="setup-field-grid budget-line-grid">
+              <label>{{ line_form.name.label }}{{ line_form.name }}{{ line_form.name.errors }}</label>
+              <label>{{ line_form.category.label }}{{ line_form.category }}{{ line_form.category.errors }}</label>
+              <label>{{ line_form.planned_amount.label }}{{ line_form.planned_amount }}{{ line_form.planned_amount.errors }}</label>
+              <label>{{ line_form.sort_order.label }}{{ line_form.sort_order }}{{ line_form.sort_order.errors }}</label>
+              <label class="check-label">{{ line_form.recoupable }} {{ line_form.recoupable.label }}</label>
+              {% if line_form.instance.pk %}<label class="check-label budget-delete">{{ line_form.DELETE }} Usuń tę pozycję</label>{% else %}{{ line_form.DELETE.as_hidden }}{% endif %}
+              <label class="span-all">{{ line_form.notes.label }}{{ line_form.notes }}{{ line_form.notes.errors }}</label>
+            </div>
+            <fieldset class="cost-scope-panel" data-cost-scope-container>
+              <legend>Zakres P&A / pola eksploatacji</legend>
+              <div class="cost-scope-options">{{ line_form.scope_mode }}</div>
+              <div class="cost-scope-fields" data-cost-scope-selected>{{ line_form.scope_fields }}</div>
+              <div class="cost-allocation-grid" data-cost-scope-allocated>
+                {% for allocation in line_form.allocation_rows %}<label><span>{{ allocation.label }}</span>{{ allocation.field }}</label>{% endfor %}
+              </div>
+              {{ line_form.allocation_percentages }}{{ line_form.scope_fields.errors }}{{ line_form.allocation_percentages.errors }}
+            </fieldset>
+          </div>
+        </details>
+        {% endfor %}
+      </div>
+
+      <template id="empty-budget-line-template">
+        {% with line_form=line_formset.empty_form %}
+        <details class="pa-budget-line" data-budget-line-form open>
+          <summary><strong>Nowa pozycja budżetu</strong></summary>
+          <div class="pa-budget-line-body">
+            {{ line_form.id }}{{ line_form.DELETE.as_hidden }}
+            <div class="setup-field-grid budget-line-grid">
+              <label>{{ line_form.name.label }}{{ line_form.name }}</label>
+              <label>{{ line_form.category.label }}{{ line_form.category }}</label>
+              <label>{{ line_form.planned_amount.label }}{{ line_form.planned_amount }}</label>
+              <label>{{ line_form.sort_order.label }}{{ line_form.sort_order }}</label>
+              <label class="check-label">{{ line_form.recoupable }} {{ line_form.recoupable.label }}</label>
+              <label class="span-all">{{ line_form.notes.label }}{{ line_form.notes }}</label>
+            </div>
+            <fieldset class="cost-scope-panel" data-cost-scope-container>
+              <legend>Zakres P&A / pola eksploatacji</legend>
+              <div class="cost-scope-options">{{ line_form.scope_mode }}</div>
+              <div class="cost-scope-fields" data-cost-scope-selected>{{ line_form.scope_fields }}</div>
+              <div class="cost-allocation-grid" data-cost-scope-allocated>
+                {% for allocation in line_form.allocation_rows %}<label><span>{{ allocation.label }}</span>{{ allocation.field }}</label>{% endfor %}
+              </div>
+              {{ line_form.allocation_percentages }}
+            </fieldset>
+          </div>
+        </details>
+        {% endwith %}
+      </template>
+    </section>
+
+    <div class="form-submit-bar">
+      <a class="button secondary" href="{% url 'distribution:title_detail' title.pk %}#finance">Anuluj</a>
+      <button type="submit">Zapisz budżet P&A</button>
+    </div>
+  </form>
+</main>
+<script src="{% static 'distribution/cost-scope.js' %}"></script>
+<script src="{% static 'distribution/pa-budget.js' %}"></script>
+</body>
+</html>

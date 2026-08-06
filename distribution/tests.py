@@ -9,6 +9,7 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
@@ -49,6 +50,8 @@ from .models import (
     DocumentType,
     ExploitationField,
     ImportStatus,
+    PABudget,
+    PABudgetLine,
     ReportStatus,
     RoyaltyStatement,
     SalesReport,
@@ -463,6 +466,92 @@ class SettlementWorkflowTests(TestCase):
         for anchor in ("metadata", "rights", "materials", "finance", "waterfall", "settlements"):
             self.assertContains(response, f'id="{anchor}"')
         self.assertContains(response, "Rozlicz okres")
+
+    def test_pa_budget_tracks_document_cost_on_title_360_card(self):
+        response = self.client.post(reverse("distribution:pa_budget_create", args=[self.title.pk]), {
+            "name": "Premiera kinowa 2026",
+            "currency": Currency.PLN,
+            "status": "approved",
+            "period_start": "2026-05-01",
+            "period_end": "2026-08-31",
+            "notes": "Budżet kampanii premierowej",
+            "lines-TOTAL_FORMS": "1",
+            "lines-INITIAL_FORMS": "0",
+            "lines-MIN_NUM_FORMS": "1",
+            "lines-MAX_NUM_FORMS": "1000",
+            "lines-0-name": "Kampania digital",
+            "lines-0-category": CostCategory.DIGITAL_MARKETING,
+            "lines-0-planned_amount": "1000.00",
+            "lines-0-recoupable": "on",
+            "lines-0-scope_mode": CostScopeMode.SELECTED,
+            "lines-0-scope_fields": [ExploitationField.CINEMA],
+            "lines-0-sort_order": "10",
+            "lines-0-notes": "",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response.url,
+            f"{reverse('distribution:title_detail', args=[self.title.pk])}#finance",
+        )
+        budget = PABudget.objects.get(title=self.title)
+        line = budget.lines.get()
+        self.assertEqual(line.planned_amount, Decimal("1000.00"))
+        self.assertEqual(line.scope_fields, [ExploitationField.CINEMA])
+
+        invoice_bytes = b"%PDF-1.4 pa budget invoice"
+        self.client.post(reverse("distribution:document_center"), {
+            "action": "upload",
+            "source_file": SimpleUploadedFile("FV_PA_2026_002.pdf", invoice_bytes, content_type="application/pdf"),
+        })
+        document = DocumentInboxItem.objects.get(original_filename="FV_PA_2026_002.pdf")
+        response = self.client.post(reverse("distribution:document_review", args=[document.pk]), {
+            "action": "create_cost",
+            "title": str(self.title.pk),
+            "supplier_name": "Agencja mediowa",
+            "cost_date": "2026-06-12",
+            "category": CostCategory.DIGITAL_MARKETING,
+            "budget_line": str(line.pk),
+            "currency": Currency.PLN,
+            "net_amount": "400.00",
+            "vat_rate": "23.00",
+            "recoupable": "on",
+            "scope_mode": CostScopeMode.SELECTED,
+            "scope_fields": [ExploitationField.CINEMA],
+        })
+        self.assertEqual(response.status_code, 302)
+        document.refresh_from_db()
+        self.assertEqual(document.cost.budget_line, line)
+        self.assertEqual(line.actual_total, Decimal("400.00"))
+        self.assertEqual(line.remaining_amount, Decimal("600.00"))
+
+        response = self.client.get(reverse("distribution:title_detail", args=[self.title.pk]))
+        self.assertEqual(response.status_code, 200)
+        for text in ("Karta tytułu 360", "Kontrola budżetu P&A", "Premiera kinowa 2026", "Kampania digital"):
+            self.assertContains(response, text)
+        summary = response.context["budget_summaries"][0]
+        self.assertEqual(summary["planned"], Decimal("1000.00"))
+        self.assertEqual(summary["actual"], Decimal("400.00"))
+        self.assertEqual(summary["remaining"], Decimal("600.00"))
+
+    def test_cost_rejects_budget_line_from_other_title_currency_or_category(self):
+        other_title = Title.objects.create(title_pl="Inny film")
+        budget = PABudget.objects.create(title=other_title, name="Inny budżet", currency=Currency.EUR)
+        line = PABudgetLine.objects.create(
+            budget=budget,
+            name="PR",
+            category=CostCategory.PR,
+            planned_amount=Decimal("200.00"),
+        )
+        cost = Cost(
+            title=self.title,
+            category=CostCategory.PA,
+            budget_line=line,
+            cost_date=date(2026, 6, 12),
+            currency=Currency.PLN,
+            net_amount=Decimal("50.00"),
+        )
+        with self.assertRaises(ValidationError):
+            cost.full_clean()
 
     def test_new_title_starts_workflow_outside_admin(self):
         response = self.client.post(reverse("distribution:title_create"), {

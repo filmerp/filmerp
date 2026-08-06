@@ -20,6 +20,8 @@ from distribution.models import (
     Counterparty,
     DocumentInboxItem,
     LanguageVersion,
+    PABudget,
+    PABudgetLine,
     RightsIssue,
     RightsWindow,
     RoyaltyStatement,
@@ -53,8 +55,8 @@ BOOKING_MODELS = [
 ROLE_MODELS = {
     "legal": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, Counterparty, WaterfallPlan, WaterfallStep, *BOOKING_MODELS],
     "sales": [SalesAgreement, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, RightsWindow, Territory, LanguageVersion, Title, TitleMaterial, Counterparty, *BOOKING_MODELS],
-    "finance": [AcquisitionAgreement, SalesAgreement, SalesReport, CinemaBooking, Cost, RoyaltyStatement, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine, WaterfallRunCostAllocation, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Title, TitleMaterial, Counterparty, *BOOKING_MODELS],
-    "readonly": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, TitleMaterial, Counterparty, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Cost, RoyaltyStatement, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine, WaterfallRunCostAllocation, *BOOKING_MODELS],
+    "finance": [AcquisitionAgreement, SalesAgreement, SalesReport, CinemaBooking, Cost, PABudget, PABudgetLine, RoyaltyStatement, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine, WaterfallRunCostAllocation, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Title, TitleMaterial, Counterparty, *BOOKING_MODELS],
+    "readonly": [AcquisitionAgreement, SalesAgreement, RightsWindow, RightsIssue, Territory, LanguageVersion, Title, TitleMaterial, Counterparty, SalesReport, CinemaBooking, CinemaReportImport, CinemaReportImportRow, DocumentInboxItem, Cost, PABudget, PABudgetLine, RoyaltyStatement, WaterfallPlan, WaterfallStep, WaterfallRun, WaterfallRunLine, WaterfallRunCostAllocation, *BOOKING_MODELS],
 }
 
 ROLE_ACTIONS = {

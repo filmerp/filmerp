@@ -34,6 +34,8 @@ from .models import (
     DocumentType,
     ExploitationField,
     LanguageVersion,
+    PABudget,
+    PABudgetLine,
     ReportingCycle,
     Territory,
     Title,
@@ -332,6 +334,7 @@ class CostInvoiceUploadForm(CostScopeFormMixin):
             "cost_date",
             "currency",
             "category",
+            "budget_line",
             "net_amount",
             "vat_rate",
             "recoupable",
@@ -349,6 +352,12 @@ class CostInvoiceUploadForm(CostScopeFormMixin):
         super().__init__(*args, **kwargs)
         self.title = title
         self.fields["invoice_file"].required = True
+        budget_lines = PABudgetLine.objects.select_related("budget", "budget__title").order_by(
+            "budget__title__title_pl", "budget__name", "sort_order", "name"
+        )
+        self.fields["budget_line"].queryset = budget_lines.filter(budget__title=title) if title else budget_lines.none()
+        self.fields["budget_line"].required = False
+        self.fields["budget_line"].empty_label = "Bez przypisania do budżetu"
         if currency:
             self.fields["currency"].initial = currency
 
@@ -411,6 +420,7 @@ class DocumentCostForm(CostScopeFormMixin):
             "cost_date",
             "currency",
             "category",
+            "budget_line",
             "net_amount",
             "vat_rate",
             "recoupable",
@@ -425,6 +435,11 @@ class DocumentCostForm(CostScopeFormMixin):
     def __init__(self, *args, document=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.document = document
+        self.fields["budget_line"].queryset = PABudgetLine.objects.select_related(
+            "budget", "budget__title"
+        ).order_by("budget__title__title_pl", "budget__name", "sort_order", "name")
+        self.fields["budget_line"].required = False
+        self.fields["budget_line"].empty_label = "Bez przypisania do budżetu"
         if not document or self.is_bound:
             return
         extracted = document.extracted_data or {}
@@ -456,6 +471,58 @@ class DocumentCostForm(CostScopeFormMixin):
         if commit:
             instance.save()
         return instance
+
+
+class PABudgetForm(forms.ModelForm):
+    class Meta:
+        model = PABudget
+        fields = ("name", "currency", "status", "period_start", "period_end", "notes")
+        widgets = {
+            "period_start": forms.DateInput(attrs={"type": "date"}),
+            "period_end": forms.DateInput(attrs={"type": "date"}),
+            "notes": forms.Textarea(attrs={"rows": 3}),
+        }
+
+
+class PABudgetLineForm(CostScopeFormMixin):
+    class Meta:
+        model = PABudgetLine
+        fields = (
+            "name",
+            "category",
+            "planned_amount",
+            "recoupable",
+            "scope_mode",
+            "scope_fields",
+            "allocation_percentages",
+            "sort_order",
+            "notes",
+        )
+        widgets = {
+            "planned_amount": forms.NumberInput(attrs={"step": "0.01", "min": "0", "inputmode": "decimal"}),
+            "notes": forms.Textarea(attrs={"rows": 2}),
+        }
+
+
+PABudgetLineFormSet = inlineformset_factory(
+    PABudget,
+    PABudgetLine,
+    form=PABudgetLineForm,
+    extra=0,
+    can_delete=True,
+    min_num=1,
+    validate_min=True,
+)
+
+PABudgetLineCreateFormSet = inlineformset_factory(
+    PABudget,
+    PABudgetLine,
+    form=PABudgetLineForm,
+    extra=1,
+    can_delete=True,
+    min_num=1,
+    validate_min=True,
+)
 
 
 class TitleCatalogExportForm(forms.Form):

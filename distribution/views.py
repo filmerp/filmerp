@@ -1,12 +1,14 @@
 import csv
 from io import BytesIO
 from datetime import timedelta
+from decimal import Decimal
 from urllib.parse import urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.decorators import permission_required
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 from django.db.models import Count, DecimalField, ExpressionWrapper, F, Q, Sum
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -32,6 +34,9 @@ from .forms import (
     DocumentCostForm,
     DocumentUploadForm,
     ContractWaterfallWizardForm,
+    PABudgetForm,
+    PABudgetLineCreateFormSet,
+    PABudgetLineFormSet,
     TitleSetupForm,
     TitleCatalogExportForm,
 )
@@ -56,6 +61,7 @@ from .models import (
     ExploitationField,
     ImportStatus,
     LanguageVersion,
+    PABudget,
     RightsIssue,
     RightsStatus,
     RightsWindow,
@@ -306,8 +312,11 @@ def title_detail(request, pk):
         .order_by("exploitation_field", "date_from")
     )
     sales_reports = title.sales_reports.select_related("counterparty", "territory").order_by("-period_end")[:20]
-    costs = title.costs.select_related("supplier").order_by("-cost_date")[:20]
+    all_costs = title.costs.select_related("supplier", "budget_line__budget").order_by("-cost_date")
+    costs = all_costs[:20]
     cinema_bookings = title.cinema_bookings.select_related("cinema").order_by("-date_from")[:20]
+    booking_campaigns = title.booking_campaigns.select_related("owner").order_by("-release_date", "-created_at")
+    active_booking_campaign = booking_campaigns.first()
     royalty_statements = title.royalty_statements.select_related("recipient").order_by("-period_end")[:10]
     materials = title.materials.select_related("language_version", "supplier").order_by("asset_type", "due_date")
     issues = RightsIssue.objects.filter(rights_window__title=title, resolved=False).select_related("rights_window", "conflicting_window")
@@ -315,6 +324,75 @@ def title_detail(request, pk):
     waterfall_plans = title.waterfall_plans.prefetch_related("steps__beneficiary").order_by("-version")
     active_plan = waterfall_plans.filter(status=WaterfallPlanStatus.ACTIVE).first() or waterfall_plans.first()
     active_steps = active_plan.steps.filter(active=True).select_related("beneficiary").order_by("phase", "sort_order") if active_plan else []
+    budgets = list(
+        title.pa_budgets.prefetch_related("lines__costs").order_by("-created_at")
+    )
+    budget_summaries = []
+    budget_totals_by_currency = {}
+    budget_overrun_count = 0
+    for budget in budgets:
+        line_summaries = []
+        planned_total = Decimal("0.00")
+        actual_total = Decimal("0.00")
+        paid_total = Decimal("0.00")
+        for line in budget.lines.all():
+            linked_costs = list(line.costs.all())
+            line_actual = sum((cost.net_amount for cost in linked_costs), Decimal("0.00"))
+            line_paid = sum((cost.net_amount for cost in linked_costs if cost.paid), Decimal("0.00"))
+            line_remaining = line.planned_amount - line_actual
+            line_summaries.append({
+                "line": line,
+                "actual": line_actual,
+                "paid": line_paid,
+                "remaining": line_remaining,
+                "over_budget": line_remaining < 0,
+            })
+            planned_total += line.planned_amount
+            actual_total += line_actual
+            paid_total += line_paid
+            if line_remaining < 0:
+                budget_overrun_count += 1
+        remaining_total = planned_total - actual_total
+        budget_summaries.append({
+            "budget": budget,
+            "lines": line_summaries,
+            "planned": planned_total,
+            "actual": actual_total,
+            "paid": paid_total,
+            "remaining": remaining_total,
+            "over_budget": remaining_total < 0,
+        })
+        currency_total = budget_totals_by_currency.setdefault(
+            budget.currency,
+            {
+                "currency": budget.currency,
+                "planned": Decimal("0.00"),
+                "actual": Decimal("0.00"),
+                "paid": Decimal("0.00"),
+                "remaining": Decimal("0.00"),
+                "unallocated": Decimal("0.00"),
+            },
+        )
+        currency_total["planned"] += planned_total
+        currency_total["actual"] += actual_total
+        currency_total["paid"] += paid_total
+        currency_total["remaining"] += remaining_total
+
+    unallocated_costs = all_costs.filter(budget_line__isnull=True)
+    unallocated_costs_count = unallocated_costs.count()
+    for row in unallocated_costs.values("currency").annotate(total=Sum("net_amount")):
+        currency_total = budget_totals_by_currency.setdefault(
+            row["currency"],
+            {
+                "currency": row["currency"],
+                "planned": Decimal("0.00"),
+                "actual": Decimal("0.00"),
+                "paid": Decimal("0.00"),
+                "remaining": Decimal("0.00"),
+                "unallocated": Decimal("0.00"),
+            },
+        )
+        currency_total["unallocated"] = row["total"] or Decimal("0.00")
 
     gross_box_office = title.cinema_bookings.aggregate(total=Sum("box_office_gross"))["total"] or 0
     admissions = title.cinema_bookings.aggregate(total=Sum("admissions"))["total"] or 0
@@ -323,15 +401,34 @@ def title_detail(request, pk):
     open_materials = required_materials.exclude(status__in=[DeliveryStatus.READY, DeliveryStatus.SENT, DeliveryStatus.ACCEPTED])
     overdue_materials = [material for material in open_materials if material.is_overdue]
     title_documents = title.inbox_documents.order_by("-created_at")[:10]
+    pending_documents_count = title.inbox_documents.filter(status=DocumentStatus.NEEDS_REVIEW).count()
     finalized_runs_count = WaterfallRun.objects.filter(plan__title=title, status=WaterfallRunStatus.FINALIZED).count()
+    open_statements_count = title.royalty_statements.exclude(status=StatementStatus.PAID).count()
     workflow_stages = [
         {"key": "metadata", "label": "Metryka", "ready": bool(title.production_year and title.producer_id), "detail": "rok i producent"},
         {"key": "rights", "label": "Umowa i prawa", "ready": agreements.exists() and rights_windows.exists(), "detail": f"{agreements.count()} umów, {rights_windows.count()} praw"},
         {"key": "materials", "label": "Materiały", "ready": materials.exists(), "detail": f"{materials.count()} pozycji"},
-        {"key": "finance", "label": "Wpływy i koszty", "ready": sales_reports.exists() or costs.exists(), "detail": f"{sales_reports.count()} raportów, {costs.count()} kosztów"},
+        {"key": "finance", "label": "Wpływy i P&A", "ready": sales_reports.exists() or all_costs.exists() or bool(budgets), "detail": f"{sales_reports.count()} raportów, {all_costs.count()} kosztów"},
         {"key": "waterfall", "label": "Waterfall", "ready": bool(active_plan and active_steps), "detail": f"{len(active_steps)} kroków" if active_plan else "brak planu"},
         {"key": "settlements", "label": "Rozliczenia", "ready": bool(finalized_runs_count), "detail": f"{finalized_runs_count} zamkniętych okresów"},
     ]
+
+    title_url = reverse("distribution:title_detail", args=[title.pk])
+    attention_items = []
+    if issues.exists():
+        attention_items.append({"label": "Sprawdź problemy praw", "detail": f"{issues.count()} otwartych problemów", "url": f"{title_url}#rights", "level": "danger"})
+    if overdue_materials:
+        attention_items.append({"label": "Uzupełnij materiały po terminie", "detail": f"{len(overdue_materials)} pozycji", "url": f"{title_url}#materials", "level": "danger"})
+    if pending_documents_count:
+        attention_items.append({"label": "Zweryfikuj dokumenty", "detail": f"{pending_documents_count} dokumentów do sprawdzenia", "url": reverse("distribution:document_center"), "level": "warning"})
+    if unallocated_costs_count:
+        attention_items.append({"label": "Przypisz koszty do budżetu", "detail": f"{unallocated_costs_count} kosztów bez pozycji P&A", "url": f"{title_url}#finance", "level": "warning"})
+    if not budgets:
+        attention_items.append({"label": "Utwórz budżet P&A", "detail": "Brak planu kosztów dla tytułu", "url": reverse("distribution:pa_budget_create", args=[title.pk]), "level": "warning"})
+    if not active_plan:
+        attention_items.append({"label": "Ustaw waterfall", "detail": "Brak aktywnego planu rozliczeń", "url": f"{reverse('distribution:contract_waterfall_wizard')}?title={title.pk}", "level": "warning"})
+    if not attention_items:
+        attention_items.append({"label": "Tytuł jest gotowy do bieżącej pracy", "detail": "Brak pilnych zadań", "url": f"{title_url}#finance", "level": "ok"})
 
     context = {
         "title": title,
@@ -340,13 +437,23 @@ def title_detail(request, pk):
         "sales_reports": sales_reports,
         "costs": costs,
         "cinema_bookings": cinema_bookings,
+        "booking_campaigns": booking_campaigns,
+        "active_booking_campaign": active_booking_campaign,
+        "booking_count": title.cinema_bookings.count(),
         "royalty_statements": royalty_statements,
         "materials": materials,
         "issues": issues,
         "agreements": agreements,
         "active_plan": active_plan,
         "active_steps": active_steps,
+        "budget_summaries": budget_summaries,
+        "budget_totals": [budget_totals_by_currency[key] for key in sorted(budget_totals_by_currency)],
+        "budget_overrun_count": budget_overrun_count,
+        "unallocated_costs_count": unallocated_costs_count,
         "title_documents": title_documents,
+        "pending_documents_count": pending_documents_count,
+        "open_statements_count": open_statements_count,
+        "attention_items": attention_items,
         "workflow_stages": workflow_stages,
         "workflow_done": sum(stage["ready"] for stage in workflow_stages),
         "gross_box_office": gross_box_office,
@@ -357,6 +464,48 @@ def title_detail(request, pk):
         "overdue_materials_count": len(overdue_materials),
     }
     return render(request, "distribution/title_detail.html", context)
+
+
+@login_required
+def pa_budget_setup(request, title_pk, pk=None):
+    title = get_object_or_404(Title, pk=title_pk)
+    budget = get_object_or_404(PABudget, pk=pk, title=title) if pk else PABudget(
+        title=title,
+        currency=title.acquisition_currency,
+    )
+    required_permissions = (
+        ("distribution.change_pabudget", "distribution.change_pabudgetline")
+        if pk
+        else ("distribution.add_pabudget", "distribution.add_pabudgetline")
+    )
+    if not all(request.user.has_perm(permission) for permission in required_permissions):
+        raise PermissionDenied
+
+    form = PABudgetForm(request.POST or None, instance=budget)
+    formset_class = PABudgetLineFormSet if pk else PABudgetLineCreateFormSet
+    line_formset = formset_class(request.POST or None, instance=budget, prefix="lines")
+    if request.method == "POST" and form.is_valid() and line_formset.is_valid():
+        with transaction.atomic():
+            budget = form.save(commit=False)
+            budget.title = title
+            budget.save()
+            line_formset.instance = budget
+            line_formset.save()
+            record_audit_event(
+                AuditAction.UPDATE if pk else AuditAction.CREATE,
+                f"{'Zaktualizowano' if pk else 'Utworzono'} budżet P&A: {budget.name}.",
+                request=request,
+                module="pa_budget",
+                instance=budget,
+            )
+        messages.success(request, "Budżet P&A został zapisany i jest widoczny na karcie tytułu.")
+        return redirect(f"{reverse('distribution:title_detail', args=[title.pk])}#finance")
+
+    return render(
+        request,
+        "distribution/pa_budget_form.html",
+        {"title": title, "budget": budget if budget.pk else None, "form": form, "line_formset": line_formset},
+    )
 
 
 @login_required

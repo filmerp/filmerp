@@ -1656,6 +1656,81 @@ form.single-upload {
   text-transform: uppercase;
 }
 
+.title-workspace-heading .eyebrow {
+  display: block;
+  margin: 4px 0 2px;
+}
+
+.title-360-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) minmax(260px, .8fr);
+  margin-bottom: 18px;
+  border: 1px solid var(--border);
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.title-360-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.title-360-metrics > div {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  min-height: 76px;
+  padding: 12px 14px;
+  border-right: 1px solid var(--border);
+}
+
+.title-360-metrics > div.needs-attention {
+  box-shadow: inset 0 3px 0 var(--danger);
+}
+
+.title-360-metrics strong {
+  font-size: 20px;
+}
+
+.title-360-metrics span,
+.title-360-tasks small {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.title-360-tasks {
+  display: grid;
+  align-content: start;
+  gap: 0;
+  padding: 12px 14px;
+  background: #f8f9fa;
+}
+
+.title-360-tasks > strong {
+  margin-bottom: 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.title-360-tasks a {
+  display: grid;
+  gap: 1px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--body-fg);
+  text-decoration: none;
+}
+
+.title-360-tasks a:last-child {
+  border-bottom: 0;
+}
+
+.title-360-tasks a.danger span,
+.title-360-tasks a.warning span {
+  color: var(--danger);
+}
+
 .title-workflow-nav {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -1718,7 +1793,7 @@ form.single-upload {
 }
 
 .title-workflow-section {
-  scroll-margin-top: 18px;
+  scroll-margin-top: 70px;
   margin-bottom: 18px;
   padding: 18px;
   border: 1px solid var(--border);
@@ -1971,6 +2046,181 @@ td small {
   margin-top: 0;
 }
 
+.pa-budget-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 22px 0 10px;
+}
+
+.title-booking-band {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr)) auto;
+  align-items: center;
+  gap: 0;
+  margin: -8px 0 18px;
+  border: 1px solid var(--border);
+  background: #f8f9fa;
+}
+
+.title-booking-band > div {
+  display: grid;
+  gap: 2px;
+  padding: 9px 12px;
+  border-right: 1px solid var(--border);
+}
+
+.title-booking-band span {
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.title-booking-band .button {
+  margin: 8px 10px;
+}
+
+.pa-budget-heading h3,
+.pa-budget-heading p {
+  margin: 0;
+}
+
+.pa-budget-heading p {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.pa-budget-currency-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+  background: #f8f9fa;
+}
+
+.pa-budget-currency-totals > div {
+  display: grid;
+  grid-template-columns: 60px minmax(0, 1fr);
+  align-items: stretch;
+  border-right: 1px solid var(--border);
+}
+
+.pa-budget-currency-totals > div:last-child {
+  border-right: 0;
+}
+
+.pa-budget-currency-totals > div > strong {
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+  font-size: 15px;
+}
+
+.pa-budget-currency-totals dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+}
+
+.pa-budget-currency-totals dl > div {
+  padding: 9px 10px;
+  border-left: 1px solid var(--border);
+}
+
+.pa-budget-currency-totals dl > div.unallocated {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px solid var(--border);
+  color: var(--danger);
+}
+
+.pa-budget-currency-totals dt {
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.pa-budget-currency-totals dd {
+  margin: 2px 0 0;
+  font-weight: 700;
+}
+
+.pa-budget-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin-bottom: 14px;
+}
+
+.pa-budget-summary {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.pa-budget-summary > summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px;
+  cursor: pointer;
+  background: #f8f9fa;
+  list-style-position: inside;
+  min-width: 0;
+}
+
+.pa-budget-summary > .table-scroll {
+  width: 100%;
+  max-width: 100%;
+}
+
+.pa-budget-summary > summary > span:first-of-type {
+  display: grid;
+}
+
+.pa-budget-summary > summary small {
+  color: var(--muted);
+}
+
+.pa-budget-summary-total {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.text-action {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pa-budget-table {
+  min-width: 760px;
+}
+
+.pa-budget-table tfoot th {
+  border-top: 2px solid var(--border);
+  background: #fff;
+}
+
+.pa-budget-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.pa-budget-empty > div {
+  display: grid;
+  gap: 3px;
+}
+
+.pa-budget-empty span {
+  font-size: 12px;
+}
+
 .linked-records {
   margin-top: 14px;
   padding: 10px 12px;
@@ -2083,6 +2333,62 @@ td small {
   margin-top: 12px;
   padding: 12px 0 0;
   border-top: 1px solid var(--border);
+}
+
+.pa-budget-form {
+  display: block;
+}
+
+.compact-heading {
+  margin-bottom: 12px;
+}
+
+.budget-header-grid {
+  grid-template-columns: 2fr repeat(4, minmax(125px, 1fr));
+}
+
+.pa-budget-lines {
+  display: grid;
+  gap: 10px;
+}
+
+.pa-budget-line {
+  border: 1px solid var(--border);
+  background: #fff;
+}
+
+.pa-budget-line > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  background: #f8f9fa;
+}
+
+.pa-budget-line-body {
+  padding: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.budget-line-grid {
+  grid-template-columns: minmax(210px, 2fr) minmax(150px, 1fr) minmax(140px, 1fr) 95px;
+}
+
+.budget-line-grid .check-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+}
+
+.budget-line-grid .check-label input {
+  width: auto;
+}
+
+.budget-line-grid .budget-delete {
+  color: var(--danger);
 }
 
 .document-intake {
@@ -2825,6 +3131,14 @@ td small {
     background: #f0f6fc;
     color: var(--primary);
   }
+
+  .title-360-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .title-360-metrics > div:last-child {
+    border-right: 0;
+  }
 }
 
 @media (max-width: 720px) {
@@ -2880,6 +3194,19 @@ td small {
     grid-template-columns: 1fr;
   }
 
+  .title-360-metrics {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .title-360-metrics > div:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .title-360-metrics > div:last-child {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--border);
+  }
+
   .title-workflow-nav {
     grid-template-columns: 1fr 1fr;
   }
@@ -2904,7 +3231,9 @@ td small {
   .data-grid,
   .split-summary,
   .plan-summary,
-  .setup-field-grid {
+  .setup-field-grid,
+  .budget-header-grid,
+  .budget-line-grid {
     grid-template-columns: 1fr;
   }
 
@@ -2919,6 +3248,42 @@ td small {
   .alert-summary-grid,
   .stage-metrics {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .pa-budget-currency-totals {
+    grid-template-columns: 1fr;
+  }
+
+  .title-booking-band {
+    grid-template-columns: 1fr;
+  }
+
+  .title-booking-band > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .pa-budget-currency-totals > div {
+    grid-template-columns: 48px minmax(0, 1fr);
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .pa-budget-currency-totals > div:last-child {
+    border-bottom: 0;
+  }
+
+  .pa-budget-summary > summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .pa-budget-summary > summary .text-action {
+    grid-column: 1 / -1;
+  }
+
+  .pa-budget-empty {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .alert-summary-grid > div:nth-child(2),

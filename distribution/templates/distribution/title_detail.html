@@ -14,11 +14,28 @@
   <div class="page-heading title-workspace-heading">
     <div>
       <a class="back-link" href="{% url 'distribution:dashboard' %}">← Wszystkie tytuły</a>
+      <span class="eyebrow">Karta tytułu 360</span>
       <h1>{{ title.title_pl }}</h1>
       <div class="muted">{{ title.original_title|default:"Brak tytułu oryginalnego" }}{% if title.production_year %} · {{ title.production_year }}{% endif %} · {{ title.get_status_display }}</div>
     </div>
     <div class="title-completion"><strong>{{ workflow_done }}/6</strong><span>etapów gotowych</span></div>
   </div>
+
+  <section class="title-360-overview" aria-label="Stan tytułu i następne zadania">
+    <div class="title-360-metrics">
+      <div><strong>{{ rights_windows|length }}</strong><span>zakresów praw</span></div>
+      <div class="{% if overdue_materials_count %}needs-attention{% endif %}"><strong>{{ open_materials_count }}</strong><span>otwartych materiałów</span></div>
+      <div class="{% if pending_documents_count %}needs-attention{% endif %}"><strong>{{ pending_documents_count }}</strong><span>dokumentów do sprawdzenia</span></div>
+      <div class="{% if budget_overrun_count %}needs-attention{% endif %}"><strong>{{ budget_overrun_count }}</strong><span>przekroczonych pozycji P&A</span></div>
+      <div><strong>{{ open_statements_count }}</strong><span>otwartych statementów</span></div>
+    </div>
+    <div class="title-360-tasks">
+      <strong>Następne kroki</strong>
+      {% for item in attention_items|slice:":4" %}
+      <a href="{{ item.url }}" class="{{ item.level }}"><span>{{ item.label }}</span><small>{{ item.detail }}</small></a>
+      {% endfor %}
+    </div>
+  </section>
 
   <nav class="title-workflow-nav" aria-label="Etapy pracy nad tytułem">
     {% for stage in workflow_stages %}
@@ -91,16 +108,80 @@
   <section id="finance" class="title-workflow-section">
     <div class="workflow-section-heading">
       <div class="workflow-number">4</div>
-      <div><h2>Wpływy, raporty i koszty</h2><p>Wczytuj statementy kin i faktury. Po akceptacji dane trafiają do tego tytułu.</p></div>
-      <div class="action-bar"><a class="button" href="{% url 'distribution:document_center' %}#upload">Wczytaj dokument</a><a class="button export" href="/admin/distribution/salesreport/add/?title={{ title.pk }}">Dodaj ręcznie</a></div>
+      <div><h2>P&A, budżet, wpływy i faktury</h2><p>Planuj koszty, przypisuj faktury i kontroluj wykonanie bez podwójnego wpisywania danych.</p></div>
+      <div class="action-bar">
+        <a class="button" href="{% url 'distribution:document_center' %}#upload">Wczytaj dokument</a>
+        {% if perms.distribution.add_pabudget %}<a class="button export" href="{% url 'distribution:pa_budget_create' title.pk %}">Nowy budżet P&A</a>{% endif %}
+        <a class="button export" href="/admin/distribution/salesreport/add/?title={{ title.pk }}">Dodaj wpływ</a>
+      </div>
     </div>
     <div class="stage-metrics">
       {% for total in title.financial_summary_by_currency %}<div><strong>{{ total.net }} {{ total.currency }}</strong><span>Netto</span></div><div><strong>{{ total.costs }} {{ total.currency }}</strong><span>koszty Netto (VAT)</span></div><div><strong>{{ total.result }} {{ total.currency }}</strong><span>wynik przed royalties</span></div>{% empty %}<div><strong>0</strong><span>brak danych finansowych</span></div>{% endfor %}
       <div><strong>{{ admissions }}</strong><span>widzów · {{ screenings }} seansów</span></div>
     </div>
+    <div class="title-booking-band">
+      <div><span>Booking kinowy</span><strong>{{ booking_campaigns.count }} kampanii · {{ booking_count }} bookingów</strong></div>
+      <div><span>Frekwencja</span><strong>{{ admissions }} widzów · {{ screenings }} seansów</strong></div>
+      {% if active_booking_campaign %}<a class="button compact-button" href="{% url 'distribution:booking_crm' %}?campaign={{ active_booking_campaign.pk }}">Otwórz kampanię</a>{% else %}<a class="button compact-button" href="{% url 'distribution:booking_crm' %}">Otwórz Booking CRM</a>{% endif %}
+    </div>
+
+    <div class="pa-budget-heading">
+      <div><h3>Kontrola budżetu P&A</h3><p>Plan i wykonanie liczone są w kwotach Netto (VAT). Waluty nie są ze sobą mieszane.</p></div>
+    </div>
+    {% if budget_totals %}
+    <div class="pa-budget-currency-totals">
+      {% for total in budget_totals %}
+      <div>
+        <strong>{{ total.currency }}</strong>
+        <dl>
+          <div><dt>Plan</dt><dd>{{ total.planned }}</dd></div>
+          <div><dt>Wykonanie</dt><dd>{{ total.actual }}</dd></div>
+          <div><dt>Zapłacono</dt><dd>{{ total.paid }}</dd></div>
+          <div><dt>Pozostało</dt><dd class="{% if total.remaining < 0 %}danger{% endif %}">{{ total.remaining }}</dd></div>
+          {% if total.unallocated %}<div class="unallocated"><dt>Bez budżetu</dt><dd>{{ total.unallocated }}</dd></div>{% endif %}
+        </dl>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="pa-budget-list">
+      {% for summary in budget_summaries %}
+      <details class="pa-budget-summary" open>
+        <summary>
+          <span><strong>{{ summary.budget.name }}</strong><small>{{ summary.budget.get_status_display }}{% if summary.budget.period_start or summary.budget.period_end %} · {{ summary.budget.period_start|default:"…" }}–{{ summary.budget.period_end|default:"…" }}{% endif %}</small></span>
+          <span class="pa-budget-summary-total">{{ summary.actual }} / {{ summary.planned }} {{ summary.budget.currency }}</span>
+          {% if perms.distribution.change_pabudget %}<a class="text-action" href="{% url 'distribution:pa_budget_edit' title.pk summary.budget.pk %}">Edytuj</a>{% endif %}
+        </summary>
+        <div class="table-scroll"><table class="pa-budget-table">
+          <thead><tr><th>Pozycja / kategoria</th><th>Zakres P&A</th><th class="num">Plan</th><th class="num">Wykonanie</th><th class="num">Zapłacono</th><th class="num">Pozostało</th></tr></thead>
+          <tbody>
+          {% for row in summary.lines %}
+          <tr>
+            <td><strong>{{ row.line.name }}</strong><small>{{ row.line.get_category_display }}{% if row.line.recoupable %} · recoupable{% endif %}</small></td>
+            <td>{{ row.line.scope_label }}</td>
+            <td class="num">{{ row.line.planned_amount }}</td>
+            <td class="num">{{ row.actual }}</td>
+            <td class="num">{{ row.paid }}</td>
+            <td class="num {% if row.over_budget %}danger{% endif %}">{{ row.remaining }}</td>
+          </tr>
+          {% empty %}<tr><td colspan="6" class="muted">Budżet nie ma jeszcze pozycji.</td></tr>{% endfor %}
+          </tbody>
+          <tfoot><tr><th colspan="2">Razem</th><th class="num">{{ summary.planned }}</th><th class="num">{{ summary.actual }}</th><th class="num">{{ summary.paid }}</th><th class="num {% if summary.over_budget %}danger{% endif %}">{{ summary.remaining }}</th></tr></tfoot>
+        </table></div>
+      </details>
+      {% empty %}
+      <div class="inline-empty pa-budget-empty">
+        <div><strong>Brak budżetu P&A</strong><span>Utwórz plan kosztów, aby porównywać faktury z założeniami dla poszczególnych pól eksploatacji.</span></div>
+        {% if perms.distribution.add_pabudget %}<a class="button" href="{% url 'distribution:pa_budget_create' title.pk %}">Utwórz budżet</a>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% if unallocated_costs_count %}<div class="notice warning"><strong>{{ unallocated_costs_count }} kosztów nie ma pozycji budżetowej.</strong> Edytuj koszt albo zatwierdzaj kolejne faktury ze wskazaniem pozycji P&A.</div>{% endif %}
+
     <div class="two data-columns">
       <div><h3>Raporty wpływów</h3><div class="table-scroll"><table><thead><tr><th>Kontrahent</th><th>Pole / okres</th><th>Netto</th></tr></thead><tbody>{% for report in sales_reports %}<tr><td>{{ report.counterparty }}</td><td>{{ report.get_exploitation_field_display }}<small>{{ report.period_start }} – {{ report.period_end }}</small></td><td class="num">{{ report.net_revenue }} {{ report.currency }}</td></tr>{% empty %}<tr><td colspan="3" class="muted">Brak raportów.</td></tr>{% endfor %}</tbody></table></div></div>
-      <div><h3>Koszty i faktury</h3><div class="table-scroll"><table><thead><tr><th>Data / kategoria</th><th>Zakres P&A</th><th>Netto (VAT) / odzyskano</th></tr></thead><tbody>{% for cost in costs %}<tr><td>{{ cost.cost_date }}<small>{{ cost.get_category_display }}{% if cost.recoupable %} · recoupable{% endif %}</small></td><td>{{ cost.scope_label }}<small>{{ cost.supplier|default:"" }}</small></td><td class="num">{{ cost.net_amount }} {{ cost.currency }}<small>odzyskano {{ cost.recouped_amount }} · zostało {{ cost.outstanding_recoupment }}</small></td></tr>{% empty %}<tr><td colspan="3" class="muted">Brak kosztów.</td></tr>{% endfor %}</tbody></table></div></div>
+      <div><h3>Koszty i faktury</h3><div class="table-scroll"><table><thead><tr><th>Data / kategoria</th><th>Budżet / zakres P&A</th><th>Netto (VAT) / odzyskano</th></tr></thead><tbody>{% for cost in costs %}<tr><td>{{ cost.cost_date }}<small>{{ cost.get_category_display }}{% if cost.recoupable %} · recoupable{% endif %}</small></td><td>{% if cost.budget_line %}<strong>{{ cost.budget_line.name }}</strong>{% else %}<span class="status-pill warning">bez budżetu</span>{% endif %}<small>{{ cost.scope_label }} · {{ cost.supplier|default:"" }}</small></td><td class="num">{{ cost.net_amount }} {{ cost.currency }}<small>odzyskano {{ cost.recouped_amount }} · zostało {{ cost.outstanding_recoupment }}</small></td></tr>{% empty %}<tr><td colspan="3" class="muted">Brak kosztów.</td></tr>{% endfor %}</tbody></table></div></div>
     </div>
     {% if title_documents %}<details class="linked-records"><summary>Dokumenty przypisane do tytułu ({{ title_documents|length }})</summary>{% for document in title_documents %}<div class="record-line"><div><strong>{{ document.original_filename }}</strong><span>{{ document.get_document_type_display }} · {{ document.get_status_display }}</span></div><a href="{% url 'distribution:document_review' document.pk %}">Otwórz</a></div>{% endfor %}</details>{% endif %}
   </section>

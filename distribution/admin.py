@@ -37,6 +37,8 @@ from .models import (
     DocumentInboxItem,
     ExploitationField,
     LanguageVersion,
+    PABudget,
+    PABudgetLine,
     RightsIssue,
     RightsWindow,
     RoyaltyStatement,
@@ -161,7 +163,7 @@ class SalesReportInline(admin.TabularInline):
 class CostInline(admin.TabularInline):
     model = Cost
     extra = 0
-    fields = ("category", "cost_date", "currency", "net_amount", "vat_rate", "recoupable", "paid")
+    fields = ("category", "budget_line", "cost_date", "currency", "net_amount", "vat_rate", "recoupable", "paid")
     show_change_link = True
 
 
@@ -762,16 +764,40 @@ class DocumentInboxItemAdmin(FilmerpModelAdmin):
     autocomplete_fields = ("title", "counterparty")
 
 
+class PABudgetLineInline(admin.TabularInline):
+    model = PABudgetLine
+    extra = 0
+    fields = ("name", "category", "planned_amount", "recoupable", "scope_mode", "sort_order")
+    show_change_link = True
+
+
+@admin.register(PABudget)
+class PABudgetAdmin(FilmerpModelAdmin):
+    list_display = ("title", "name", "currency", "status", "period_start", "period_end", "planned_total", "actual_total", "remaining_amount")
+    list_filter = ("status", "currency", "period_start", "period_end")
+    search_fields = ("title__title_pl", "title__original_title", "name", "notes")
+    autocomplete_fields = ("title",)
+    inlines = (PABudgetLineInline,)
+
+
+@admin.register(PABudgetLine)
+class PABudgetLineAdmin(FilmerpModelAdmin):
+    list_display = ("budget", "name", "category", "planned_amount", "actual_total", "paid_total", "remaining_amount", "recoupable", "scope_label")
+    list_filter = ("category", "recoupable", "scope_mode", "budget__currency", "budget__status")
+    search_fields = ("name", "budget__name", "budget__title__title_pl", "budget__title__original_title", "notes")
+    autocomplete_fields = ("budget",)
+
+
 @admin.register(Cost)
 class CostAdmin(FilmerpModelAdmin):
     form = CostAdminForm
-    list_display = ("title", "category", "supplier", "cost_date", "currency", "net_amount", "vat_rate", "gross_amount_display", "waterfall_scope_display", "recouped_display", "outstanding_display", "recoupable", "paid")
+    list_display = ("title", "category", "budget_line", "supplier", "cost_date", "currency", "net_amount", "vat_rate", "gross_amount_display", "waterfall_scope_display", "recouped_display", "outstanding_display", "recoupable", "paid")
     list_filter = ("category", "currency", "recoupable", "scope_mode", "paid", "cost_date")
     search_fields = ("title__title_pl", "title__original_title", "supplier__name", "notes")
-    autocomplete_fields = ("title", "supplier")
+    autocomplete_fields = ("title", "supplier", "budget_line")
     readonly_fields = ("vat_amount_display", "gross_amount_display")
     fieldsets = (
-        ("Podstawowe", {"fields": ("title", "category", "supplier", "cost_date", "currency", "net_amount", "vat_rate", "vat_amount_display", "gross_amount_display", "paid")}),
+        ("Podstawowe", {"fields": ("title", "category", "budget_line", "supplier", "cost_date", "currency", "net_amount", "vat_rate", "vat_amount_display", "gross_amount_display", "paid")}),
         ("P&A / waterfall / recoupment", {"fields": ("recoupable", "scope_mode", "scope_fields", "allocation_percentages", *COST_ALLOCATION_FIELD_NAMES)}),
         ("Pliki i uwagi", {"fields": ("invoice_file", "notes")}),
     )

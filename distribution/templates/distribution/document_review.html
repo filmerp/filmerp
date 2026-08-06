@@ -54,7 +54,7 @@
   <section class="document-result-panel">
     <span class="eyebrow">Faktura kosztowa</span>
     <h2>Utworzono koszt</h2>
-    <p><strong>{{ document.cost.net_amount }} {{ document.cost.currency }} netto (VAT)</strong> · {{ document.cost.title }}{% if document.cost.supplier %} · {{ document.cost.supplier }}{% endif %}</p>
+    <p><strong>{{ document.cost.net_amount }} {{ document.cost.currency }} netto (VAT)</strong> · {{ document.cost.title }}{% if document.cost.supplier %} · {{ document.cost.supplier }}{% endif %}{% if document.cost.budget_line %} · {{ document.cost.budget_line.name }}{% endif %}</p>
     <a class="button" href="{% url 'distribution:title_detail' document.cost.title_id %}#finance">Otwórz przy tytule</a>
   </section>
   {% elif cost_form %}
@@ -82,6 +82,7 @@
         <label>Dostawca {{ cost_form.supplier_name }}</label>
         <label>Data kosztu {{ cost_form.cost_date }}</label>
         <label>Kategoria {{ cost_form.category }}</label>
+        <label>Pozycja budżetu P&A {{ cost_form.budget_line }}<small>Opcjonalnie. Po przypisaniu faktura automatycznie zwiększy wykonanie budżetu.</small></label>
         <label>Waluta {{ cost_form.currency }}</label>
         <label>Netto (VAT) {{ cost_form.net_amount }}</label>
         <label>VAT (%) {{ cost_form.vat_rate }}</label>

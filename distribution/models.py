@@ -202,6 +202,12 @@ class CostScopeMode(models.TextChoices):
     ALLOCATED = "allocated", "Podział procentowy"
 
 
+class PABudgetStatus(models.TextChoices):
+    DRAFT = "draft", "roboczy"
+    APPROVED = "approved", "zatwierdzony"
+    CLOSED = "closed", "zamknięty"
+
+
 class RecoupmentItemType(models.TextChoices):
     MG = "mg", "MG / advance"
     PA = "pa", "P&A"
@@ -1972,9 +1978,171 @@ class SalesReport(TimestampedModel):
         return (self.gross_revenue or Decimal("0.00")) - (self.deductions or Decimal("0.00")) - (self.vat_withholding or Decimal("0.00"))
 
 
+class PABudget(TimestampedModel):
+    title = models.ForeignKey(
+        Title,
+        on_delete=models.CASCADE,
+        related_name="pa_budgets",
+        verbose_name="tytuł",
+    )
+    name = models.CharField("nazwa budżetu", max_length=160, default="Budżet P&A")
+    currency = models.CharField("waluta", max_length=3, choices=Currency.choices, default=Currency.PLN)
+    status = models.CharField("status", max_length=20, choices=PABudgetStatus.choices, default=PABudgetStatus.DRAFT)
+    period_start = models.DateField("okres od", null=True, blank=True)
+    period_end = models.DateField("okres do", null=True, blank=True)
+    notes = models.TextField("uwagi", blank=True)
+
+    class Meta:
+        ordering = ["title__title_pl", "-created_at"]
+        verbose_name = "budżet P&A"
+        verbose_name_plural = "budżety P&A"
+
+    def __str__(self) -> str:
+        return f"{self.title} / {self.name} / {self.currency}"
+
+    def clean(self):
+        super().clean()
+        if self.period_start and self.period_end and self.period_start > self.period_end:
+            raise ValidationError({"period_end": "Koniec okresu nie może być wcześniejszy niż jego początek."})
+
+    @property
+    def planned_total(self) -> Decimal:
+        if not self.pk:
+            return Decimal("0.00")
+        return self.lines.aggregate(total=models.Sum("planned_amount"))["total"] or Decimal("0.00")
+
+    @property
+    def actual_total(self) -> Decimal:
+        if not self.pk:
+            return Decimal("0.00")
+        return self.lines.aggregate(total=models.Sum("costs__net_amount"))["total"] or Decimal("0.00")
+
+    @property
+    def paid_total(self) -> Decimal:
+        if not self.pk:
+            return Decimal("0.00")
+        return self.lines.aggregate(
+            total=models.Sum("costs__net_amount", filter=Q(costs__paid=True))
+        )["total"] or Decimal("0.00")
+
+    @property
+    def remaining_amount(self) -> Decimal:
+        return self.planned_total - self.actual_total
+
+
+class PABudgetLine(TimestampedModel):
+    budget = models.ForeignKey(
+        PABudget,
+        on_delete=models.CASCADE,
+        related_name="lines",
+        verbose_name="budżet P&A",
+    )
+    name = models.CharField("pozycja budżetu", max_length=180)
+    category = models.CharField("kategoria", max_length=40, choices=CostCategory.choices, default=CostCategory.PA)
+    planned_amount = models.DecimalField(
+        "plan Netto (VAT)",
+        max_digits=14,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+    )
+    recoupable = models.BooleanField("do odzyskania (recoupable)", default=True)
+    scope_mode = models.CharField("zakres kosztu", max_length=20, choices=CostScopeMode.choices, default=CostScopeMode.ALL)
+    scope_fields = models.JSONField("wybrane pola eksploatacji", default=list, blank=True)
+    allocation_percentages = models.JSONField("podział procentowy na pola", default=dict, blank=True)
+    sort_order = models.PositiveIntegerField("kolejność", default=0)
+    notes = models.TextField("uwagi", blank=True)
+
+    class Meta:
+        ordering = ["sort_order", "category", "name"]
+        constraints = [
+            models.UniqueConstraint(fields=("budget", "name"), name="unique_pa_budget_line_name"),
+        ]
+        verbose_name = "pozycja budżetu P&A"
+        verbose_name_plural = "pozycje budżetu P&A"
+
+    def __str__(self) -> str:
+        return f"{self.budget.title} / {self.budget.name} / {self.name} ({self.budget.currency})"
+
+    def clean(self):
+        super().clean()
+        valid_fields = {value for value, _ in ExploitationField.choices}
+        selected = list(dict.fromkeys(self.scope_fields or []))
+        invalid = set(selected) - valid_fields
+        if invalid:
+            raise ValidationError({"scope_fields": f"Nieznane pola eksploatacji: {', '.join(sorted(invalid))}."})
+
+        percentages = self.allocation_percentages or {}
+        invalid_allocations = set(percentages) - valid_fields
+        if invalid_allocations:
+            raise ValidationError({"allocation_percentages": f"Nieznane pola eksploatacji: {', '.join(sorted(invalid_allocations))}."})
+        if self.scope_mode == CostScopeMode.SELECTED and not selected:
+            raise ValidationError({"scope_fields": "Wybierz co najmniej jedno pole eksploatacji."})
+        if self.scope_mode == CostScopeMode.ALLOCATED:
+            if not percentages:
+                raise ValidationError({"allocation_percentages": "Wprowadź podział procentowy budżetu."})
+            values = [Decimal(str(value)) for value in percentages.values()]
+            if any(value <= 0 for value in values):
+                raise ValidationError({"allocation_percentages": "Każdy udział musi być większy od zera."})
+            if sum(values, Decimal("0.00")) != Decimal("100.00"):
+                raise ValidationError({"allocation_percentages": "Suma udziałów musi wynosić 100%."})
+
+    def save(self, *args, **kwargs):
+        if self.scope_mode == CostScopeMode.ALL:
+            self.scope_fields = []
+            self.allocation_percentages = {}
+        elif self.scope_mode == CostScopeMode.SELECTED:
+            self.scope_fields = list(dict.fromkeys(self.scope_fields or []))
+            self.allocation_percentages = {}
+        else:
+            self.allocation_percentages = {
+                field: str(Decimal(str(value)).quantize(Decimal("0.01")))
+                for field, value in (self.allocation_percentages or {}).items()
+                if Decimal(str(value)) > 0
+            }
+            self.scope_fields = list(self.allocation_percentages)
+        super().save(*args, **kwargs)
+
+    @property
+    def actual_total(self) -> Decimal:
+        if not self.pk:
+            return Decimal("0.00")
+        return self.costs.aggregate(total=models.Sum("net_amount"))["total"] or Decimal("0.00")
+
+    @property
+    def paid_total(self) -> Decimal:
+        if not self.pk:
+            return Decimal("0.00")
+        return self.costs.filter(paid=True).aggregate(total=models.Sum("net_amount"))["total"] or Decimal("0.00")
+
+    @property
+    def remaining_amount(self) -> Decimal:
+        return self.planned_amount - self.actual_total
+
+    @property
+    def scope_label(self) -> str:
+        if self.scope_mode == CostScopeMode.ALL:
+            return CostScopeMode.ALL.label
+        labels = dict(ExploitationField.choices)
+        if self.scope_mode == CostScopeMode.ALLOCATED:
+            return ", ".join(
+                f"{labels.get(field, field)} {percentage}%"
+                for field, percentage in self.allocation_percentages.items()
+            )
+        return ", ".join(labels.get(field, field) for field in self.scope_fields)
+
+
 class Cost(TimestampedModel):
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="costs", verbose_name="tytuł")
     category = models.CharField("kategoria", max_length=40, choices=CostCategory.choices, default=CostCategory.OTHER)
+    budget_line = models.ForeignKey(
+        PABudgetLine,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="costs",
+        verbose_name="pozycja budżetu P&A",
+    )
     supplier = models.ForeignKey(Counterparty, null=True, blank=True, on_delete=models.SET_NULL, related_name="costs", verbose_name="dostawca")
     cost_date = models.DateField("data kosztu")
     currency = models.CharField("waluta", max_length=3, choices=Currency.choices, default=Currency.PLN)
@@ -2031,6 +2199,18 @@ class Cost(TimestampedModel):
         return (vat * Decimal("100.00") / net).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     def clean(self):
+        super().clean()
+        budget_errors = {}
+        if self.budget_line_id:
+            if self.title_id and self.budget_line.budget.title_id != self.title_id:
+                budget_errors["budget_line"] = "Pozycja budżetu musi należeć do tego samego tytułu."
+            elif self.currency and self.budget_line.budget.currency != self.currency:
+                budget_errors["budget_line"] = "Waluta kosztu musi być taka sama jak waluta budżetu."
+            elif self.category and self.budget_line.category != self.category:
+                budget_errors["budget_line"] = "Kategoria kosztu musi odpowiadać kategorii pozycji budżetu."
+        if budget_errors:
+            raise ValidationError(budget_errors)
+
         if self.vat_rate is not None and not Decimal("0.00") <= self.vat_rate <= Decimal("100.00"):
             raise ValidationError({"vat_rate": "Stawka VAT musi mieścić się w zakresie od 0% do 100%."})
 

@@ -29,7 +29,20 @@
     update();
   }
 
+  function setupPage(root) {
+    const scopedContainers = root.querySelectorAll("[data-cost-scope-container]");
+    if (scopedContainers.length) {
+      scopedContainers.forEach(setupScope);
+      return;
+    }
+    root.querySelectorAll("form").forEach(setupScope);
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
-    document.querySelectorAll("form").forEach(setupScope);
+    setupPage(document);
+  });
+
+  document.addEventListener("filmerp:cost-scope-added", function (event) {
+    setupScope(event.detail.container);
   });
 })();

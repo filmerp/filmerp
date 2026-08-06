@@ -260,6 +260,7 @@ class StatementStatus(models.TextChoices):
     APPROVED = "approved", "zaakceptowany"
     PAID = "paid", "opłacony"
     DISPUTED = "disputed", "sporny"
+    VOIDED = "voided", "anulowany / zastąpiony"
 
 
 class BookingCampaignStatus(models.TextChoices):
@@ -411,6 +412,8 @@ class Counterparty(TimestampedModel):
     phone = models.CharField("telefon", max_length=80, blank=True)
     payment_terms_days = models.PositiveIntegerField("termin płatności dni", default=30)
     reporting_cycle = models.CharField("cykl raportowania", max_length=30, choices=ReportingCycle.choices, default=ReportingCycle.NONE)
+    name_review_required = models.BooleanField("nazwa wymaga weryfikacji", default=False)
+    name_review_note = models.CharField("powód weryfikacji nazwy", max_length=255, blank=True)
     notes = models.TextField("uwagi", blank=True)
 
     class Meta:
@@ -420,6 +423,24 @@ class Counterparty(TimestampedModel):
 
     def __str__(self) -> str:
         return self.name
+
+    @staticmethod
+    def review_reason_for_name(value: str) -> str:
+        name = str(value or "").strip()
+        if not name:
+            return "Brak nazwy kontrahenta."
+        numeric_candidate = name.replace(" ", "").replace(",", ".")
+        try:
+            Decimal(numeric_candidate)
+        except (ValueError, ArithmeticError):
+            return ""
+        return "Nazwa wygląda jak wartość liczbowa przeniesiona z innej kolumny importu."
+
+    def validate_financial_recipient(self):
+        if self.name_review_required:
+            raise ValidationError(
+                f"Nazwa odbiorcy „{self.name}” wymaga weryfikacji przed wygenerowaniem dokumentu finansowego."
+            )
 
 
 class CinemaProfile(TimestampedModel):
@@ -576,6 +597,15 @@ class AcquisitionAgreement(TimestampedModel):
     contract_number = models.CharField("nr umowy", max_length=120, blank=True)
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="acquisition_agreements", verbose_name="tytuł")
     licensor = models.ForeignKey(Counterparty, on_delete=models.PROTECT, related_name="acquisition_agreements", verbose_name="licencjodawca")
+    version = models.PositiveIntegerField("wersja", default=1)
+    supersedes = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="revisions",
+        verbose_name="poprzednia wersja",
+    )
     signed_date = models.DateField("data podpisania", null=True, blank=True)
     rights_start = models.DateField("start praw", null=True, blank=True)
     rights_end = models.DateField("koniec praw", null=True, blank=True)
@@ -2512,6 +2542,14 @@ class WaterfallParticipant(TimestampedModel):
 
 class WaterfallPlan(TimestampedModel):
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="waterfall_plans", verbose_name="tytul")
+    source_agreement = models.ForeignKey(
+        AcquisitionAgreement,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="waterfall_plans",
+        verbose_name="źródłowa umowa",
+    )
     name = models.CharField("nazwa planu", max_length=180, default="Glowny waterfall")
     version = models.PositiveIntegerField("wersja", default=1)
     status = models.CharField("status", max_length=20, choices=WaterfallPlanStatus.choices, default=WaterfallPlanStatus.DRAFT)
@@ -2686,6 +2724,15 @@ class WaterfallRunCostAllocation(TimestampedModel):
 class RoyaltyStatement(TimestampedModel):
     title = models.ForeignKey(Title, on_delete=models.CASCADE, related_name="royalty_statements", verbose_name="tytuł")
     recipient = models.ForeignKey(Counterparty, on_delete=models.PROTECT, related_name="royalty_statements", verbose_name="odbiorca statementu")
+    revision = models.PositiveIntegerField("rewizja", default=1)
+    supersedes = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="corrections",
+        verbose_name="korygowany statement",
+    )
     period_start = models.DateField("okres od")
     period_end = models.DateField("okres do")
     currency = models.CharField("waluta", max_length=3, choices=Currency.choices, default=Currency.PLN)
@@ -2700,6 +2747,16 @@ class RoyaltyStatement(TimestampedModel):
     locked_at = models.DateTimeField("zablokowano", null=True, blank=True)
     sent_at = models.DateField("data wysyłki", null=True, blank=True)
     paid_at = models.DateField("data płatności", null=True, blank=True)
+    voided_at = models.DateTimeField("data anulowania", null=True, blank=True)
+    voided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="voided_royalty_statements",
+        verbose_name="anulował",
+    )
+    correction_reason = models.TextField("powód korekty", blank=True)
     notes = models.TextField("uwagi", blank=True)
 
     class Meta:
@@ -2709,6 +2766,9 @@ class RoyaltyStatement(TimestampedModel):
 
     def __str__(self) -> str:
         return f"{self.title} / {self.recipient} / {self.period_start}–{self.period_end}"
+
+    def validate_for_issue(self):
+        self.recipient.validate_financial_recipient()
 
     @property
     def calculation_basis_label(self) -> str:

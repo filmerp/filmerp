@@ -36,6 +36,76 @@ from .security_forms import DeactivateUserForm, SYSTEM_ROLE_NAMES, UserAccountFo
 
 User = get_user_model()
 
+PERMISSION_ACTIONS = (
+    ("view", "Podgląd"),
+    ("add", "Dodawanie"),
+    ("change", "Edycja"),
+    ("delete", "Usuwanie"),
+)
+BUSINESS_PERMISSION_MODELS = {
+    "Tytuły, umowy i prawa": {
+        "title": "Tytuły",
+        "acquisitionagreement": "Umowy nabycia",
+        "salesagreement": "Umowy sprzedaży / licencji",
+        "rightswindow": "Zakresy praw",
+        "rightsissue": "Problemy i konflikty praw",
+        "territory": "Terytoria",
+        "languageversion": "Wersje językowe",
+        "titlematerial": "Materiały tytułu",
+    },
+    "Booking kinowy": {
+        "bookingcampaign": "Kampanie bookingowe",
+        "bookingdeal": "Negocjacje z kinami",
+        "cinemabooking": "Bookingi kinowe",
+        "cinemabookingweek": "Tygodnie grania",
+        "bookingweeksettlement": "Rozliczenia kin",
+        "counterparty": "Kontrahenci i kina",
+        "cinemaprofile": "Profile kin",
+        "cinemacontact": "Kontakty kinowe",
+        "bookingactivity": "Aktywności bookingowe",
+        "bookingterm": "Progi i warunki bookingu",
+        "cinemabookingweekrevision": "Historia korekt tygodni grania",
+    },
+    "Dokumenty i import": {
+        "documentinboxitem": "Dokumenty",
+        "cinemareportimport": "Importy raportów kin",
+        "cinemareportimportrow": "Pozycje raportów kin",
+    },
+    "Finanse i rozliczenia": {
+        "salesreport": "Raporty sprzedaży i wpływów",
+        "cost": "Koszty P&A i dystrybucji",
+        "pabudget": "Budżety P&A",
+        "pabudgetline": "Pozycje budżetu P&A",
+        "waterfallplan": "Plany waterfall",
+        "waterfallstep": "Kroki waterfall",
+        "waterfallrun": "Rozliczenia okresów",
+        "royaltystatement": "Royalty statements",
+        "waterfallparticipant": "Uczestnicy waterfall",
+        "waterfallrecoupmentitem": "Pozycje recoupment",
+        "waterfallrecoupmentrule": "Reguły recoupment",
+        "waterfallruncostallocation": "Alokacje kosztów rozliczenia",
+        "waterfallrunline": "Pozycje kalkulacji waterfall",
+    },
+    "Użytkownicy, bezpieczeństwo i audyt": {
+        "user": "Użytkownicy",
+        "group": "Role",
+        "auditevent": "Historia zmian",
+        "loginevent": "Historia logowań",
+        "securityprofile": "Profile bezpieczeństwa",
+        "usersession": "Sesje użytkowników",
+        "authenticator": "Logowanie dwuetapowe",
+        "permission": "Definicje uprawnień",
+        "logentry": "Techniczny dziennik zmian",
+    },
+}
+
+
+def _permission_location(model_name):
+    for section, labels in BUSINESS_PERMISSION_MODELS.items():
+        if model_name in labels:
+            return section, labels[model_name]
+    return "Pozostałe ustawienia systemu", model_name.replace("_", " ").capitalize()
+
 
 @login_required
 def security_index(request):
@@ -187,7 +257,7 @@ def account_create(request):
         else:
             messages.success(request, "Konto zostało utworzone.")
         return redirect("security:account_detail", pk=user.pk)
-    return render(request, "security/account_form.html", {"form": form, "form_title": "Dodaj uzytkownika"})
+    return render(request, "security/account_form.html", {"form": form, "form_title": "Dodaj użytkownika"})
 
 
 @login_required
@@ -369,11 +439,35 @@ def role_detail(request, pk):
         return redirect("security:role_detail", pk=role.pk)
 
     selected_ids = set(role.permissions.values_list("pk", flat=True))
-    groups = defaultdict(list)
+    grouped_models = defaultdict(dict)
+    custom_permissions = defaultdict(list)
     for permission in allowed:
-        key = f"{permission.content_type.app_label}.{permission.content_type.model}"
-        groups[key].append({"permission": permission, "selected": permission.pk in selected_ids})
-    return render(request, "security/role_detail.html", {"role": role, "permission_groups": dict(groups)})
+        section, model_label = _permission_location(permission.content_type.model)
+        entry = {"permission": permission, "selected": permission.pk in selected_ids}
+        action = next((value for value, _ in PERMISSION_ACTIONS if permission.codename.startswith(f"{value}_")), None)
+        if action:
+            row = grouped_models[section].setdefault(model_label, {})
+            row[action] = entry
+        else:
+            custom_permissions[section].append(entry)
+    permission_sections = []
+    section_names = list(BUSINESS_PERMISSION_MODELS)
+    section_names.extend(name for name in grouped_models if name not in BUSINESS_PERMISSION_MODELS)
+    for section_name in section_names:
+        if section_name not in grouped_models and section_name not in custom_permissions:
+            continue
+        rows = []
+        for model_label, entries in grouped_models[section_name].items():
+            rows.append({
+                "label": model_label,
+                "cells": [{"action": action, "label": label, "entry": entries.get(action)} for action, label in PERMISSION_ACTIONS],
+            })
+        permission_sections.append({
+            "name": section_name,
+            "rows": sorted(rows, key=lambda item: item["label"]),
+            "custom": custom_permissions[section_name],
+        })
+    return render(request, "security/role_detail.html", {"role": role, "permission_sections": permission_sections})
 
 
 def _filter_login_events(request):

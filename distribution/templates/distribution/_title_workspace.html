@@ -1,0 +1,10 @@
+{% if workspace_title %}
+<nav class="title-context-bar" aria-label="Praca z tytułem">
+  <strong>{{ workspace_title.title_pl }}</strong>
+  <a href="{% url 'distribution:title_detail' workspace_title.pk %}">Karta tytułu</a>
+  <a href="{% url 'distribution:booking_crm' %}?title={{ workspace_title.pk }}">Booking</a>
+  <a href="{% url 'distribution:document_center' %}?title={{ workspace_title.pk }}">Dokumenty</a>
+  <a href="{% url 'distribution:settlement_workbench' %}?title={{ workspace_title.pk }}">Rozliczenia</a>
+  <a href="{% url 'distribution:statement_center' %}?title={{ workspace_title.pk }}">Statementy</a>
+</nav>
+{% endif %}

@@ -22,8 +22,8 @@ class UserAccountForm(forms.ModelForm):
         model = User
         fields = ["username", "first_name", "last_name", "email", "is_active"]
         labels = {
-            "username": "Nazwa uzytkownika",
-            "first_name": "Imie",
+            "username": "Nazwa użytkownika",
+            "first_name": "Imię",
             "last_name": "Nazwisko",
             "email": "E-mail",
             "is_active": "Konto aktywne",
@@ -44,13 +44,13 @@ class UserAccountForm(forms.ModelForm):
         if self.instance and self.instance.pk:
             conflict = conflict.exclude(pk=self.instance.pk)
         if conflict.exists():
-            raise forms.ValidationError("Ten adres e-mail jest juz przypisany do innego konta.")
+            raise forms.ValidationError("Ten adres e-mail jest już przypisany do innego konta.")
         return email
 
     def clean_roles(self):
         roles = self.cleaned_data["roles"]
         if not roles:
-            raise forms.ValidationError("Wybierz co najmniej jedna role.")
+            raise forms.ValidationError("Wybierz co najmniej jedną rolę.")
         return roles
 
     def save(self, commit=True):
@@ -67,7 +67,7 @@ class UserAccountForm(forms.ModelForm):
 
 
 class UserCreateForm(UserAccountForm):
-    send_invitation = forms.BooleanField(label="Wyslij zaproszenie e-mail", required=False, initial=True)
+    send_invitation = forms.BooleanField(label="Wyślij zaproszenie e-mail", required=False, initial=True)
 
     def save(self, commit=True):
         user = super().save(commit=False)

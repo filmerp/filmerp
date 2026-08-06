@@ -16,7 +16,7 @@
     </div>
   </fieldset>
   <fieldset><legend>Dostęp i zabezpieczenia</legend>
-    <div class="role-checkboxes">{{ form.roles }}{% if form.roles.errors %}<span class="field-error">{{ form.roles.errors|striptags }}</span>{% endif %}</div>
+    <div class="role-checkboxes">{% for checkbox in form.roles %}<label class="role-option">{{ checkbox.tag }}<span>{{ checkbox.choice_label }}</span></label>{% endfor %}{% if form.roles.errors %}<span class="field-error">{{ form.roles.errors|striptags }}</span>{% endif %}</div>
     <label class="check-line">{{ form.force_password_change }} {{ form.force_password_change.label }}</label>
     {% if form.send_invitation %}<label class="check-line">{{ form.send_invitation }} {{ form.send_invitation.label }}</label>{% endif %}
   </fieldset>

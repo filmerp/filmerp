@@ -14,7 +14,7 @@
 <main>
   <div class="page-heading">
     <div>
-      <a class="back-link" href="{% url 'distribution:title_detail' title.pk %}#finance">← Wróć do karty tytułu</a>
+      <a class="back-link" href="{% url 'distribution:title_detail' title.pk %}#finance">Wróć do karty tytułu</a>
       <h1>{% if budget %}Budżet P&A: {{ budget.name }}{% else %}Nowy budżet P&A{% endif %}</h1>
       <div class="muted">{{ title.title_pl }} · zaplanuj koszty, zakres pól eksploatacji i recoupment.</div>
     </div>

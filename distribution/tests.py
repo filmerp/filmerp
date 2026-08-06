@@ -71,6 +71,7 @@ from .models import (
 from .documents import classify_document
 from .booking_engine import calculate_booking_rental
 from .roles import sync_role_groups
+from .pdf import build_royalty_statement_pdf
 from .waterfall_engine import calculate_waterfall_run, finalize_waterfall_run
 
 
@@ -811,6 +812,92 @@ class SettlementWorkflowTests(TestCase):
         plans = WaterfallPlan.objects.filter(name="Główny waterfall").order_by("version")
         self.assertEqual(list(plans.values_list("version", "status")), [(1, "archived"), (2, "active")])
 
+    def test_contract_revision_preserves_history_and_links_new_waterfall(self):
+        distributor = Counterparty.objects.create(name="FILMERP Dystrybucja")
+        original = AcquisitionAgreement.objects.create(
+            title=self.title,
+            licensor=self.producer,
+            contract_number="ACQ/2026/BASE",
+            status="signed",
+            currency=Currency.PLN,
+            mg_advance=Decimal("1000.00"),
+            revenue_share_percent=Decimal("50.00"),
+        )
+        payload = {
+            "source_agreement": original.pk,
+            "title": self.title.pk,
+            "contract_number": "ACQ/2026/BASE-A1",
+            "licensor": self.producer.pk,
+            "distributor": distributor.pk,
+            "currency": Currency.PLN,
+            "mg_advance": "1500.00",
+            "distributor_fee_percent": "10.00",
+            "pa_recoupable": "on",
+            "pa_cost_categories": [CostCategory.PA],
+            "applies_to_all_exploitation_fields": "on",
+            "licensor_share_percent": "55.00",
+            "status": "signed",
+        }
+
+        response = self.client.post(reverse("distribution:contract_waterfall_wizard"), payload)
+
+        self.assertEqual(response.status_code, 302)
+        revision = AcquisitionAgreement.objects.get(contract_number="ACQ/2026/BASE-A1")
+        self.assertEqual(revision.supersedes, original)
+        self.assertEqual(revision.version, 2)
+        self.assertEqual(revision.waterfall_plans.get().source_agreement, revision)
+        original.refresh_from_db()
+        self.assertEqual(original.mg_advance, Decimal("1000.00"))
+        detail = self.client.get(reverse("distribution:acquisition_agreement_detail", args=[self.title.pk, original.pk]))
+        self.assertEqual(detail.status_code, 200)
+        self.assertContains(detail, "Utwórz nową wersję warunków")
+
+    def test_workbench_defaults_to_active_plan_and_its_currency(self):
+        self.plan.status = "archived"
+        self.plan.save(update_fields=["status", "updated_at"])
+        active_plan = WaterfallPlan.objects.create(
+            title=self.title,
+            name=self.plan.name,
+            version=2,
+            status="active",
+            currency=Currency.EUR,
+        )
+        WaterfallStep.objects.create(
+            plan=active_plan,
+            phase=1,
+            name="Udział producenta EUR",
+            step_type=WaterfallStepType.SPLIT,
+            beneficiary=self.producer,
+            percentage=Decimal("50.00"),
+        )
+
+        response = self.client.get("/settlements/", {
+            "title": str(self.title.pk),
+            "currency": Currency.PLN,
+            "date_from": "2026-06-01",
+            "date_to": "2026-06-30",
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["selected_plan"], active_plan)
+        self.assertEqual(response.context["currency"], Currency.EUR)
+        self.assertContains(response, "v2 · EUR · aktywny")
+
+    def test_workbench_requires_confirmation_for_historical_plan(self):
+        self.plan.status = "archived"
+        self.plan.save(update_fields=["status", "updated_at"])
+        payload = {**self.workflow_payload(), "action": "simulate"}
+
+        response = self.client.post("/settlements/", payload)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(WaterfallRun.objects.filter(plan=self.plan).exists())
+
+        response = self.client.post("/settlements/", {**payload, "confirm_inactive_plan": "yes"})
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(WaterfallRun.objects.filter(plan=self.plan).exists())
+
     def test_workbench_simulates_finalizes_and_generates_pdf(self):
         response = self.client.get("/settlements/", self.workflow_payload())
         self.assertEqual(response.status_code, 200)
@@ -870,6 +957,61 @@ class SettlementWorkflowTests(TestCase):
         statement.refresh_from_db()
         self.assertEqual(statement.calculation_snapshot, original_snapshot)
         self.assertEqual(statement.gross_revenue, Decimal("1000.00"))
+
+    def test_statement_pdf_is_blocked_until_recipient_name_is_verified(self):
+        self.producer.name = "13311.946666666667"
+        self.producer.name_review_required = True
+        self.producer.name_review_note = Counterparty.review_reason_for_name(self.producer.name)
+        self.producer.save(update_fields=["name", "name_review_required", "name_review_note", "updated_at"])
+        statement = RoyaltyStatement.objects.create(
+            title=self.title,
+            recipient=self.producer,
+            period_start=date(2026, 6, 1),
+            period_end=date(2026, 6, 30),
+            currency=Currency.PLN,
+        )
+
+        response = self.client.post(reverse("distribution:statement_center"), {
+            "action": "generate_pdf",
+            "statement_ids": [str(statement.pk)],
+        }, follow=True)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Najpierw zweryfikuj nazwy odbiorców")
+        statement.refresh_from_db()
+        self.assertFalse(statement.statement_file)
+
+    def test_statement_correction_keeps_original_pdf_and_snapshot(self):
+        statement = RoyaltyStatement.objects.create(
+            title=self.title,
+            recipient=self.producer,
+            period_start=date(2026, 6, 1),
+            period_end=date(2026, 6, 30),
+            currency=Currency.PLN,
+        )
+        statement.freeze_calculation(lock=True)
+        pdf_file = build_royalty_statement_pdf(statement)
+        statement.statement_file.save(pdf_file.name, pdf_file, save=True)
+        original_name = statement.statement_file.name
+        original_snapshot = statement.calculation_snapshot.copy()
+
+        response = self.client.post(
+            reverse("distribution:statement_detail", args=[statement.pk]),
+            {"reason": "Poprawa danych opisowych odbiorcy dokumentu."},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        statement.refresh_from_db()
+        correction = statement.corrections.get()
+        self.assertEqual(statement.status, StatementStatus.VOIDED)
+        self.assertEqual(statement.statement_file.name, original_name)
+        self.assertEqual(correction.revision, 2)
+        self.assertEqual(correction.calculation_snapshot, original_snapshot)
+        self.assertTrue(correction.statement_file)
+
+    def test_counterparty_name_review_does_not_flag_real_cinema_name(self):
+        self.assertEqual(Counterparty.review_reason_for_name("Kino 60 Krzeseł"), "")
+        self.assertTrue(Counterparty.review_reason_for_name("13311.946666666667"))
 
     def test_statement_center_and_export_use_bilingual_industry_terms(self):
         statement = RoyaltyStatement.objects.create(
@@ -1382,6 +1524,42 @@ class BookingCrmTests(TestCase):
         self.assertEqual(cinema.contact_person, "Anna Kowalska")
         self.assertEqual(cinema.email, "anna@example.com")
 
+    def test_numeric_cinema_name_requires_explicit_confirmation(self):
+        payload = {
+            "action": "save_cinema",
+            "name": "1242",
+            "account_type": CounterpartyType.CINEMA,
+            "chain": "",
+            "city": "Warszawa",
+            "address": "",
+            "website": "",
+            "screens_count": "0",
+            "seats_count": "0",
+            "country": "Polska",
+            "vat_id": "",
+            "email": "",
+            "phone": "",
+            "payment_terms_days": "30",
+            "reporting_cycle": "weekly",
+            "active": "on",
+            "booking_notes": "",
+        }
+
+        response = self.client.post(reverse("distribution:booking_cinema_create"), payload)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Nazwa wygląda jak wartość liczbowa")
+        self.assertFalse(Counterparty.objects.filter(name="1242").exists())
+
+        response = self.client.post(
+            reverse("distribution:booking_cinema_create"),
+            {**payload, "confirm_name": "on"},
+        )
+
+        cinema = Counterparty.objects.get(name="1242")
+        self.assertRedirects(response, reverse("distribution:booking_cinema_edit", args=[cinema.pk]))
+        self.assertFalse(cinema.name_review_required)
+
     def test_readonly_role_can_see_booking_crm_but_cannot_edit_it(self):
         sync_role_groups()
         readonly_user = get_user_model().objects.create_user(username="booking-readonly", password="test-pass")
@@ -1465,6 +1643,18 @@ class BookingCrmTests(TestCase):
             {venue_a.pk, venue_b.pk},
         )
         self.assertEqual(BookingTerm.objects.filter(deal__campaign=self.campaign).count(), 2)
+
+    def test_bulk_cinema_screen_renders_for_realistic_incomplete_directory(self):
+        Counterparty.objects.create(name="Kino bez profilu", counterparty_type=CounterpartyType.CINEMA)
+
+        response = self.client.get(
+            reverse("distribution:booking_bulk_cinemas"),
+            {"campaign": str(self.campaign.pk)},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Kino bez profilu")
+        self.assertContains(response, "Dodaj zaznaczone do kampanii")
 
     def test_week_decision_can_lock_report_and_create_holdover_week(self):
         deal = self.create_confirmed_deal()

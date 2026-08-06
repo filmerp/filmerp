@@ -67,8 +67,8 @@
       </div>
       <ol class="title-stage-strip">
         {% for stage in row.stages %}
-        <li class="{% if stage.ready %}done{% else %}pending{% endif %}" title="{{ stage.label }}">
-          <span>{% if stage.ready %}✓{% else %}{{ forloop.counter }}{% endif %}</span>{{ stage.label }}
+        <li class="{{ stage.state }}" title="{{ stage.label }}">
+          <span>{% if stage.state == 'done' %}✓{% elif stage.state == 'attention' %}!{% else %}{{ forloop.counter }}{% endif %}</span>{{ stage.label }}
         </li>
         {% endfor %}
       </ol>

@@ -7,6 +7,7 @@ from django.contrib.auth.decorators import login_required, permission_required
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Count, Q
+from django.core.paginator import Paginator
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -45,6 +46,7 @@ from .models import (
     Counterparty,
     CounterpartyType,
     ImportStatus,
+    Title,
 )
 from .security import record_audit_event
 
@@ -94,6 +96,11 @@ def booking_crm(request):
         deals_count=Count("deals", distinct=True),
         confirmed_count=Count("deals", filter=Q(deals__stage__in=BOOKED_STAGES), distinct=True),
     ).order_by("-release_date", "title__title_pl")
+    title_id = request.GET.get("title", "")
+    requested_title = None
+    if title_id.isdigit():
+        requested_title = get_object_or_404(Title, pk=title_id)
+        campaigns = campaigns.filter(title_id=title_id)
     selected_campaign = None
     campaign_id = request.GET.get("campaign")
     if campaign_id:
@@ -206,12 +213,23 @@ def booking_crm(request):
             distinct=True,
         )
     ).order_by("name")
+    incomplete_cinemas_count = cinemas.filter(
+        Q(cinema_profile__city="") | Q(cinema_contacts__isnull=True)
+    ).distinct().count()
     if query and active_view == "cinemas":
         cinemas = cinemas.filter(
             Q(name__icontains=query)
             | Q(cinema_profile__city__icontains=query)
             | Q(cinema_contacts__name__icontains=query)
         ).distinct()
+    cinema_data_filter = request.GET.get("cinema_data", "")
+    if cinema_data_filter == "missing_city":
+        cinemas = cinemas.filter(cinema_profile__city="")
+    elif cinema_data_filter == "missing_contact":
+        cinemas = cinemas.filter(cinema_contacts__isnull=True)
+    elif cinema_data_filter == "missing_reporting":
+        cinemas = cinemas.filter(reporting_cycle="none")
+    cinema_page = Paginator(cinemas.distinct(), 50).get_page(request.GET.get("page"))
 
     owners = get_user_model().objects.filter(is_active=True).order_by("first_name", "last_name", "username")
     context = {
@@ -219,6 +237,7 @@ def booking_crm(request):
         "negotiations_mode": negotiations_mode,
         "campaigns": campaigns,
         "selected_campaign": selected_campaign,
+        "workspace_title": selected_campaign.title if selected_campaign else requested_title,
         "pipeline": pipeline,
         "deal_rows": deal_rows,
         "deals_count": len(deal_rows),
@@ -243,7 +262,10 @@ def booking_crm(request):
         "task_deals": task_deals,
         "today": today,
         "task_horizon": today + timedelta(days=14),
-        "cinemas": cinemas,
+        "cinemas": cinema_page.object_list,
+        "cinema_page": cinema_page,
+        "cinema_data_filter": cinema_data_filter,
+        "incomplete_cinemas_count": incomplete_cinemas_count,
         "owners": owners,
         "query": query,
         "owner_id": owner_id,

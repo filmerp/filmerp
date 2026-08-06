@@ -34,11 +34,13 @@ from .forms import (
     DocumentCostForm,
     DocumentUploadForm,
     ContractWaterfallWizardForm,
+    AcquisitionAgreementMetadataForm,
     PABudgetForm,
     PABudgetLineCreateFormSet,
     PABudgetLineFormSet,
     TitleSetupForm,
     TitleCatalogExportForm,
+    StatementCorrectionForm,
 )
 from .catalog_export import build_catalog_export, export_catalog_csv_zip, export_catalog_xlsx
 from .contract_wizard import create_contract_waterfall
@@ -78,7 +80,7 @@ from .models import (
     WaterfallRun,
     WaterfallRunStatus,
 )
-from .settlements import create_statement_documents
+from .settlements import create_statement_documents, create_statement_revision
 from .security import record_audit_event
 from .waterfall_engine import calculate_waterfall_run, finalize_waterfall_run
 
@@ -151,13 +153,22 @@ def session_keepalive(request):
 def dashboard(request):
     today = timezone.localdate()
     expiring_until = today + timedelta(days=90)
-    open_statements = RoyaltyStatement.objects.exclude(status=StatementStatus.PAID)
+    open_statements = RoyaltyStatement.objects.exclude(status__in=[StatementStatus.PAID, StatementStatus.VOIDED])
     query = request.GET.get("q", "").strip()
 
     titles = Title.objects.select_related("producer").annotate(
         agreements_count=Count("acquisition_agreements", distinct=True),
         rights_count=Count("rights_windows", distinct=True),
         materials_count=Count("materials", distinct=True),
+        required_materials_count=Count("materials", filter=Q(materials__required_for_release=True), distinct=True),
+        open_required_materials_count=Count(
+            "materials",
+            filter=Q(materials__required_for_release=True) & ~Q(materials__status__in=[DeliveryStatus.READY, DeliveryStatus.SENT, DeliveryStatus.ACCEPTED]),
+            distinct=True,
+        ),
+        rights_issues_count=Count("rights_windows__issues", filter=Q(rights_windows__issues__resolved=False), distinct=True),
+        pending_documents_count=Count("inbox_documents", filter=Q(inbox_documents__status=DocumentStatus.NEEDS_REVIEW), distinct=True),
+        unallocated_costs_count=Count("costs", filter=Q(costs__budget_line__isnull=True), distinct=True),
         reports_count=Count("sales_reports", distinct=True),
         costs_count=Count("costs", distinct=True),
         statements_count=Count("royalty_statements", distinct=True),
@@ -177,13 +188,17 @@ def dashboard(request):
 
     title_rows = []
     for title in titles[:100]:
+        metadata_ready = bool(title.production_year and title.producer_id)
+        rights_ready = bool(title.agreements_count and title.rights_count)
+        materials_ready = bool(title.materials_count and not title.open_required_materials_count)
+        finance_ready = bool(title.reports_count or title.costs_count)
         stages = [
-            {"key": "metadata", "label": "Metryka", "ready": bool(title.production_year and title.producer_id)},
-            {"key": "rights", "label": "Umowa i prawa", "ready": bool(title.agreements_count and title.rights_count)},
-            {"key": "materials", "label": "Materiały", "ready": bool(title.materials_count)},
-            {"key": "finance", "label": "Wpływy i koszty", "ready": bool(title.reports_count or title.costs_count)},
-            {"key": "waterfall", "label": "Waterfall", "ready": bool(title.active_waterfall_steps)},
-            {"key": "settlements", "label": "Rozliczenia", "ready": bool(title.finalized_runs_count)},
+            {"key": "metadata", "label": "Metryka", "ready": metadata_ready, "state": "done" if metadata_ready else "pending"},
+            {"key": "rights", "label": "Umowa i prawa", "ready": rights_ready and not title.rights_issues_count, "state": "attention" if rights_ready and title.rights_issues_count else ("done" if rights_ready else "pending")},
+            {"key": "materials", "label": "Materiały", "ready": materials_ready, "state": "attention" if title.materials_count and title.open_required_materials_count else ("done" if materials_ready else "pending")},
+            {"key": "finance", "label": "Wpływy i koszty", "ready": finance_ready and not (title.pending_documents_count or title.unallocated_costs_count), "state": "attention" if finance_ready and (title.pending_documents_count or title.unallocated_costs_count) else ("done" if finance_ready else "pending")},
+            {"key": "waterfall", "label": "Waterfall", "ready": bool(title.active_waterfall_steps), "state": "done" if title.active_waterfall_steps else "pending"},
+            {"key": "settlements", "label": "Rozliczenia", "ready": bool(title.finalized_runs_count), "state": "done" if title.finalized_runs_count else "pending"},
         ]
         done = sum(stage["ready"] for stage in stages)
         next_stage = next((stage for stage in stages if not stage["ready"]), stages[-1])
@@ -403,14 +418,19 @@ def title_detail(request, pk):
     title_documents = title.inbox_documents.order_by("-created_at")[:10]
     pending_documents_count = title.inbox_documents.filter(status=DocumentStatus.NEEDS_REVIEW).count()
     finalized_runs_count = WaterfallRun.objects.filter(plan__title=title, status=WaterfallRunStatus.FINALIZED).count()
-    open_statements_count = title.royalty_statements.exclude(status=StatementStatus.PAID).count()
+    open_statements_count = title.royalty_statements.exclude(status__in=[StatementStatus.PAID, StatementStatus.VOIDED]).count()
+    metadata_ready = bool(title.production_year and title.producer_id)
+    rights_ready = agreements.exists() and rights_windows.exists()
+    materials_ready = materials.exists() and not open_materials.exists()
+    finance_has_data = sales_reports.exists() or all_costs.exists() or bool(budgets)
+    finance_attention = pending_documents_count or unallocated_costs_count
     workflow_stages = [
-        {"key": "metadata", "label": "Metryka", "ready": bool(title.production_year and title.producer_id), "detail": "rok i producent"},
-        {"key": "rights", "label": "Umowa i prawa", "ready": agreements.exists() and rights_windows.exists(), "detail": f"{agreements.count()} umów, {rights_windows.count()} praw"},
-        {"key": "materials", "label": "Materiały", "ready": materials.exists(), "detail": f"{materials.count()} pozycji"},
-        {"key": "finance", "label": "Wpływy i P&A", "ready": sales_reports.exists() or all_costs.exists() or bool(budgets), "detail": f"{sales_reports.count()} raportów, {all_costs.count()} kosztów"},
-        {"key": "waterfall", "label": "Waterfall", "ready": bool(active_plan and active_steps), "detail": f"{len(active_steps)} kroków" if active_plan else "brak planu"},
-        {"key": "settlements", "label": "Rozliczenia", "ready": bool(finalized_runs_count), "detail": f"{finalized_runs_count} zamkniętych okresów"},
+        {"key": "metadata", "label": "Metryka", "ready": metadata_ready, "state": "done" if metadata_ready else "pending", "detail": "rok i producent"},
+        {"key": "rights", "label": "Umowa i prawa", "ready": rights_ready and not issues.exists(), "state": "attention" if rights_ready and issues.exists() else ("done" if rights_ready else "pending"), "detail": f"{agreements.count()} umów, {rights_windows.count()} praw"},
+        {"key": "materials", "label": "Materiały", "ready": materials_ready, "state": "attention" if materials.exists() and open_materials.exists() else ("done" if materials_ready else "pending"), "detail": f"{open_materials.count()} otwartych z {materials.count()}"},
+        {"key": "finance", "label": "Wpływy i P&A", "ready": finance_has_data and not finance_attention, "state": "attention" if finance_has_data and finance_attention else ("done" if finance_has_data else "pending"), "detail": f"{sales_reports.count()} raportów, {all_costs.count()} kosztów"},
+        {"key": "waterfall", "label": "Waterfall", "ready": bool(active_plan and active_steps), "state": "done" if active_plan and active_steps else "pending", "detail": f"{len(active_steps)} kroków" if active_plan else "brak planu"},
+        {"key": "settlements", "label": "Rozliczenia", "ready": bool(finalized_runs_count), "state": "done" if finalized_runs_count else "pending", "detail": f"{finalized_runs_count} zamkniętych okresów"},
     ]
 
     title_url = reverse("distribution:title_detail", args=[title.pk])
@@ -432,6 +452,7 @@ def title_detail(request, pk):
 
     context = {
         "title": title,
+        "workspace_title": title,
         "today": today,
         "rights_windows": rights_windows,
         "sales_reports": sales_reports,
@@ -512,6 +533,13 @@ def pa_budget_setup(request, title_pk, pk=None):
 @permission_required(("distribution.add_acquisitionagreement", "distribution.add_waterfallplan"), raise_exception=True)
 def contract_waterfall_wizard(request):
     title = None
+    source_agreement = None
+    if request.GET.get("agreement"):
+        source_agreement = get_object_or_404(
+            AcquisitionAgreement.objects.select_related("title", "licensor"),
+            pk=request.GET["agreement"],
+        )
+        title = source_agreement.title
     if request.GET.get("title"):
         title = get_object_or_404(Title, pk=request.GET["title"])
     if request.method == "POST":
@@ -529,10 +557,97 @@ def contract_waterfall_wizard(request):
             messages.success(request, f"Utworzono umowę i aktywny waterfall v{plan.version} z {plan.steps.count()} krokami.")
             return redirect(f"{reverse('distribution:settlement_workbench')}?title={agreement.title_id}&currency={plan.currency}&plan={plan.pk}")
     else:
-        form = ContractWaterfallWizardForm(title=title)
+        form = ContractWaterfallWizardForm(title=title, agreement=source_agreement)
     return render(request, "distribution/contract_waterfall_wizard.html", {
         "form": form,
         "selected_title": title,
+        "source_agreement": source_agreement,
+    })
+
+
+@login_required
+@permission_required("distribution.view_acquisitionagreement", raise_exception=True)
+def acquisition_agreement_detail(request, title_pk, pk):
+    agreement = get_object_or_404(
+        AcquisitionAgreement.objects.select_related("title", "licensor", "supersedes").prefetch_related(
+            "territories", "revisions", "waterfall_plans"
+        ),
+        pk=pk,
+        title_id=title_pk,
+    )
+    editable = agreement.status in {"draft", "negotiation"} and request.user.has_perm(
+        "distribution.change_acquisitionagreement"
+    )
+    form = AcquisitionAgreementMetadataForm(
+        request.POST or None,
+        request.FILES or None,
+        instance=agreement,
+    )
+    if request.method == "POST":
+        if not editable:
+            raise PermissionDenied
+        if form.is_valid():
+            before = {
+                "contract_number": agreement.contract_number,
+                "signed_date": str(agreement.signed_date or ""),
+                "status": agreement.status,
+            }
+            agreement = form.save()
+            record_audit_event(
+                AuditAction.UPDATE,
+                f"Zaktualizowano metadane umowy {agreement.contract_number or agreement.pk}.",
+                request=request,
+                module="agreements",
+                instance=agreement,
+                changes={"before": before, "after": {"contract_number": agreement.contract_number, "signed_date": str(agreement.signed_date or ""), "status": agreement.status}},
+            )
+            messages.success(request, "Zapisano metadane umowy. Warunki finansowe i prawa nie zostały zmienione.")
+            return redirect("distribution:acquisition_agreement_detail", title_pk=agreement.title_id, pk=agreement.pk)
+    return render(request, "distribution/acquisition_agreement_detail.html", {
+        "agreement": agreement,
+        "title": agreement.title,
+        "form": form,
+        "editable": editable,
+        "plan": agreement.waterfall_plans.order_by("-version").first(),
+    })
+
+
+@login_required
+@permission_required("distribution.view_royaltystatement", raise_exception=True)
+def statement_detail(request, pk):
+    statement = get_object_or_404(
+        RoyaltyStatement.objects.select_related(
+            "title", "recipient", "waterfall_plan", "waterfall_run", "supersedes", "voided_by"
+        ).prefetch_related("corrections"),
+        pk=pk,
+    )
+    correction_form = StatementCorrectionForm(request.POST or None)
+    if request.method == "POST":
+        if not request.user.has_perm("distribution.change_royaltystatement"):
+            raise PermissionDenied
+        if correction_form.is_valid():
+            try:
+                correction = create_statement_revision(
+                    statement,
+                    reason=correction_form.cleaned_data["reason"],
+                    actor=request.user,
+                )
+            except ValidationError as exc:
+                correction_form.add_error(None, exc)
+            else:
+                record_audit_event(
+                    AuditAction.CREATE,
+                    f"Utworzono korektę statementu RS-{statement.pk:06d}: rewizja {correction.revision}.",
+                    request=request,
+                    module="statements",
+                    instance=correction,
+                    metadata={"superseded_statement_id": statement.pk, "reason": correction.correction_reason},
+                )
+                messages.success(request, "Utworzono korektę. Poprzedni PDF zachowano w historii i oznaczono jako zastąpiony.")
+                return redirect("distribution:statement_detail", pk=correction.pk)
+    return render(request, "distribution/statement_detail.html", {
+        "statement": statement,
+        "correction_form": correction_form,
     })
 
 
@@ -751,9 +866,14 @@ def document_center(request):
         "title", "counterparty", "uploaded_by", "reviewed_by", "cinema_import", "cost"
     )
     status_filter = request.GET.get("status", "")
+    title_filter = request.GET.get("title", "")
     queue = base_documents
     if status_filter in DocumentStatus.values:
         queue = queue.filter(status=status_filter)
+    workspace_title = None
+    if title_filter.isdigit():
+        workspace_title = get_object_or_404(Title, pk=title_filter)
+        queue = queue.filter(Q(title=workspace_title) | Q(cinema_import__rows__title=workspace_title)).distinct()
 
     target_week = _target_week_from_request(request)
     suggested_type = request.GET.get("type", "")
@@ -763,6 +883,8 @@ def document_center(request):
         "documents": queue,
         "upload_form": DocumentUploadForm(initial={"document_type": suggested_type}),
         "status_filter": status_filter,
+        "title_filter": title_filter,
+        "workspace_title": workspace_title,
         "document_statuses": DocumentStatus.choices,
         "document_count": base_documents.count(),
         "review_count": base_documents.filter(status=DocumentStatus.NEEDS_REVIEW).count(),
@@ -1033,16 +1155,21 @@ def settlement_workbench(request):
     period_end = run.period_end if run else (parse_date(values.get("date_to") or "") or default_end)
     if period_start > period_end:
         period_start, period_end = period_end, period_start
-    currency = run.plan.currency if run else (values.get("currency") or Currency.PLN)
-
     plans = WaterfallPlan.objects.none()
     selected_plan = run.plan if run else None
     if selected_title:
-        plans = selected_title.waterfall_plans.filter(currency=currency).prefetch_related("steps").order_by("-version")
+        plans = selected_title.waterfall_plans.select_related("source_agreement").prefetch_related("steps").order_by("-version")
         if not selected_plan and values.get("plan"):
             selected_plan = get_object_or_404(plans, pk=values.get("plan"))
         if not selected_plan:
             selected_plan = plans.filter(status=WaterfallPlanStatus.ACTIVE).first() or plans.first()
+    currency = (
+        run.plan.currency
+        if run
+        else selected_plan.currency
+        if selected_plan
+        else values.get("currency") or Currency.PLN
+    )
 
     redirect_kwargs = {
         "title_id": selected_title.pk if selected_title else "",
@@ -1087,6 +1214,11 @@ def settlement_workbench(request):
         if action == "simulate":
             if not selected_plan:
                 messages.error(request, "Najpierw utworz i wybierz plan waterfall dla tytulu.")
+            elif selected_plan.status != WaterfallPlanStatus.ACTIVE and request.POST.get("confirm_inactive_plan") != "yes":
+                messages.error(
+                    request,
+                    f"Plan {selected_plan.name} v{selected_plan.version} nie jest aktywną wersją. Potwierdź świadomy wybór planu historycznego.",
+                )
             elif not selected_plan.steps.filter(active=True).exists():
                 messages.error(request, "Plan waterfall nie ma aktywnych krokow.")
             else:
@@ -1119,7 +1251,12 @@ def settlement_workbench(request):
             selected_recipient_ids = {
                 int(value) for value in recipient_ids if str(value).isdigit()
             }
-            if not (selected_recipient_ids & allowed_ids):
+            if run.plan.status != WaterfallPlanStatus.ACTIVE and request.POST.get("confirm_inactive_plan") != "yes":
+                messages.error(
+                    request,
+                    f"Plan {run.plan.name} v{run.plan.version} nie jest aktywną wersją. Potwierdź użycie planu historycznego przed zatwierdzeniem.",
+                )
+            elif not (selected_recipient_ids & allowed_ids):
                 messages.error(request, "Wybierz co najmniej jednego odbiorce statementu.")
             else:
                 try:
@@ -1159,7 +1296,7 @@ def settlement_workbench(request):
             cost_date__lte=period_end,
         ).select_related("supplier").order_by("cost_date", "supplier__name")
 
-    agreement = agreements.first()
+    agreement = selected_plan.source_agreement if selected_plan and selected_plan.source_agreement_id else agreements.first()
     active_steps = selected_plan.steps.filter(active=True).select_related("beneficiary") if selected_plan else []
     steps_count = active_steps.count() if selected_plan else 0
     recipients = []
@@ -1190,6 +1327,7 @@ def settlement_workbench(request):
         "currencies": Currency.choices,
         "selected_title": selected_title,
         "selected_plan": selected_plan,
+        "using_inactive_plan": bool(selected_plan and selected_plan.status != WaterfallPlanStatus.ACTIVE),
         "plans": plans,
         "period_start": period_start,
         "period_end": period_end,
@@ -1252,6 +1390,14 @@ def statement_center(request):
         if action == "generate_pdf":
             if not request.user.has_perm("distribution.generate_statements"):
                 raise PermissionDenied
+            blocked = [statement for statement in statements if statement.recipient.name_review_required]
+            if blocked:
+                names = ", ".join(sorted({statement.recipient.name for statement in blocked}))
+                messages.error(request, f"Nie wygenerowano PDF. Najpierw zweryfikuj nazwy odbiorców: {names}.")
+                return redirect(request.get_full_path())
+            if statements.filter(status=StatementStatus.VOIDED).exists():
+                messages.error(request, "Nie można ponownie generować PDF dla statementu zastąpionego korektą.")
+                return redirect(request.get_full_path())
             generated = 0
             generated_ids = []
             for statement in statements:
@@ -1271,8 +1417,11 @@ def statement_center(request):
         elif action == "change_status":
             target_status = request.POST.get("target_status")
             status_labels = dict(StatementStatus.choices)
-            if target_status not in status_labels:
+            if target_status not in status_labels or target_status == StatementStatus.VOIDED:
                 messages.warning(request, "Wybierz prawidłowy status.")
+                return redirect(request.get_full_path())
+            if statements.filter(status=StatementStatus.VOIDED).exists():
+                messages.error(request, "Statusu zastąpionego statementu nie można zmienić.")
                 return redirect(request.get_full_path())
 
             if target_status == StatementStatus.SENT and not request.user.has_perm("distribution.send_statements"):
@@ -1328,7 +1477,7 @@ def statement_center(request):
         amount_totals.append({
             "currency": currency,
             "amount_due": sum((statement.amount_due for statement in statement_list if statement.currency == currency), 0),
-            "open_amount": sum((statement.amount_due for statement in statement_list if statement.currency == currency and statement.status != StatementStatus.PAID), 0),
+            "open_amount": sum((statement.amount_due for statement in statement_list if statement.currency == currency and statement.status not in {StatementStatus.PAID, StatementStatus.VOIDED}), 0),
         })
     status_counts = {
         row["status"]: row["count"]
@@ -1345,10 +1494,14 @@ def statement_center(request):
         "titles": Title.objects.order_by("title_pl"),
         "recipients": Counterparty.objects.order_by("name"),
         "statement_statuses": StatementStatus.choices,
+        "changeable_statement_statuses": [
+            choice for choice in StatementStatus.choices if choice[0] != StatementStatus.VOIDED
+        ],
         "status_counts": status_counts,
         "status_count_rows": status_count_rows,
         "statement_count": statements.count(),
         "amount_totals": amount_totals,
+        "workspace_title": Title.objects.filter(pk=filters["title_id"]).first() if filters["title_id"].isdigit() else None,
     }
     return render(request, "distribution/statement_center.html", context)
 

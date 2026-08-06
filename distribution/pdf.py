@@ -73,6 +73,7 @@ def _table_style(*, header=True, amount_column=None):
 
 
 def build_royalty_statement_pdf(statement) -> ContentFile:
+    statement.validate_for_issue()
     buffer = BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -102,6 +103,8 @@ def build_royalty_statement_pdf(statement) -> ContentFile:
             if row["cost_allocations__cost_id"]:
                 recovered_by_cost[row["cost_allocations__cost_id"]] = row["total"] or Decimal("0.00")
     document_number = f"RS-{statement.pk:06d}"
+    if statement.revision > 1:
+        document_number = f"{document_number}-R{statement.revision}"
 
     story = [
         Paragraph("FILMERP / ROYALTY ACCOUNTING", styles["Eyebrow"]),
@@ -113,6 +116,13 @@ def build_royalty_statement_pdf(statement) -> ContentFile:
         ["Title", Paragraph(escape(str(statement.title)), styles["Small"]), "Currency", Paragraph(statement.currency, styles["Small"])],
         ["Recipient", Paragraph(escape(str(statement.recipient)), styles["Small"]), "Period", Paragraph(f"{statement.period_start} - {statement.period_end}", styles["Small"])],
     ]
+    if statement.revision > 1:
+        identity.append([
+            "Revision",
+            Paragraph(str(statement.revision), styles["Small"]),
+            "Correction of",
+            Paragraph(f"RS-{statement.supersedes_id:06d}", styles["Small"]),
+        ])
     if statement.waterfall_plan_id or statement.waterfall_run_id:
         identity.append([
             "Calculation basis",
@@ -217,7 +227,13 @@ def build_royalty_statement_pdf(statement) -> ContentFile:
         cost_rows.append(["No recoupable costs in this period.", "", "", "", ""])
     cost_table = Table(cost_rows, repeatRows=1, colWidths=[38 * mm, 25 * mm, 48 * mm, 38 * mm, 28 * mm])
     cost_table.setStyle(_table_style(amount_column=4))
-    story.extend([cost_table, Spacer(1, 8 * mm), Paragraph("Generated from a locked FILMERP calculation snapshot. Source records are identified in the statement audit data.", styles["Small"])])
+    story.append(cost_table)
+    if statement.correction_reason:
+        story.extend([
+            Paragraph("Document Correction", styles["Section"]),
+            Paragraph(escape(statement.correction_reason), styles["Small"]),
+        ])
+    story.extend([Spacer(1, 8 * mm), Paragraph("Generated from a locked FILMERP calculation snapshot. Source records are identified in the statement audit data.", styles["Small"])])
 
     def draw_footer(canvas, _doc):
         canvas.saveState()

@@ -18,10 +18,14 @@ def create_contract_waterfall(cleaned_data):
     licensor = cleaned_data["licensor"]
     distributor = cleaned_data["distributor"]
     scope = list(cleaned_data.get("exploitation_fields") or [])
+    source_agreement = cleaned_data.get("source_agreement")
+    agreement_version = source_agreement.version + 1 if source_agreement else 1
 
     agreement = AcquisitionAgreement.objects.create(
         title=title,
         licensor=licensor,
+        version=agreement_version,
+        supersedes=source_agreement,
         contract_number=cleaned_data.get("contract_number", ""),
         signed_date=cleaned_data.get("signed_date"),
         rights_start=cleaned_data.get("rights_start"),
@@ -50,6 +54,7 @@ def create_contract_waterfall(cleaned_data):
 
     plan = WaterfallPlan.objects.create(
         title=title,
+        source_agreement=agreement,
         name=plan_name,
         version=version,
         status=WaterfallPlanStatus.ACTIVE,

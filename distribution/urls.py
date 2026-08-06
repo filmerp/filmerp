@@ -11,6 +11,7 @@ from .booking_views import (
 )
 from .views import (
     avails,
+    acquisition_agreement_detail,
     contract_waterfall_wizard,
     dashboard,
     document_center,
@@ -21,6 +22,7 @@ from .views import (
     session_keepalive,
     settlement_workbench,
     statement_center,
+    statement_detail,
     title_catalog_export,
     title_detail,
     title_list,
@@ -40,6 +42,7 @@ urlpatterns = [
     path("titles/<int:pk>/edit/", title_setup, name="title_edit"),
     path("titles/<int:title_pk>/pa-budget/new/", pa_budget_setup, name="pa_budget_create"),
     path("titles/<int:title_pk>/pa-budget/<int:pk>/", pa_budget_setup, name="pa_budget_edit"),
+    path("titles/<int:title_pk>/agreements/<int:pk>/", acquisition_agreement_detail, name="acquisition_agreement_detail"),
     path("booking/", booking_crm, name="booking_crm"),
     path("booking/campaigns/new/", booking_campaign_form, name="booking_campaign_create"),
     path("booking/campaigns/<int:pk>/", booking_campaign_form, name="booking_campaign_edit"),
@@ -56,6 +59,7 @@ urlpatterns = [
     path("documents/<int:pk>/", document_review, name="document_review"),
     path("settlements/", settlement_workbench, name="settlement_workbench"),
     path("statements/", statement_center, name="statement_center"),
+    path("statements/<int:pk>/", statement_detail, name="statement_detail"),
     path("reports/", reports, name="reports"),
     path("reports/export/", reports_export_csv, name="reports_export_csv"),
     path("reports/export-360/", title_catalog_export, name="title_catalog_export"),

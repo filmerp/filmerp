@@ -42,20 +42,8 @@
       <label>Data do
         <input type="date" name="date_to" value="{{ filters.date_to }}" required>
       </label>
-      <label>Terytoria
-        <select name="territories" multiple>
-          {% for territory in territories %}
-          <option value="{{ territory.id }}" {% if territory.id|stringformat:"s" in filters.territories %}selected{% endif %}>{{ territory.name }}{% if territory.code %} ({{ territory.code }}){% endif %}</option>
-          {% endfor %}
-        </select>
-      </label>
-      <label>Wersje językowe
-        <select name="languages" multiple>
-          {% for language in languages %}
-          <option value="{{ language.id }}" {% if language.id|stringformat:"s" in filters.languages %}selected{% endif %}>{{ language.name }}{% if language.code %} ({{ language.code }}){% endif %}</option>
-          {% endfor %}
-        </select>
-      </label>
+      <fieldset class="avails-checklist" data-checklist><legend>Terytoria</legend><input type="search" placeholder="Szukaj terytorium" data-checklist-search><button type="button" class="text-action" data-checklist-all>Zaznacz wszystkie</button><div>{% for territory in territories %}<label><input type="checkbox" name="territories" value="{{ territory.id }}" {% if territory.id|stringformat:"s" in filters.territories %}checked{% endif %}> <span>{{ territory.name }}{% if territory.code %} ({{ territory.code }}){% endif %}</span></label>{% endfor %}</div></fieldset>
+      <fieldset class="avails-checklist" data-checklist><legend>Wersje językowe</legend><input type="search" placeholder="Szukaj wersji" data-checklist-search><button type="button" class="text-action" data-checklist-all>Zaznacz wszystkie</button><div>{% for language in languages %}<label><input type="checkbox" name="languages" value="{{ language.id }}" {% if language.id|stringformat:"s" in filters.languages %}checked{% endif %}> <span>{{ language.name }}{% if language.code %} ({{ language.code }}){% endif %}</span></label>{% endfor %}</div></fieldset>
       <button type="submit">Sprawdź dostępność</button>
     </form>
   </section>
@@ -136,5 +124,19 @@
   </section>
   {% endif %}
 </main>
+<script>
+document.querySelectorAll('[data-checklist]').forEach((list) => {
+  const rows = [...list.querySelectorAll('div label')];
+  list.querySelector('[data-checklist-search]').addEventListener('input', (event) => {
+    const query = event.target.value.toLowerCase();
+    rows.forEach((row) => { row.hidden = !row.textContent.toLowerCase().includes(query); });
+  });
+  list.querySelector('[data-checklist-all]').addEventListener('click', () => {
+    const visible = rows.filter((row) => !row.hidden);
+    const check = visible.some((row) => !row.querySelector('input').checked);
+    visible.forEach((row) => { row.querySelector('input').checked = check; });
+  });
+});
+</script>
 </body>
 </html>

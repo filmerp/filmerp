@@ -1,0 +1,67 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RS-{{ statement.pk|stringformat:"06d" }} | FILMERP</title>
+  {% include "distribution/_app_icons.html" %}
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+</head>
+<body>
+{% include "distribution/_app_header.html" %}
+<main>
+  <div class="page-heading">
+    <div>
+      <a class="back-link" href="{% url 'distribution:statement_center' %}?title={{ statement.title_id }}">Statement Center</a>
+      <span class="eyebrow">Royalty Statement · rewizja {{ statement.revision }}</span>
+      <h1>RS-{{ statement.pk|stringformat:"06d" }}</h1>
+      <div class="muted">{{ statement.title }} · {{ statement.recipient }} · {{ statement.period_start }} – {{ statement.period_end }}</div>
+    </div>
+    <div class="action-bar">
+      {% if statement.statement_file %}<a class="button" href="{{ statement.statement_file.url }}">Pobierz PDF</a>{% endif %}
+      <a class="button export" href="{% url 'distribution:settlement_workbench' %}?title={{ statement.title_id }}&date_from={{ statement.period_start|date:'Y-m-d' }}&date_to={{ statement.period_end|date:'Y-m-d' }}">Nowe rozliczenie finansowe</a>
+    </div>
+  </div>
+
+  {% if statement.status == 'voided' %}<div class="notice warning">Ten dokument został zastąpiony{% if statement.corrections.first %} przez <a href="{% url 'distribution:statement_detail' statement.corrections.first.pk %}">rewizję {{ statement.corrections.first.revision }}</a>{% endif %}. Historyczny PDF pozostaje dostępny.</div>{% endif %}
+  {% if statement.supersedes %}<div class="notice info">To korekta dokumentu <a href="{% url 'distribution:statement_detail' statement.supersedes.pk %}">RS-{{ statement.supersedes.pk|stringformat:"06d" }}</a>. Powód: {{ statement.correction_reason }}</div>{% endif %}
+
+  <section class="grid compact">
+    <div class="card"><div class="label">Gross Receipts / Przychody brutto</div><div class="metric small">{{ statement.gross_revenue }} {{ statement.currency }}</div></div>
+    <div class="card"><div class="label">Net Revenue / Przychody netto</div><div class="metric small">{{ statement.net_revenue }} {{ statement.currency }}</div></div>
+    <div class="card"><div class="label">Net Receipts / Saldo</div><div class="metric small">{{ statement.net_receipts }} {{ statement.currency }}</div></div>
+    <div class="card"><div class="label">Amount Due / Do wypłaty</div><div class="metric small">{{ statement.amount_due }} {{ statement.currency }}</div></div>
+  </section>
+
+  <section class="two data-columns">
+    <div class="card">
+      <h2>Zablokowany snapshot</h2>
+      <dl class="data-grid">
+        <div><dt>Status</dt><dd><span class="status-pill {{ statement.status }}">{{ statement.get_status_display }}</span></dd></div>
+        <div><dt>Podstawa</dt><dd>{{ statement.calculation_basis_label }}</dd></div>
+        <div><dt>Obliczono</dt><dd>{{ statement.calculated_at|default:"—" }}</dd></div>
+        <div><dt>Zablokowano</dt><dd>{{ statement.locked_at|default:"—" }}</dd></div>
+        <div><dt>Wysłano</dt><dd>{{ statement.sent_at|default:"—" }}</dd></div>
+        <div><dt>Opłacono</dt><dd>{{ statement.paid_at|default:"—" }}</dd></div>
+      </dl>
+      <details class="linked-records"><summary>Dane audytowe kalkulacji</summary><pre>{{ statement.calculation_snapshot }}</pre></details>
+    </div>
+
+    <div class="card">
+      <h2>Korekta dokumentu</h2>
+      {% if statement.status != 'voided' and perms.distribution.change_royaltystatement %}
+      <p class="muted">Korekta zachowuje kwoty z tego snapshotu, tworzy nowy PDF i oznacza obecną wersję jako zastąpioną.</p>
+      <form method="post" class="stack">
+        {% csrf_token %}
+        {{ correction_form.non_field_errors }}
+        <label>{{ correction_form.reason.label }}{{ correction_form.reason }}{{ correction_form.reason.errors }}<small>{{ correction_form.reason.help_text }}</small></label>
+        <button type="submit">Utwórz korektę dokumentu</button>
+      </form>
+      {% else %}<p class="muted">Dla tej wersji nie można utworzyć kolejnej korekty.</p>{% endif %}
+      <div class="notice info"><strong>Kwoty są błędne?</strong> Wróć do Rozliczeń i utwórz nowe rozliczenie na poprawnych danych. Korekta PDF nie przelicza waterfallu.</div>
+    </div>
+  </section>
+</main>
+</body>
+</html>

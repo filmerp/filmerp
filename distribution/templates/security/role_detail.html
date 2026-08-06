@@ -5,10 +5,14 @@
 {% block content %}
 <form method="post" class="permission-matrix">{% csrf_token %}
   <div class="permission-toolbar"><span>{{ role.user_set.count }} użytkowników korzysta z tej roli</span><button type="submit">Zapisz uprawnienia</button></div>
-  {% for group_name, entries in permission_groups.items %}
-    <details class="permission-group"><summary><strong>{{ group_name }}</strong><span>{{ entries|length }} uprawnień</span></summary><div class="permission-grid">
-      {% for entry in entries %}<label><input type="checkbox" name="permissions" value="{{ entry.permission.pk }}" {% if entry.selected %}checked{% endif %}><span>{{ entry.permission.name }}</span><small>{{ entry.permission.codename }}</small></label>{% endfor %}
-    </div></details>
+  {% for section in permission_sections %}
+    <details class="permission-group" open><summary><strong>{{ section.name }}</strong><span>{{ section.rows|length }} obszarów</span></summary>
+      <div class="permission-business-table">
+        <div class="permission-business-head"><strong>Obszar</strong><span>Podgląd</span><span>Dodawanie</span><span>Edycja</span><span>Usuwanie</span></div>
+        {% for row in section.rows %}<div class="permission-business-row"><strong>{{ row.label }}</strong>{% for cell in row.cells %}<label title="{{ cell.label }}">{% if cell.entry %}<input type="checkbox" name="permissions" value="{{ cell.entry.permission.pk }}" {% if cell.entry.selected %}checked{% endif %}><span class="visually-hidden">{{ row.label }}: {{ cell.label }}</span>{% else %}<span class="permission-na">—</span>{% endif %}</label>{% endfor %}</div>{% endfor %}
+      </div>
+      {% if section.custom %}<div class="permission-custom"><strong>Dodatkowe operacje</strong>{% for entry in section.custom %}<label><input type="checkbox" name="permissions" value="{{ entry.permission.pk }}" {% if entry.selected %}checked{% endif %}><span>{{ entry.permission.name }}</span></label>{% endfor %}</div>{% endif %}
+    </details>
   {% endfor %}
   <div class="form-actions"><button type="submit">Zapisz uprawnienia</button><a class="button secondary" href="{% url 'security:role_list' %}">Anuluj</a></div>
 </form>

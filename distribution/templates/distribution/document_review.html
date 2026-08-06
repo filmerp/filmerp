@@ -38,6 +38,17 @@
     </div>
     {% if document.notes %}<p>{{ document.notes }}</p>{% endif %}
     {% if document.status != 'processed' %}
+    {% if document.document_type == 'unknown' %}
+    <div class="document-type-correction document-type-required">
+      <strong>Wybierz rodzaj dokumentu, aby kontynuować</strong>
+      <form method="post" class="inline-form">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="classify">
+        <label>Rodzaj {{ classification_form.document_type }}</label>
+        <button type="submit">Rozpoznaj ponownie</button>
+      </form>
+    </div>
+    {% else %}
     <details class="document-type-correction">
       <summary>To nie jest właściwy rodzaj dokumentu</summary>
       <form method="post" class="inline-form">
@@ -47,6 +58,7 @@
         <button class="secondary" type="submit">Zmień rodzaj</button>
       </form>
     </details>
+    {% endif %}
     {% endif %}
   </section>
 
@@ -142,6 +154,7 @@
         <div class="document-rejection-result"><strong>Odrzucono: {{ selected_row.get_rejection_reason_display|default:"bez podanego powodu" }}</strong>{% if selected_row.notes %}<span>{{ selected_row.notes }}</span>{% endif %}</div>
         {% if perms.distribution.change_cinemareportimportrow %}<form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="action" value="reopen_report_row"><input type="hidden" name="row_id" value="{{ selected_row.pk }}"><button class="secondary" type="submit">Przywróć do sprawdzenia</button></form>{% endif %}
       {% else %}
+        {% if selected_row.cinema.name_review_required %}<div class="booking-review-messages warning"><p>Nazwa kina „{{ selected_row.cinema.name }}” wymaga potwierdzenia. Otwórz dane kina przed zatwierdzeniem dokumentu.</p><a class="button export" href="{% url 'distribution:booking_cinema_edit' selected_row.cinema_id %}">Zweryfikuj kino</a></div>{% endif %}
         {% if selected_review.errors %}<div class="booking-review-messages danger">{% for error in selected_review.errors %}<p>{{ error }}</p>{% endfor %}</div>{% endif %}
         {% if selected_review.warnings %}<div class="booking-review-messages warning">{% for warning in selected_review.warnings %}<p>{{ warning }}</p>{% endfor %}</div>{% endif %}
         {% if perms.distribution.change_cinemareportimportrow %}
@@ -178,7 +191,7 @@
   </section>
   {% endif %}
   {% else %}
-  <section class="document-result-panel document-unknown"><h2>Dokument wymaga określenia typu</h2><p>Wybierz rodzaj dokumentu powyżej. FILMERP zapisze plik, ale nie zaksięguje żadnych danych bez Twojej decyzji.</p>{% if document.status != 'processed' %}<form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="action" value="reject_document"><button class="secondary" type="submit">Odrzuć dokument</button></form>{% endif %}</section>
+  <section class="document-result-panel document-unknown"><h2>Dokument wymaga określenia typu</h2><p>Użyj widocznego selektora powyżej. FILMERP nie zaksięguje żadnych danych bez Twojej decyzji.</p>{% if document.status != 'processed' %}<form method="post" class="inline-form">{% csrf_token %}<input type="hidden" name="action" value="reject_document"><button class="secondary" type="submit">Odrzuć dokument</button></form>{% endif %}</section>
   {% endif %}
 </main>
 {% if cost_form %}<script src="{% static 'distribution/cost-scope.js' %}"></script><script src="{% static 'distribution/cost-vat.js' %}"></script>{% endif %}

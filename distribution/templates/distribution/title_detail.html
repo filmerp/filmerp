@@ -11,9 +11,10 @@
 <body>
 {% include "distribution/_app_header.html" %}
 <main>
+  {% include "distribution/_title_workspace.html" %}
   <div class="page-heading title-workspace-heading">
     <div>
-      <a class="back-link" href="{% url 'distribution:dashboard' %}">← Wszystkie tytuły</a>
+      <a class="back-link" href="{% url 'distribution:dashboard' %}">Wszystkie tytuły</a>
       <span class="eyebrow">Karta tytułu 360</span>
       <h1>{{ title.title_pl }}</h1>
       <div class="muted">{{ title.original_title|default:"Brak tytułu oryginalnego" }}{% if title.production_year %} · {{ title.production_year }}{% endif %} · {{ title.get_status_display }}</div>
@@ -39,8 +40,8 @@
 
   <nav class="title-workflow-nav" aria-label="Etapy pracy nad tytułem">
     {% for stage in workflow_stages %}
-    <a href="#{{ stage.key }}" class="{% if stage.ready %}done{% else %}pending{% endif %}">
-      <span>{% if stage.ready %}✓{% else %}{{ forloop.counter }}{% endif %}</span>
+    <a href="#{{ stage.key }}" class="{{ stage.state }}">
+      <span>{% if stage.state == 'done' %}✓{% elif stage.state == 'attention' %}!{% else %}{{ forloop.counter }}{% endif %}</span>
       <strong>{{ stage.label }}</strong>
       <small>{{ stage.detail }}</small>
     </a>
@@ -77,7 +78,7 @@
       <div>
         <h3>Umowy nabycia</h3>
         {% for agreement in agreements %}
-        <div class="record-line"><div><strong>{{ agreement.contract_number|default:"Bez numeru" }}</strong><span>{{ agreement.licensor }} · {{ agreement.get_status_display }}</span></div><div class="num">MG {{ agreement.mg_advance }} {{ agreement.currency }}</div><a href="/admin/distribution/acquisitionagreement/{{ agreement.pk }}/change/">Edytuj</a></div>
+        <div class="record-line"><div><strong>{{ agreement.contract_number|default:"Bez numeru" }} · v{{ agreement.version }}</strong><span>{{ agreement.licensor }} · {{ agreement.get_status_display }}</span></div><div class="num">MG {{ agreement.mg_advance }} {{ agreement.currency }}</div><a href="{% url 'distribution:acquisition_agreement_detail' title.pk agreement.pk %}">Otwórz</a></div>
         {% empty %}<div class="inline-empty">Brak umowy nabycia. Zacznij od przycisku „Ustaw umowę”.</div>{% endfor %}
       </div>
       <div>
@@ -110,7 +111,7 @@
       <div class="workflow-number">4</div>
       <div><h2>P&A, budżet, wpływy i faktury</h2><p>Planuj koszty, przypisuj faktury i kontroluj wykonanie bez podwójnego wpisywania danych.</p></div>
       <div class="action-bar">
-        <a class="button" href="{% url 'distribution:document_center' %}#upload">Wczytaj dokument</a>
+        <a class="button" href="{% url 'distribution:document_center' %}?title={{ title.pk }}#upload">Wczytaj dokument</a>
         {% if perms.distribution.add_pabudget %}<a class="button export" href="{% url 'distribution:pa_budget_create' title.pk %}">Nowy budżet P&A</a>{% endif %}
         <a class="button export" href="/admin/distribution/salesreport/add/?title={{ title.pk }}">Dodaj wpływ</a>
       </div>
@@ -206,7 +207,7 @@
     </div>
     <div class="table-scroll"><table>
       <thead><tr><th>Odbiorca</th><th>Okres</th><th>Do wypłaty</th><th>Status</th><th>Dokument</th></tr></thead>
-      <tbody>{% for statement in royalty_statements %}<tr><td>{{ statement.recipient }}</td><td>{{ statement.period_start }} – {{ statement.period_end }}</td><td class="num">{{ statement.amount_due }} {{ statement.currency }}</td><td><span class="status-pill {{ statement.status }}">{{ statement.get_status_display }}</span></td><td>{% if statement.statement_file %}<a href="{{ statement.statement_file.url }}">PDF</a>{% else %}—{% endif %}</td></tr>{% empty %}<tr><td colspan="5" class="muted">Nie utworzono jeszcze statementów dla tego tytułu.</td></tr>{% endfor %}</tbody>
+      <tbody>{% for statement in royalty_statements %}<tr><td>{{ statement.recipient }}</td><td>{{ statement.period_start }} – {{ statement.period_end }}</td><td class="num">{{ statement.amount_due }} {{ statement.currency }}</td><td><span class="status-pill {{ statement.status }}">{{ statement.get_status_display }}</span></td><td><a href="{% url 'distribution:statement_detail' statement.pk %}">Otwórz</a>{% if statement.statement_file %} · <a href="{{ statement.statement_file.url }}">PDF</a>{% endif %}</td></tr>{% empty %}<tr><td colspan="5" class="muted">Nie utworzono jeszcze statementów dla tego tytułu.</td></tr>{% endfor %}</tbody>
     </table></div>
   </section>
 </main>

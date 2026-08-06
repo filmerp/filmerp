@@ -103,7 +103,8 @@ class SecurityModuleTests(TestCase):
         role = Group.objects.get(name="legal")
         response = self.client.get(reverse("security:role_detail", args=[role.pk]))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "view_business_audit")
+        self.assertContains(response, "Historia zmian")
+        self.assertNotContains(response, "view_business_audit")
 
         record_audit_event(AuditAction.UPDATE, "Zmiana testowa", actor=self.admin, module="titles")
         response = self.client.get(reverse("security:audit_history"), {"format": "xlsx"})

@@ -17,6 +17,7 @@ from .models import (
     Counterparty,
     CounterpartyType,
     ImportStatus,
+    ReportingCycle,
     Title,
 )
 
@@ -184,9 +185,15 @@ def get_or_create_cinema(name):
     found = find_known_cinema(name)
     if found:
         return found
+    review_reason = Counterparty.review_reason_for_name(name)
     cinema, _ = Counterparty.objects.get_or_create(
         name=name,
-        defaults={"counterparty_type": CounterpartyType.CINEMA},
+        defaults={
+            "counterparty_type": CounterpartyType.CINEMA,
+            "name_review_required": bool(review_reason),
+            "name_review_note": review_reason,
+            "reporting_cycle": ReportingCycle.WEEKLY,
+        },
     )
     return cinema
 

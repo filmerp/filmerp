@@ -13,8 +13,8 @@
 <main>
   <div class="page-heading">
     <div>
-      <h1>Kreator umowy i waterfallu</h1>
-      <div class="muted">Jednorazowo zapisz warunki umowy oraz kolejność rozliczania wpływów.</div>
+      <h1>{% if source_agreement %}Nowa wersja warunków{% else %}Kreator umowy i waterfallu{% endif %}</h1>
+      <div class="muted">{% if source_agreement %}Tworzysz wersję {{ source_agreement.version|add:"1" }} na podstawie umowy {{ source_agreement.contract_number|default:source_agreement.pk }}. Poprzednia wersja pozostanie w historii.{% else %}Jednorazowo zapisz warunki umowy oraz kolejność rozliczania wpływów.{% endif %}</div>
     </div>
     {% if selected_title %}<a class="button secondary" href="{% url 'distribution:title_detail' selected_title.pk %}">Wróć do tytułu</a>{% endif %}
   </div>
@@ -22,6 +22,7 @@
   {% if form.non_field_errors %}<div class="notice error">{{ form.non_field_errors }}</div>{% endif %}
   <form method="post" class="contract-wizard">
     {% csrf_token %}
+    {{ form.source_agreement }}
     <section class="wizard-layout">
       <div class="wizard-form stack">
         <fieldset class="workbench-section">
@@ -75,7 +76,7 @@
           <li><span>5</span><div><strong>Podział nadwyżki</strong><small>Licencjodawca i dystrybutor równolegle</small></div></li>
         </ol>
         <p class="muted">Kolejny zapis tworzy nową wersję planu. Zatwierdzone historyczne rozliczenia pozostają bez zmian.</p>
-        <button type="submit">Utwórz umowę i aktywuj waterfall</button>
+        <button type="submit">{% if source_agreement %}Utwórz nową wersję i aktywuj waterfall{% else %}Utwórz umowę i aktywuj waterfall{% endif %}</button>
       </aside>
     </section>
   </form>

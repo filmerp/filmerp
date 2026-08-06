@@ -376,8 +376,8 @@ class TitleAdmin(FilmerpModelAdmin):
 
 @admin.register(Counterparty)
 class CounterpartyAdmin(FilmerpModelAdmin):
-    list_display = ("name", "counterparty_type", "country", "contact_person", "email", "payment_terms_days", "reporting_cycle")
-    list_filter = ("counterparty_type", "country", "reporting_cycle")
+    list_display = ("name", "name_review_required", "counterparty_type", "country", "contact_person", "email", "payment_terms_days", "reporting_cycle")
+    list_filter = ("name_review_required", "counterparty_type", "country", "reporting_cycle")
     search_fields = ("name", "vat_id", "contact_person", "email")
 
 
@@ -485,11 +485,21 @@ class LanguageVersionAdmin(FilmerpModelAdmin):
 
 @admin.register(AcquisitionAgreement)
 class AcquisitionAgreementAdmin(FilmerpModelAdmin):
-    list_display = ("contract_number", "title", "licensor", "status", "signed_date", "rights_start", "rights_end", "currency", "mg_advance")
+    list_display = ("contract_number", "version", "title", "licensor", "status", "signed_date", "rights_start", "rights_end", "currency", "mg_advance")
     list_filter = ("status", "currency", "pa_recoupable")
     search_fields = ("contract_number", "title__title_pl", "title__original_title", "licensor__name")
     autocomplete_fields = ("title", "licensor", "territories")
-    inlines = [RightsWindowInline]
+    readonly_fields = [field.name for field in AcquisitionAgreement._meta.fields] + ["territories"]
+    actions = None
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return request.method in {"GET", "HEAD", "OPTIONS"}
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(SalesAgreement)
@@ -989,8 +999,17 @@ class RoyaltyStatementAdmin(FilmerpModelAdmin):
     list_filter = ("status", "currency", "period_end", "waterfall_plan")
     search_fields = ("title__title_pl", "title__original_title", "recipient__name")
     autocomplete_fields = ("title", "recipient", "waterfall_plan", "waterfall_run")
-    readonly_fields = ("calculation_snapshot", "calculated_at", "locked_at")
-    actions = ["generate_pdf_for_selected"]
+    readonly_fields = [field.name for field in RoyaltyStatement._meta.fields]
+    actions = None
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return request.method in {"GET", "HEAD", "OPTIONS"}
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
     @admin.action(description="Wygeneruj PDF royalty statement")
     def generate_pdf_for_selected(self, request, queryset):

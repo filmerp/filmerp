@@ -12,6 +12,7 @@
 {% include "distribution/_app_header.html" %}
 
 <main>
+  {% if selected_title %}{% with workspace_title=selected_title %}{% include "distribution/_title_workspace.html" %}{% endwith %}{% endif %}
   <div class="page-heading">
     <div>
       <h1>Rozliczenie okresu</h1>
@@ -31,10 +32,10 @@
   {% endif %}
 
   <ol class="workflow-steps" aria-label="Etapy rozliczenia">
-    <li class="{% if selected_title %}done{% else %}current{% endif %}"><span>1</span> Tytuł i okres</li>
-    <li class="{% if run %}done{% elif selected_title %}current{% endif %}"><span>2</span> Dane źródłowe</li>
-    <li class="{% if run.status == 'finalized' %}done{% elif run %}current{% endif %}"><span>3</span> Kalkulacja okresu</li>
-    <li class="{% if statements %}done{% elif run.status == 'finalized' %}current{% endif %}"><span>4</span> Statementy</li>
+    <li class="{% if selected_title %}done{% else %}current{% endif %}"><a href="#settlement-period"><span>1</span> Tytuł i okres</a></li>
+    <li class="{% if run %}done{% elif selected_title %}current{% endif %}"><a href="#settlement-sources"><span>2</span> Dane źródłowe</a></li>
+    <li class="{% if run.status == 'finalized' %}done{% elif run %}current{% endif %}"><a href="#settlement-calculation"><span>3</span> Kalkulacja okresu</a></li>
+    <li class="{% if statements %}done{% elif run.status == 'finalized' %}current{% endif %}"><a href="#settlement-statements"><span>4</span> Statementy</a></li>
   </ol>
 
   <section class="settlement-concepts" aria-label="Jak działa waterfall">
@@ -43,7 +44,7 @@
     <div><strong>Rozliczenie zatwierdzone</strong><span>Zamrożony wynik do historii, na podstawie którego powstają statementy.</span></div>
   </section>
 
-  <section class="toolbar settlement-selector">
+  <section class="toolbar settlement-selector" id="settlement-period">
     <form method="get">
       <label>Tytuł
         <select name="title" required>
@@ -65,7 +66,7 @@
       {% if plans %}
       <label>Warunki rozliczenia
         <select name="plan">
-          {% for plan in plans %}<option value="{{ plan.pk }}" {% if selected_plan.pk == plan.pk %}selected{% endif %}>{{ plan.name }} · v{{ plan.version }}</option>{% endfor %}
+          {% for plan in plans %}<option value="{{ plan.pk }}" {% if selected_plan.pk == plan.pk %}selected{% endif %}>{{ plan.name }} · v{{ plan.version }} · {{ plan.currency }}{% if plan.status == 'active' %} · aktywny{% else %} · {{ plan.get_status_display }}{% endif %}</option>{% endfor %}
         </select>
       </label>
       {% endif %}
@@ -79,17 +80,24 @@
   </section>
   {% else %}
 
+  {% if using_inactive_plan %}
+  <section class="notice warning inactive-plan-warning">
+    <strong>Wybrano historyczną wersję waterfallu.</strong>
+    <span>{{ selected_plan.name }} v{{ selected_plan.version }} ({{ selected_plan.currency }}) nie jest aktywnym planem tego tytułu. Użyj jej tylko do korekty lub odtworzenia historycznego rozliczenia.</span>
+  </section>
+  {% endif %}
+
   <section class="workbench-section">
     <div class="section-header">
       <h2>Gotowość rozliczenia</h2>
       <div class="row-actions">
         {% if agreement %}
-        <a class="button export" href="/admin/distribution/acquisitionagreement/{{ agreement.pk }}/change/">Umowa</a>
+        <a class="button export" href="{% url 'distribution:acquisition_agreement_detail' selected_title.pk agreement.pk %}">Umowa</a>
         {% else %}
         <a class="button export" href="{% url 'distribution:contract_waterfall_wizard' %}?title={{ selected_title.pk }}">Dodaj umowę i waterfall</a>
         {% endif %}
         {% if selected_plan %}
-        <a class="button export" href="/admin/distribution/waterfallplan/{{ selected_plan.pk }}/change/">Warunki waterfall</a>
+        {% if selected_plan.source_agreement_id %}<a class="button export" href="{% url 'distribution:acquisition_agreement_detail' selected_title.pk selected_plan.source_agreement_id %}">Warunki waterfall</a>{% else %}<a class="button export" href="{% url 'distribution:contract_waterfall_wizard' %}?title={{ selected_title.pk }}">Nowa wersja warunków</a>{% endif %}
         {% else %}
         <a class="button export" href="{% url 'distribution:contract_waterfall_wizard' %}?title={{ selected_title.pk }}">Skonfiguruj waterfall</a>
         {% endif %}
@@ -105,19 +113,19 @@
     </div>
   </section>
 
-  <section class="workbench-section source-intake-shortcut">
+  <section class="workbench-section source-intake-shortcut" id="settlement-sources">
     <div>
       <h2>Dokumenty źródłowe</h2>
       <div class="muted">Raporty kinowe, statementy i faktury kosztowe</div>
     </div>
-    <a class="button" href="{% url 'distribution:document_center' %}#upload">Otwórz Dokumenty</a>
+    <a class="button" href="{% url 'distribution:document_center' %}?title={{ selected_title.pk }}#upload">Otwórz Dokumenty</a>
   </section>
 
   {% if selected_import %}
   <section class="workbench-section import-review">
     <div class="section-header">
       <div><h2>Raport przeniesiony do Dokumentów</h2><div class="muted">{{ selected_import.original_filename }} · sprawdź pozycje osobno, zanim trafią do rozliczenia.</div></div>
-      {% if selected_import.inbox_document %}<a class="button" href="{% url 'distribution:document_review' selected_import.inbox_document.pk %}">Sprawdź dokument</a>{% else %}<a class="button" href="{% url 'distribution:document_center' %}">Otwórz Dokumenty</a>{% endif %}
+      {% if selected_import.inbox_document %}<a class="button" href="{% url 'distribution:document_review' selected_import.inbox_document.pk %}">Sprawdź dokument</a>{% else %}<a class="button" href="{% url 'distribution:document_center' %}?title={{ selected_title.pk }}">Otwórz Dokumenty</a>{% endif %}
     </div>
   </section>
   {% endif %}
@@ -134,6 +142,7 @@
         <input type="hidden" name="date_to" value="{{ period_end|date:'Y-m-d' }}">
         <input type="hidden" name="currency" value="{{ currency }}">
         {% if run %}<input type="hidden" name="run" value="{{ run.pk }}">{% endif %}
+        {% if using_inactive_plan %}<label class="historical-plan-confirm"><input type="checkbox" name="confirm_inactive_plan" value="yes"> Potwierdzam użycie wersji historycznej</label>{% endif %}
         <button type="submit" {% if not can_simulate or run.status == 'finalized' %}disabled{% endif %}>{% if run %}Przelicz ponownie{% else %}Przelicz okres{% endif %}</button>
       </form>
     </div>
@@ -156,7 +165,7 @@
   </section>
 
   {% if run %}
-  <section class="workbench-section calculation-review">
+  <section class="workbench-section calculation-review" id="settlement-calculation">
     <div class="section-header">
       <div><h2>Wynik rozliczenia okresu</h2><div class="muted">{{ run.plan.name }} · v{{ run.plan.version }} · przeliczono {{ run.calculated_at|date:'Y-m-d H:i' }}</div></div>
       <span class="status-pill {{ run.status }}">{{ run.get_status_display }}</span>
@@ -194,17 +203,18 @@
           {% empty %}<div class="notice warning">Dodaj beneficjentów do kroków waterfall.</div>{% endfor %}
         </div>
       </fieldset>
+      {% if using_inactive_plan %}<label class="historical-plan-confirm"><input type="checkbox" name="confirm_inactive_plan" value="yes"> Potwierdzam zatwierdzenie według historycznej wersji waterfallu</label>{% endif %}
       <button type="submit" {% if not recipients %}disabled{% endif %}>{% if run.status == 'finalized' %}Utwórz ponownie statementy PDF{% else %}Zatwierdź i utwórz statementy PDF{% endif %}</button>
     </form>
   </section>
   {% endif %}
 
   {% if statements %}
-  <section class="workbench-section">
+  <section class="workbench-section" id="settlement-statements">
     <div class="section-header"><h2>Statementy tego rozliczenia</h2><a class="button export" href="{% url 'distribution:statement_center' %}?title={{ selected_title.pk }}">Statement Center</a></div>
     <table>
       <thead><tr><th>Odbiorca</th><th>Okres</th><th class="num">Do wypłaty</th><th>Status</th><th>PDF</th></tr></thead>
-      <tbody>{% for statement in statements %}<tr><td><strong>{{ statement.recipient.name }}</strong></td><td>{{ statement.period_start }} – {{ statement.period_end }}</td><td class="num">{{ statement.amount_due }} {{ statement.currency }}</td><td><span class="status-pill {{ statement.status }}">{{ statement.get_status_display }}</span></td><td>{% if statement.statement_file %}<a class="button export" href="{{ statement.statement_file.url }}">Pobierz</a>{% endif %}</td></tr>{% endfor %}</tbody>
+      <tbody>{% for statement in statements %}<tr><td><strong>{{ statement.recipient.name }}</strong></td><td>{{ statement.period_start }} – {{ statement.period_end }}</td><td class="num">{{ statement.amount_due }} {{ statement.currency }}</td><td><span class="status-pill {{ statement.status }}">{{ statement.get_status_display }}</span></td><td><a class="button export" href="{% url 'distribution:statement_detail' statement.pk %}">Otwórz</a>{% if statement.statement_file %} <a href="{{ statement.statement_file.url }}">PDF</a>{% endif %}</td></tr>{% endfor %}</tbody>
     </table>
   </section>
   {% endif %}

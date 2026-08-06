@@ -1,0 +1,67 @@
+<!doctype html>
+{% load static %}
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Umowa {{ agreement.contract_number|default:agreement.pk }} | FILMERP</title>
+  {% include "distribution/_app_icons.html" %}
+  <link rel="stylesheet" href="{% static 'distribution/filmerp.css' %}">
+</head>
+<body>
+{% include "distribution/_app_header.html" %}
+<main>
+  <div class="page-heading">
+    <div>
+      <a class="back-link" href="{% url 'distribution:title_detail' title.pk %}#rights">{{ title.title_pl }}</a>
+      <span class="eyebrow">Umowa nabycia · wersja {{ agreement.version }}</span>
+      <h1>{{ agreement.contract_number|default:"Umowa bez numeru" }}</h1>
+      <div class="muted">{{ agreement.licensor }} · {{ agreement.get_status_display }}</div>
+    </div>
+    <div class="action-bar">
+      {% if agreement.agreement_file %}<a class="button export" href="{{ agreement.agreement_file.url }}">Pobierz umowę</a>{% endif %}
+      {% if perms.distribution.add_acquisitionagreement and perms.distribution.add_waterfallplan %}<a class="button" href="{% url 'distribution:contract_waterfall_wizard' %}?agreement={{ agreement.pk }}">Utwórz nową wersję warunków</a>{% endif %}
+    </div>
+  </div>
+
+  {% if agreement.supersedes %}<div class="notice info">Ta wersja zastępuje <a href="{% url 'distribution:acquisition_agreement_detail' title.pk agreement.supersedes.pk %}">wersję {{ agreement.supersedes.version }}</a>.</div>{% endif %}
+  {% if agreement.revisions.all %}<div class="notice warning">Istnieje nowsza wersja: {% for revision in agreement.revisions.all %}<a href="{% url 'distribution:acquisition_agreement_detail' title.pk revision.pk %}">v{{ revision.version }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}.</div>{% endif %}
+
+  <section class="two data-columns">
+    <div class="card">
+      <h2>Warunki zapisane w wersji</h2>
+      <dl class="data-grid">
+        <div><dt>Licencjodawca</dt><dd>{{ agreement.licensor }}</dd></div>
+        <div><dt>Okres praw</dt><dd>{{ agreement.rights_start|default:"—" }} – {{ agreement.rights_end|default:"—" }}</dd></div>
+        <div><dt>Waluta</dt><dd>{{ agreement.currency }}</dd></div>
+        <div><dt>MG</dt><dd>{{ agreement.mg_advance }} {{ agreement.currency }}</dd></div>
+        <div><dt>Udział licencjodawcy</dt><dd>{{ agreement.revenue_share_percent }}%</dd></div>
+        <div><dt>P&A recoupable</dt><dd>{% if agreement.pa_recoupable %}tak{% else %}nie{% endif %}</dd></div>
+        <div class="wide"><dt>Terytoria</dt><dd>{% for territory in agreement.territories.all %}{{ territory.name }}{% if not forloop.last %}, {% endif %}{% empty %}nie wskazano{% endfor %}</dd></div>
+        <div class="wide"><dt>Powiązany waterfall</dt><dd>{% if plan %}{{ plan.name }} · v{{ plan.version }} · {{ plan.get_status_display }}{% else %}brak{% endif %}</dd></div>
+      </dl>
+      <div class="notice info">Warunki finansowe, zakres praw i waterfall są wersjonowane. Zmieniaj je wyłącznie przez „Utwórz nową wersję warunków”.</div>
+    </div>
+
+    <div class="card">
+      <h2>Metadane dokumentu</h2>
+      {% if editable %}
+      <form method="post" enctype="multipart/form-data" class="stack">
+        {% csrf_token %}
+        {% for field in form %}<label>{{ field.label }}{{ field }}{{ field.errors }}{% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}</label>{% endfor %}
+        <div class="action-bar"><button type="submit">Zapisz metadane</button><a class="button export" href="{% url 'distribution:title_detail' title.pk %}#rights">Anuluj</a></div>
+      </form>
+      {% else %}
+      <dl class="data-grid">
+        <div><dt>Numer</dt><dd>{{ agreement.contract_number|default:"—" }}</dd></div>
+        <div><dt>Data podpisania</dt><dd>{{ agreement.signed_date|default:"—" }}</dd></div>
+        <div><dt>Status</dt><dd>{{ agreement.get_status_display }}</dd></div>
+        <div class="wide"><dt>Uwagi</dt><dd>{{ agreement.notes|default:"—"|linebreaksbr }}</dd></div>
+      </dl>
+      <div class="notice info">Podpisana lub zamknięta umowa jest tylko do odczytu. Korekta warunków tworzy nową wersję i zachowuje historię.</div>
+      {% endif %}
+    </div>
+  </section>
+</main>
+</body>
+</html>

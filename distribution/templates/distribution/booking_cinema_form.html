@@ -26,6 +26,7 @@
       <h2>Dane kina</h2>
       <div class="booking-form-grid">
         {% include "distribution/_booking_field.html" with field=form.name wide=True %}
+        {% if cinema.name_review_required or form.confirm_name.errors %}{% include "distribution/_booking_field.html" with field=form.confirm_name wide=True %}{% endif %}
         {% include "distribution/_booking_field.html" with field=form.account_type %}
         {% include "distribution/_booking_field.html" with field=form.chain %}
         {% include "distribution/_booking_field.html" with field=form.city %}

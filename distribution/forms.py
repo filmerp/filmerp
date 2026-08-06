@@ -124,6 +124,11 @@ class CostScopeFormMixin(forms.ModelForm):
 
 
 class ContractWaterfallWizardForm(forms.Form):
+    source_agreement = forms.ModelChoiceField(
+        queryset=AcquisitionAgreement.objects.none(),
+        required=False,
+        widget=forms.HiddenInput,
+    )
     title = forms.ModelChoiceField(label="Tytuł", queryset=Title.objects.none())
     contract_number = forms.CharField(label="Numer umowy", max_length=120, required=False)
     licensor = forms.ModelChoiceField(label="Licencjodawca / producent", queryset=Counterparty.objects.none())
@@ -152,8 +157,9 @@ class ContractWaterfallWizardForm(forms.Form):
     status = forms.ChoiceField(label="Status umowy", choices=AgreementStatus.choices, initial=AgreementStatus.SIGNED)
     notes = forms.CharField(label="Uwagi / podstawa umowna", required=False, widget=forms.Textarea(attrs={"rows": 3}))
 
-    def __init__(self, *args, title=None, **kwargs):
+    def __init__(self, *args, title=None, agreement=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["source_agreement"].queryset = AcquisitionAgreement.objects.all()
         self.fields["title"].queryset = Title.objects.order_by("title_pl")
         self.fields["licensor"].queryset = Counterparty.objects.order_by("name")
         self.fields["distributor"].queryset = Counterparty.objects.order_by("name")
@@ -167,6 +173,32 @@ class ContractWaterfallWizardForm(forms.Form):
             self.fields["currency"].initial = title.acquisition_currency
             self.fields["mg_advance"].initial = title.mg_advance
             self.fields["licensor"].initial = title.producer_id
+        if agreement:
+            self.fields["source_agreement"].initial = agreement
+            self.fields["title"].initial = agreement.title
+            self.fields["contract_number"].initial = agreement.contract_number
+            self.fields["licensor"].initial = agreement.licensor
+            self.fields["signed_date"].initial = agreement.signed_date
+            self.fields["rights_start"].initial = agreement.rights_start
+            self.fields["rights_end"].initial = agreement.rights_end
+            self.fields["territories"].initial = agreement.territories.all()
+            self.fields["currency"].initial = agreement.currency
+            self.fields["mg_advance"].initial = agreement.mg_advance
+            self.fields["pa_recoupable"].initial = agreement.pa_recoupable
+            self.fields["licensor_share_percent"].initial = agreement.revenue_share_percent
+            self.fields["status"].initial = agreement.status
+            self.fields["notes"].initial = agreement.notes
+            plan = agreement.waterfall_plans.order_by("-version").first()
+            if plan:
+                self.fields["applies_to_all_exploitation_fields"].initial = plan.applies_to_all_exploitation_fields
+                self.fields["exploitation_fields"].initial = plan.exploitation_fields
+                fee_step = plan.steps.filter(step_type="commission", active=True).first()
+                if fee_step:
+                    self.fields["distributor"].initial = fee_step.beneficiary
+                    self.fields["distributor_fee_percent"].initial = fee_step.percentage
+                pa_step = plan.steps.filter(include_recoupable_costs=True, active=True).first()
+                if pa_step:
+                    self.fields["pa_cost_categories"].initial = pa_step.cost_categories
 
     def clean(self):
         cleaned = super().clean()
@@ -177,7 +209,29 @@ class ContractWaterfallWizardForm(forms.Form):
             self.add_error("exploitation_fields", "Wybierz pola albo zaznacz wszystkie pola eksploatacji.")
         if cleaned.get("pa_recoupable") and not cleaned.get("pa_cost_categories"):
             self.add_error("pa_cost_categories", "Wybierz co najmniej jedną kategorię kosztów P&A.")
+        source = cleaned.get("source_agreement")
+        if source and cleaned.get("title") and source.title_id != cleaned["title"].pk:
+            self.add_error("title", "Nowa wersja musi dotyczyć tego samego tytułu co poprzednia umowa.")
         return cleaned
+
+
+class AcquisitionAgreementMetadataForm(forms.ModelForm):
+    class Meta:
+        model = AcquisitionAgreement
+        fields = ("contract_number", "signed_date", "status", "agreement_file", "notes")
+        widgets = {
+            "signed_date": forms.DateInput(attrs={"type": "date"}),
+            "notes": forms.Textarea(attrs={"rows": 5}),
+        }
+
+
+class StatementCorrectionForm(forms.Form):
+    reason = forms.CharField(
+        label="Powód korekty dokumentu",
+        min_length=10,
+        widget=forms.Textarea(attrs={"rows": 4}),
+        help_text="Opisz błąd dokumentu. Zmiana danych finansowych wymaga nowego rozliczenia.",
+    )
 
 
 class TitleSetupForm(forms.ModelForm):
@@ -748,6 +802,11 @@ class CinemaAccountForm(forms.Form):
     reporting_cycle = forms.ChoiceField(label="Cykl raportowania", choices=ReportingCycle.choices, initial=ReportingCycle.WEEKLY)
     active = forms.BooleanField(label="Aktywne", required=False, initial=True)
     booking_notes = forms.CharField(label="Uwagi bookingowe", required=False, widget=forms.Textarea(attrs={"rows": 3}))
+    confirm_name = forms.BooleanField(
+        label="Potwierdzam, że nazwa kina / sieci jest poprawna",
+        required=False,
+        help_text="Wymagane tylko wtedy, gdy nazwa wygląda jak liczba lub została oznaczona po imporcie.",
+    )
 
     def __init__(self, *args, instance=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -788,6 +847,16 @@ class CinemaAccountForm(forms.Form):
         cleaned = super().clean()
         if cleaned.get("account_type") == CounterpartyType.CINEMA_CHAIN:
             cleaned["chain"] = None
+        elif cleaned.get("account_type") == CounterpartyType.CINEMA and not cleaned.get("city"):
+            self.add_error("city", "Podaj miasto dla pojedynczego kina.")
+        name = cleaned.get("name", "")
+        review_reason = Counterparty.review_reason_for_name(name)
+        was_flagged = bool(self.instance and self.instance.name_review_required)
+        if (review_reason or was_flagged) and not cleaned.get("confirm_name"):
+            self.add_error(
+                "confirm_name",
+                review_reason or self.instance.name_review_note or "Potwierdź poprawność nazwy kontrahenta.",
+            )
         return cleaned
 
     @transaction.atomic
@@ -795,6 +864,8 @@ class CinemaAccountForm(forms.Form):
         counterparty = self.instance or Counterparty()
         counterparty.name = self.cleaned_data["name"]
         counterparty.counterparty_type = self.cleaned_data["account_type"]
+        counterparty.name_review_required = False
+        counterparty.name_review_note = ""
         for field_name in ("country", "vat_id", "email", "phone", "payment_terms_days", "reporting_cycle"):
             setattr(counterparty, field_name, self.cleaned_data[field_name])
         counterparty.full_clean()

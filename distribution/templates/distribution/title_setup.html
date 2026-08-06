@@ -13,7 +13,7 @@
 <main>
   <div class="page-heading">
     <div>
-      <a class="back-link" href="{% if title %}{% url 'distribution:title_detail' title.pk %}{% else %}{% url 'distribution:dashboard' %}{% endif %}">← Wróć</a>
+      <a class="back-link" href="{% if title %}{% url 'distribution:title_detail' title.pk %}{% else %}{% url 'distribution:dashboard' %}{% endif %}">Wróć</a>
       <h1>{% if title %}Metryka: {{ title.title_pl }}{% else %}Dodaj nowy tytuł{% endif %}</h1>
       <div class="muted">To pierwszy etap. Po zapisaniu przejdziesz do umowy, praw i waterfallu.</div>
     </div>

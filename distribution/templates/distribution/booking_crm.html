@@ -12,6 +12,7 @@
 <body>
 {% include "distribution/_app_header.html" %}
 <main class="booking-main">
+  {% include "distribution/_title_workspace.html" %}
   {% if messages %}
   <section class="messages">{% for message in messages %}<div class="message {{ message.tags }}">{{ message }}</div>{% endfor %}</section>
   {% endif %}
@@ -235,7 +236,13 @@
 
   {% elif active_view == 'cinemas' %}
     <section class="booking-table-section">
-      <div class="section-header"><h2>Kina i sieci</h2><span class="muted">{{ cinemas|length }} pozycji</span></div>
+      <div class="section-header"><div><h2>Kina i sieci</h2><span class="muted">{{ cinema_page.paginator.count }} pozycji · {{ incomplete_cinemas_count }} bez miasta lub kontaktu</span></div></div>
+      <form method="get" class="inline-form cinema-directory-filters">
+        <input type="hidden" name="view" value="cinemas">{% if selected_campaign %}<input type="hidden" name="campaign" value="{{ selected_campaign.pk }}">{% endif %}
+        <label>Szukaj <input type="search" name="q" value="{{ query }}" placeholder="kino, miasto lub kontakt"></label>
+        <label>Jakość danych <select name="cinema_data"><option value="">Wszystkie</option><option value="missing_city" {% if cinema_data_filter == 'missing_city' %}selected{% endif %}>Bez miasta</option><option value="missing_contact" {% if cinema_data_filter == 'missing_contact' %}selected{% endif %}>Bez kontaktu</option><option value="missing_reporting" {% if cinema_data_filter == 'missing_reporting' %}selected{% endif %}>Bez cyklu raportowania</option></select></label>
+        <button type="submit">Filtruj</button>
+      </form>
       <div class="table-scroll"><table>
         <thead><tr><th>Kino / sieć</th><th>Miasto</th><th>Sieć</th><th>Kontakt główny</th><th>Raportowanie</th><th>Płatność</th><th>Otwarte rozmowy</th><th></th></tr></thead>
         <tbody>
@@ -244,6 +251,7 @@
         {% endwith %}{% empty %}<tr><td colspan="8" class="muted">Brak kin w bazie.</td></tr>{% endfor %}
         </tbody>
       </table></div>
+      {% if cinema_page.paginator.num_pages > 1 %}<nav class="pagination" aria-label="Strony bazy kin">{% if cinema_page.has_previous %}<a href="?view=cinemas&amp;page={{ cinema_page.previous_page_number }}&amp;q={{ query|urlencode }}&amp;cinema_data={{ cinema_data_filter }}{% if selected_campaign %}&amp;campaign={{ selected_campaign.pk }}{% endif %}">Poprzednia</a>{% endif %}<span>Strona {{ cinema_page.number }} z {{ cinema_page.paginator.num_pages }}</span>{% if cinema_page.has_next %}<a href="?view=cinemas&amp;page={{ cinema_page.next_page_number }}&amp;q={{ query|urlencode }}&amp;cinema_data={{ cinema_data_filter }}{% if selected_campaign %}&amp;campaign={{ selected_campaign.pk }}{% endif %}">Następna</a>{% endif %}</nav>{% endif %}
     </section>
 
   {% else %}

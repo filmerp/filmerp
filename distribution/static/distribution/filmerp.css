@@ -775,6 +775,15 @@ button:disabled,
   font-weight: 700;
 }
 
+.workflow-steps li a {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  color: inherit;
+  text-decoration: none;
+}
+
 .workflow-steps li:last-child {
   border-right: 0;
 }
@@ -1572,6 +1581,16 @@ form.single-upload {
   background: #ecfdf5;
 }
 
+.title-stage-strip li.attention {
+  color: #8a5a00;
+}
+
+.title-stage-strip li.attention span {
+  border-color: #d99a16;
+  background: #fff7df;
+  color: #8a5a00;
+}
+
 .title-next-action {
   display: grid;
   gap: 4px;
@@ -1740,6 +1759,66 @@ form.single-upload {
   box-shadow: var(--shadow);
 }
 
+.title-context-bar {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin: -4px 0 18px;
+  padding: 10px 14px;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  background: #fff;
+  white-space: nowrap;
+}
+
+.title-context-bar strong {
+  margin-right: auto;
+}
+
+.title-context-bar a {
+  color: var(--primary);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.avails-checklist {
+  min-width: 250px;
+  max-height: 260px;
+  padding: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.avails-checklist > div {
+  display: grid;
+  gap: 5px;
+  max-height: 165px;
+  margin-top: 8px;
+  overflow-y: auto;
+}
+
+.avails-checklist label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.document-type-required {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-left: 4px solid #d99a16;
+  background: #fff7df;
+}
+
+form label:not(.check-label):not(.check-line):has(> input[required])::after,
+form label:not(.check-label):not(.check-line):has(> select[required])::after,
+form label:not(.check-label):not(.check-line):has(> textarea[required])::after {
+  content: " *";
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .title-workflow-nav a {
   display: grid;
   grid-template-columns: 27px minmax(0, 1fr);
@@ -1775,6 +1854,16 @@ form.single-upload {
 
 .title-workflow-nav a.pending {
   box-shadow: inset 0 -3px 0 #d4d8dc;
+}
+
+.title-workflow-nav a.attention {
+  box-shadow: inset 0 -3px 0 #d99a16;
+}
+
+.title-workflow-nav a.attention > span {
+  border-color: #d99a16;
+  background: #fff7df;
+  color: #8a5a00;
 }
 
 .title-workflow-nav strong {

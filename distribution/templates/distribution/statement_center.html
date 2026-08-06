@@ -11,13 +11,13 @@
 <body>
 {% include "distribution/_app_header.html" %}
 <main>
+  {% include "distribution/_title_workspace.html" %}
   <div class="page-heading">
     <div>
       <h1>Statement Center</h1>
       <div class="muted">Centrum pracy nad royalty statements: PDF, statusy, płatności i eksport</div>
     </div>
     <div class="action-bar">
-      <a class="button" href="/admin/distribution/royaltystatement/add/">Dodaj statement</a>
       <a class="button export" href="?status={{ filters.status }}&title={{ filters.title_id }}&recipient={{ filters.recipient_id }}&date_from={{ filters.date_from }}&date_to={{ filters.date_to }}&export=xlsx">Eksport XLSX</a>
     </div>
   </div>
@@ -95,7 +95,7 @@
             <label class="visually-hidden" for="target-status">Nowy status zaznaczonych statementów</label>
             <select id="target-status" name="target_status">
               <option value="">Zmień status na…</option>
-              {% for value,label in statement_statuses %}
+              {% for value,label in changeable_statement_statuses %}
               <option value="{{ value }}">{{ label }}</option>
               {% endfor %}
             </select>
@@ -126,7 +126,7 @@
                 <strong>{{ statement.title.title_pl }}</strong>
                 <span class="statement-row-links">
                   {% if statement.statement_file %}<a href="{{ statement.statement_file.url }}">PDF</a>{% endif %}
-                  <a href="/admin/distribution/royaltystatement/{{ statement.id }}/change/">Edytuj</a>
+                  <a href="{% url 'distribution:statement_detail' statement.id %}">Otwórz</a>
                 </span>
               </td>
               <td>{{ statement.recipient.name }}</td>
